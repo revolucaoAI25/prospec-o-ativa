@@ -12,16 +12,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Carrega segredos do Streamlit Cloud (se estiver hospedado lá) ───────────
-def _carregar_segredos():
-    for chave in ["GOOGLE_MAPS_API_KEY", "BRASILIO_TOKEN"]:
-        try:
-            if chave in st.secrets and not os.getenv(chave):
-                os.environ[chave] = st.secrets[chave]
-        except Exception:
-            pass
 
-_carregar_segredos()
+def _get_secret(nome: str) -> str:
+    """
+    Lê uma chave de API buscando em duas fontes, nesta ordem:
+    1. Streamlit Secrets (Streamlit Cloud)
+    2. Variável de ambiente / arquivo .env (uso local)
+    """
+    try:
+        valor = st.secrets.get(nome, "")
+        if valor:
+            return str(valor).strip()
+    except Exception:
+        pass
+    return os.getenv(nome, "").strip()
 
 # ── Configuração da página ───────────────────────────────────────────────────
 st.set_page_config(
@@ -195,7 +199,7 @@ with st.sidebar:
 
     st.subheader("Status das chaves de API")
 
-    gmaps_ok = bool(os.getenv("GOOGLE_MAPS_API_KEY"))
+    gmaps_ok = bool(_get_secret("GOOGLE_MAPS_API_KEY"))
 
     if gmaps_ok:
         st.markdown('<span class="badge-ok">✓ Google Maps configurado</span>', unsafe_allow_html=True)
@@ -312,6 +316,7 @@ with aba_maps:
                         estado=estado.strip(),
                         termo_extra=termo,
                         limite=limite,
+                        api_key=_get_secret("GOOGLE_MAPS_API_KEY"),
                     )
                     st.session_state["maps_resultados"] = resultados
                     st.session_state["maps_prefixo"] = f"advocacia_{cidade.lower().replace(' ', '_')}"
