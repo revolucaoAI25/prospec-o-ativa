@@ -13,12 +13,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# ── Helpers de secrets ───────────────────────────────────────────────────────
 def _get_secret(nome: str) -> str:
-    """
-    Lê uma chave de API buscando em duas fontes, nesta ordem:
-    1. Streamlit Secrets (Streamlit Cloud)
-    2. Variável de ambiente / arquivo .env (uso local)
-    """
+    """Lê chave: primeiro Streamlit Secrets, depois .env / variável de ambiente."""
     try:
         valor = st.secrets.get(nome, "")
         if valor:
@@ -27,15 +24,15 @@ def _get_secret(nome: str) -> str:
         pass
     return os.getenv(nome, "").strip()
 
+
 # ── Configuração da página ───────────────────────────────────────────────────
 st.set_page_config(
     page_title="Prospec-o-Ativa",
-    page_icon="⚖️",
+    page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Estilos CSS ──────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .stat-box {
@@ -47,45 +44,35 @@ st.markdown("""
     }
     .stat-number { font-size: 2rem; font-weight: 700; color: #1F4E79; }
     .stat-label  { font-size: 0.85rem; color: #555; margin-top: 4px; }
-    .badge-ok    { background:#d4edda; color:#155724; padding:2px 8px; border-radius:12px; font-size:0.8rem; }
-    .badge-warn  { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:12px; font-size:0.8rem; }
-    .badge-err   { background:#f8d7da; color:#721c24; padding:2px 8px; border-radius:12px; font-size:0.8rem; }
+    .badge-ok    { background:#d4edda; color:#155724; padding:3px 10px; border-radius:12px; font-size:0.82rem; }
+    .badge-warn  { background:#fff3cd; color:#856404; padding:3px 10px; border-radius:12px; font-size:0.82rem; }
+    .badge-err   { background:#f8d7da; color:#721c24; padding:3px 10px; border-radius:12px; font-size:0.82rem; }
+    div[data-testid="stForm"] { border: 1px solid #dce3ea; border-radius: 10px; padding: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ── Helpers de exportação em memória ────────────────────────────────────────
-COLUNAS = [
-    ("nome",                    "Nome"),
-    ("telefone",                "Telefone"),
-    ("telefone2",               "Telefone 2"),
-    ("telefone_internacional",  "Telefone Intl."),
-    ("email",                   "E-mail"),
-    ("endereco",                "Endereço"),
-    ("municipio",               "Município"),
-    ("uf",                      "UF"),
-    ("cep",                     "CEP"),
-    ("site",                    "Site"),
-    ("maps_url",                "Google Maps"),
-    ("avaliacao",               "Avaliação"),
-    ("total_avaliacoes",        "Nº Avaliações"),
-    ("status_funcionamento",    "Status"),
-    ("cnpj",                    "CNPJ"),
-    ("porte",                   "Porte"),
-    ("data_abertura",           "Data Abertura"),
-    ("cidade_busca",            "Cidade Buscada"),
-    ("estado_busca",            "Estado Buscado"),
-    ("termo_busca",             "Especialidade"),
-    ("fonte",                   "Fonte"),
+from modules.google_sheets import COLUNAS_EXPORT as COLUNAS
+
+# Colunas extras que só existem em alguns resultados
+_COLUNAS_EXTRA = [
+    ("telefone2",             "Telefone 2"),
+    ("telefone_internacional","Telefone Intl."),
+    ("status_funcionamento",  "Status"),
+    ("porte",                 "Porte"),
+    ("data_abertura",         "Data Abertura"),
+    ("termo_busca",           "Termo Extra"),
 ]
+TODAS_COLUNAS = COLUNAS + [c for c in _COLUNAS_EXTRA if c not in COLUNAS]
 
 
 def para_csv_bytes(resultados: list[dict]) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow([label for _, label in COLUNAS])
+    w.writerow([label for _, label in TODAS_COLUNAS])
     for r in resultados:
-        w.writerow([r.get(col, "") for col, _ in COLUNAS])
+        w.writerow([r.get(col, "") for col, _ in TODAS_COLUNAS])
     return buf.getvalue().encode("utf-8-sig")
 
 
@@ -102,18 +89,18 @@ def para_excel_bytes(resultados: list[dict]) -> bytes:
     h_fill  = PatternFill("solid", fgColor="1F4E79")
     h_align = Alignment(horizontal="center", vertical="center")
 
-    cabecalho = [label for _, label in COLUNAS]
+    cabecalho = [label for _, label in TODAS_COLUNAS]
     for ci, label in enumerate(cabecalho, 1):
         cell = ws.cell(row=1, column=ci, value=label)
         cell.font, cell.fill, cell.alignment = h_font, h_fill, h_align
     ws.row_dimensions[1].height = 20
 
-    fill_par  = PatternFill("solid", fgColor="D6E4F0")
-    fill_impar= PatternFill("solid", fgColor="FFFFFF")
+    fill_par   = PatternFill("solid", fgColor="D6E4F0")
+    fill_impar = PatternFill("solid", fgColor="FFFFFF")
 
     for ri, r in enumerate(resultados, 2):
         fill = fill_par if ri % 2 == 0 else fill_impar
-        for ci, (col, _) in enumerate(COLUNAS, 1):
+        for ci, (col, _) in enumerate(TODAS_COLUNAS, 1):
             cell = ws.cell(row=ri, column=ci, value=r.get(col, ""))
             cell.fill = fill
             if col in ("site", "maps_url") and r.get(col):
@@ -133,31 +120,59 @@ def para_excel_bytes(resultados: list[dict]) -> bytes:
     return buf.getvalue()
 
 
-def _mostrar_botoes_download(resultados: list[dict], prefixo: str):
-    col1, col2 = st.columns(2)
+def _mostrar_botoes_download(resultados: list[dict], prefixo: str, sheets_ok: bool):
+    col1, col2, col3 = st.columns([2, 2, 2])
+    ts = int(time.time())
     with col1:
         st.download_button(
-            label="⬇️ Baixar Excel (.xlsx)",
+            "⬇️ Baixar Excel (.xlsx)",
             data=para_excel_bytes(resultados),
-            file_name=f"{prefixo}_{int(time.time())}.xlsx",
+            file_name=f"{prefixo}_{ts}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
     with col2:
         st.download_button(
-            label="⬇️ Baixar CSV",
+            "⬇️ Baixar CSV",
             data=para_csv_bytes(resultados),
-            file_name=f"{prefixo}_{int(time.time())}.csv",
+            file_name=f"{prefixo}_{ts}.csv",
             mime="text/csv",
             use_container_width=True,
         )
+    with col3:
+        if sheets_ok:
+            if st.button("📊 Exportar para Google Sheets", use_container_width=True, type="secondary"):
+                _exportar_sheets(resultados)
+        else:
+            st.button(
+                "📊 Google Sheets (não configurado)",
+                use_container_width=True,
+                disabled=True,
+                help="Configure GOOGLE_SERVICE_ACCOUNT e GOOGLE_SHEET_URL nos Secrets para ativar.",
+            )
+
+
+def _exportar_sheets(resultados: list[dict]):
+    from modules.google_sheets import exportar
+    sa_json   = _get_secret("GOOGLE_SERVICE_ACCOUNT")
+    sheet_url = st.session_state.get("sheets_url", _get_secret("GOOGLE_SHEET_URL"))
+    aba_nome  = st.session_state.get("sheets_aba", "Prospecção")
+    modo      = st.session_state.get("sheets_modo", "substituir")
+
+    with st.spinner("Exportando para Google Sheets..."):
+        sucesso, msg = exportar(resultados, sa_json, sheet_url, aba_nome, modo)
+
+    if sucesso:
+        st.success(msg)
+    else:
+        st.error(msg)
 
 
 def _mostrar_stats(resultados: list[dict]):
-    total         = len(resultados)
-    com_telefone  = sum(1 for r in resultados if r.get("telefone") or r.get("telefone2"))
-    com_site      = sum(1 for r in resultados if r.get("site"))
-    com_email     = sum(1 for r in resultados if r.get("email"))
+    total        = len(resultados)
+    com_telefone = sum(1 for r in resultados if r.get("telefone") or r.get("telefone2"))
+    com_site     = sum(1 for r in resultados if r.get("site"))
+    com_email    = sum(1 for r in resultados if r.get("email"))
 
     c1, c2, c3, c4 = st.columns(4)
     for col, num, label in [
@@ -167,75 +182,132 @@ def _mostrar_stats(resultados: list[dict]):
         (c4, com_email,    "Com e-mail"),
     ]:
         col.markdown(
-            f'<div class="stat-box">'
-            f'<div class="stat-number">{num}</div>'
-            f'<div class="stat-label">{label}</div>'
-            f'</div>',
+            f'<div class="stat-box"><div class="stat-number">{num}</div>'
+            f'<div class="stat-label">{label}</div></div>',
             unsafe_allow_html=True,
         )
     st.markdown("")
 
 
 def _mostrar_tabela(resultados: list[dict]):
-    colunas_visiveis = [
-        "nome", "telefone", "email", "municipio", "uf",
-        "endereco", "site", "avaliacao", "cnpj", "fonte",
-    ]
-    labels = {col: lbl for col, lbl in COLUNAS}
     import pandas as pd
+    cols_vis = ["nome", "telefone", "email", "municipio", "uf",
+                "endereco", "site", "avaliacao", "cnpj", "nicho_busca", "subnicho_busca", "fonte"]
+    labels = {col: lbl for col, lbl in TODAS_COLUNAS}
     df = pd.DataFrame(resultados)
-    cols_existentes = [c for c in colunas_visiveis if c in df.columns]
-    df_vis = df[cols_existentes].rename(columns=labels)
-    df_vis = df_vis.fillna("").astype(str).replace("nan", "")
-    st.dataframe(df_vis, use_container_width=True, height=400)
+    cols_ok = [c for c in cols_vis if c in df.columns]
+    df_vis = df[cols_ok].rename(columns=labels).fillna("").astype(str).replace("nan", "")
+    st.dataframe(df_vis, use_container_width=True, height=420)
 
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/scales--v1.png", width=64)
-    st.title("Prospec-o-Ativa")
-    st.caption("Escritórios de advocacia")
+    st.title("🎯 Prospec-o-Ativa")
+    st.caption("Prospecção ativa em qualquer nicho")
     st.divider()
 
-    st.subheader("Status das chaves de API")
+    # Status das integrações
+    gmaps_ok  = bool(_get_secret("GOOGLE_MAPS_API_KEY"))
+    sheets_sa = _get_secret("GOOGLE_SERVICE_ACCOUNT")
+    sheets_ok = bool(sheets_sa)
 
-    gmaps_ok = bool(_get_secret("GOOGLE_MAPS_API_KEY"))
+    st.subheader("Integrações")
 
     if gmaps_ok:
-        st.markdown('<span class="badge-ok">✓ Google Maps configurado</span>', unsafe_allow_html=True)
+        st.markdown('<span class="badge-ok">✓ Google Maps</span>', unsafe_allow_html=True)
     else:
-        st.markdown('<span class="badge-err">✗ Google Maps não configurado</span>', unsafe_allow_html=True)
+        st.markdown('<span class="badge-err">✗ Google Maps</span>', unsafe_allow_html=True)
 
     st.markdown("")
-    st.markdown('<span class="badge-ok">✓ Receita Federal — sem conta necessária</span>', unsafe_allow_html=True)
 
+    if sheets_ok:
+        st.markdown('<span class="badge-ok">✓ Google Sheets</span>', unsafe_allow_html=True)
+    else:
+        st.markdown('<span class="badge-warn">○ Google Sheets (opcional)</span>', unsafe_allow_html=True)
+
+    st.markdown("")
+    st.markdown('<span class="badge-ok">✓ Receita Federal</span>', unsafe_allow_html=True)
+
+    # Configuração do Google Sheets
     st.divider()
-    with st.expander("Como configurar a chave do Google Maps?"):
+    with st.expander("⚙️ Configurar Google Sheets"):
         st.markdown("""
-**Google Maps API** (para busca Maps):
-1. Acesse [console.cloud.google.com](https://console.cloud.google.com/)
-2. Crie um projeto > ative **Places API**
-3. Credenciais > Criar Chave de API
-4. Adicione em `.env` ou nos Secrets do Streamlit
+Configure a planilha que receberá os resultados automaticamente.
+""")
+        sheet_url_input = st.text_input(
+            "URL da planilha Google",
+            value=st.session_state.get("sheets_url", _get_secret("GOOGLE_SHEET_URL") or ""),
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+            key="sheets_url_input",
+        )
+        aba_input = st.text_input(
+            "Nome da aba",
+            value=st.session_state.get("sheets_aba", "Prospecção"),
+            key="sheets_aba_input",
+        )
+        modo_input = st.radio(
+            "Ao exportar",
+            ["substituir", "acrescentar"],
+            format_func=lambda x: "Substituir tudo" if x == "substituir" else "Acrescentar ao final",
+            key="sheets_modo_input",
+            horizontal=True,
+        )
+        if st.button("💾 Salvar configuração", use_container_width=True):
+            st.session_state["sheets_url"]  = sheet_url_input
+            st.session_state["sheets_aba"]  = aba_input
+            st.session_state["sheets_modo"] = modo_input
+            st.success("Configuração salva!")
 
-> O Google dá **US$ 200/mês grátis** (~5.000 buscas).
+        if sheets_ok and sheet_url_input:
+            if st.button("🔌 Testar conexão", use_container_width=True):
+                from modules.google_sheets import testar_conexao, obter_email_service_account
+                ok, msg = testar_conexao(sheets_sa, sheet_url_input)
+                if ok:
+                    st.success(msg)
+                    email_sa = obter_email_service_account(sheets_sa)
+                    if email_sa:
+                        st.caption(f"Service Account: `{email_sa}`")
+                else:
+                    st.error(msg)
 
-**Receita Federal**: não precisa de nenhuma conta.
-Os dados são públicos e baixados direto do governo.
+        with st.expander("Como configurar?"):
+            st.markdown("""
+**1. Service Account (uma vez):**
+- Google Cloud Console → seu projeto → IAM e Admin → Contas de Serviço
+- Crie uma conta → gere chave JSON
+- Cole o JSON inteiro em Secrets como `GOOGLE_SERVICE_ACCOUNT`
+
+**2. Compartilhe a planilha:**
+- Abra sua planilha Google
+- Compartilhe com o e-mail do Service Account (com permissão de **Editor**)
+
+**3. Cole a URL acima** e salve.
+
+> Gratuito para uso normal (Google Sheets API).
+""")
+
+    with st.expander("Como configurar Google Maps?"):
+        st.markdown("""
+1. [console.cloud.google.com](https://console.cloud.google.com/)
+2. Ative **Places API**
+3. Credenciais → Criar Chave de API
+4. Adicione em Secrets: `GOOGLE_MAPS_API_KEY`
+
+> Google dá **US$200/mês grátis** (~5.000 buscas).
 """)
 
 
 # ── Conteúdo principal ───────────────────────────────────────────────────────
-st.header("⚖️ Prospecção de Escritórios de Advocacia")
+st.header("🎯 Prospec-o-Ativa")
 st.markdown(
     "Monte bases de prospecção com **nome, telefone, e-mail, endereço e site** "
-    "de escritórios de advocacia. Exporte para Excel ou CSV com um clique."
+    "de qualquer nicho. Exporte para Excel, CSV ou diretamente para o Google Sheets."
 )
 st.divider()
 
-aba_maps, aba_cnpj = st.tabs([
-    "🗺️  Google Maps  (recomendado para telefones)",
-    "📋  CNPJ / Receita Federal  (dados oficiais em massa)",
+aba_maps, aba_rf = st.tabs([
+    "🗺️  Google Maps  (recomendado — tem telefone)",
+    "📋  Receita Federal  (dados oficiais em massa)",
 ])
 
 
@@ -243,194 +315,246 @@ aba_maps, aba_cnpj = st.tabs([
 # ABA 1 — Google Maps
 # ══════════════════════════════════════════════════════════════════════════════
 with aba_maps:
+    from modules.nichos import NICHOS, ESTADOS, NOMES_NICHOS, SIGLAS_ESTADOS
+
     if not gmaps_ok:
         st.warning(
-            "⚠️ Chave do Google Maps não configurada. "
-            "Siga as instruções na sidebar para ativar esta busca.",
+            "⚠️ Chave do Google Maps não configurada. Veja as instruções na sidebar.",
             icon="⚠️",
         )
 
-    st.markdown("""
-    Busca escritórios diretamente no Google Maps. É a fonte **mais confiável para telefones**.
-    Retorna até 60 resultados por busca (por limitação do Google).
-    """)
+    st.markdown(
+        "Busca direto no Google Maps. Melhor fonte para **telefones**. "
+        "Retorna até ~500 resultados usando múltiplas buscas automáticas."
+    )
 
     with st.form("form_maps"):
-        col1, col2, col3 = st.columns([3, 1, 2])
-        with col1:
-            cidade = st.text_input(
-                "Cidade *",
-                placeholder="Ex: São Paulo",
-                help="Nome da cidade que deseja prospectar",
-            )
-        with col2:
-            estado = st.text_input(
-                "Estado",
-                placeholder="SP",
-                max_chars=2,
-                help="Sigla do estado (opcional, mas recomendado)",
-            ).upper()
-        with col3:
-            especialidade = st.selectbox(
-                "Especialidade",
-                options=[
-                    "Todos (sem filtro)",
-                    "Trabalhista",
-                    "Tributário",
-                    "Família e Divórcio",
-                    "Criminal / Penal",
-                    "Imobiliário",
-                    "Previdenciário / INSS",
-                    "Empresarial / Societário",
-                    "Cível",
-                    "Ambiental",
-                ],
-                help="Filtra por área de atuação do escritório",
+
+        # ── Linha 1: Nicho + Subnicho ─────────────────────────────────────
+        col_nicho, col_sub = st.columns([2, 2])
+
+        with col_nicho:
+            nicho_sel = st.selectbox(
+                "Nicho *",
+                options=NOMES_NICHOS,
+                index=0,
+                help="Categoria do público-alvo. Campo obrigatório.",
             )
 
+        nicho_data    = NICHOS[nicho_sel]
+        is_customizado = nicho_sel == "Outro / Personalizado"
+        subnichos_disp = nicho_data["subnichos"]
+
+        with col_sub:
+            if is_customizado:
+                query_custom = st.text_input(
+                    "Termo de busca personalizado *",
+                    placeholder='Ex: "clínica veterinária", "pet shop"',
+                    help="Será usado diretamente na busca do Google Maps.",
+                )
+                subnicho_sel = ""
+            else:
+                opcoes_sub = ["Todos (sem filtro)"] + subnichos_disp + ["Personalizado..."]
+                subnicho_sel = st.selectbox(
+                    "Subnicho / Especialidade",
+                    options=opcoes_sub,
+                    help="Refina a busca por especialidade. Opcional.",
+                )
+
+        # Se subnicho for "Personalizado..." mostra campo de texto
+        subnicho_custom = ""
+        if not is_customizado and subnicho_sel == "Personalizado...":
+            subnicho_custom = st.text_input(
+                "Especialidade personalizada",
+                placeholder='Ex: "direito aeronáutico", "cardiologia pediátrica"',
+            )
+
+        # ── Linha 2: Localidade ───────────────────────────────────────────
+        st.markdown("**Localidade** — preencha ao menos uma das opções:")
+        col_cidade, col_estado = st.columns([3, 1])
+
+        with col_cidade:
+            cidade = st.text_input(
+                "Cidade",
+                placeholder="Ex: São Paulo",
+                help="Deixe em branco para buscar em todo o estado.",
+            )
+        with col_estado:
+            estado_idx = SIGLAS_ESTADOS.index("SP") if "SP" in SIGLAS_ESTADOS else 0
+            estado = st.selectbox(
+                "Estado",
+                options=["(nenhum)"] + SIGLAS_ESTADOS,
+                index=estado_idx + 1,
+                help="Selecione o estado. Pode usar só o estado, sem cidade.",
+            )
+            if estado == "(nenhum)":
+                estado = ""
+
+        # ── Limite ────────────────────────────────────────────────────────
         limite = st.slider(
             "Número máximo de resultados",
-            min_value=10, max_value=60, value=40, step=10,
-            help="O Google Maps retorna até 60 resultados por busca",
+            min_value=20, max_value=500, value=60, step=20,
+            help=(
+                "O Google Maps retorna até 60 por busca. Para mais resultados, "
+                "o sistema faz múltiplas buscas automáticas (gasta mais crédito da API)."
+            ),
         )
 
-        buscar_maps = st.form_submit_button(
+        buscar_btn = st.form_submit_button(
             "🔍 Buscar no Google Maps",
             disabled=not gmaps_ok,
             use_container_width=True,
             type="primary",
         )
 
-    if buscar_maps:
-        if not cidade.strip():
-            st.error("Informe o nome da cidade.")
+    # ── Execução da busca ─────────────────────────────────────────────────
+    if buscar_btn:
+        cidade_v = cidade.strip()
+        estado_v = estado.strip()
+
+        # Validações
+        if not cidade_v and not estado_v:
+            st.error("Informe ao menos a cidade ou o estado.")
+        elif is_customizado and not query_custom.strip():
+            st.error("Informe o termo de busca personalizado.")
         else:
-            from modules.google_maps import buscar_escritorios
+            from modules.google_maps import buscar
 
-            termo = "" if especialidade == "Todos (sem filtro)" else especialidade.lower()
+            # Monta query e subnicho finais
+            if is_customizado:
+                query_base    = query_custom.strip()
+                subnicho_final = ""
+                nicho_label   = query_custom.strip()
+            else:
+                query_base    = nicho_data["query"]
+                nicho_label   = nicho_sel
+                if subnicho_sel == "Personalizado...":
+                    subnicho_final = subnicho_custom.strip()
+                elif subnicho_sel == "Todos (sem filtro)":
+                    subnicho_final = ""
+                else:
+                    subnicho_final = subnicho_sel
 
-            status_text = st.empty()
-            barra_maps = st.progress(0, text="Iniciando busca...")
+            # Monta localidade
+            if cidade_v and estado_v:
+                localidade = f"{cidade_v}, {ESTADOS.get(estado_v, estado_v)}"
+            elif cidade_v:
+                localidade = cidade_v
+            else:
+                localidade = ESTADOS.get(estado_v, estado_v)
 
-            def atualizar_maps(atual, total, msg):
-                status_text.caption(msg)
+            prefixo = f"{nicho_label[:20].lower().replace(' ', '_')}_{localidade[:20].lower().replace(' ', '_').replace(',', '')}"
+
+            status_txt = st.empty()
+            barra = st.progress(0, text="Iniciando busca...")
+
+            def cb_maps(atual, total, msg):
+                status_txt.caption(msg)
                 if total and total > 0:
-                    barra_maps.progress(min(atual / total, 1.0), text=msg)
+                    barra.progress(min(atual / total, 1.0), text=msg)
 
             try:
-                resultados = buscar_escritorios(
-                    cidade=cidade.strip(),
-                    estado=estado.strip(),
-                    termo_extra=termo,
+                resultados = buscar(
+                    query_base=query_base,
+                    localidade=localidade,
                     limite=limite,
                     api_key=_get_secret("GOOGLE_MAPS_API_KEY"),
-                    progress_callback=atualizar_maps,
+                    nicho=nicho_label,
+                    subnicho=subnicho_final,
+                    cidade=cidade_v,
+                    estado=estado_v,
+                    progress_callback=cb_maps,
                 )
-                barra_maps.progress(1.0, text="Concluído!")
-                status_text.empty()
-                st.session_state["maps_resultados"] = resultados
-                st.session_state["maps_prefixo"] = f"advocacia_{cidade.lower().replace(' ', '_')}"
+                barra.progress(1.0, text="Concluído!")
+                status_txt.empty()
+                st.session_state["maps_res"]     = resultados
+                st.session_state["maps_prefixo"] = prefixo
             except ValueError as e:
-                barra_maps.empty()
-                status_text.empty()
+                barra.empty(); status_txt.empty()
                 st.error(str(e))
-                st.session_state["maps_resultados"] = []
+                st.session_state["maps_res"] = []
             except Exception as e:
-                barra_maps.empty()
-                status_text.empty()
+                barra.empty(); status_txt.empty()
                 st.error(f"Erro inesperado: {e}")
-                st.session_state["maps_resultados"] = []
+                st.session_state["maps_res"] = []
 
-    if "maps_resultados" in st.session_state and st.session_state["maps_resultados"]:
-        res = st.session_state["maps_resultados"]
-        st.success(f"✅ {len(res)} escritórios encontrados!")
+    if st.session_state.get("maps_res"):
+        res = st.session_state["maps_res"]
+        st.success(f"✅ {len(res)} resultados encontrados!")
         _mostrar_stats(res)
-        _mostrar_botoes_download(res, st.session_state.get("maps_prefixo", "prospecao_maps"))
+        _mostrar_botoes_download(res, st.session_state.get("maps_prefixo", "prospecao"), sheets_ok)
         st.markdown("#### Prévia dos resultados")
         _mostrar_tabela(res)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ABA 2 — Receita Federal (dados abertos, sem conta)
+# ABA 2 — Receita Federal
 # ══════════════════════════════════════════════════════════════════════════════
-with aba_cnpj:
+with aba_rf:
     st.markdown("""
-    Busca nos **dados abertos oficiais da Receita Federal** — sem precisar de
-    conta em nenhum serviço. Os arquivos são baixados direto do governo e
-    filtrados localmente. Ideal para **volumes maiores** e quando você precisa
-    do CNPJ, e-mail e dados cadastrais completos.
+    Busca nos **dados abertos da Receita Federal** — sem conta, sem custo.
+    Ideal para volumes maiores e quando precisa do CNPJ e e-mail.
     """)
-
     st.info(
-        "**Primeiro uso:** o sistema baixa os arquivos da Receita Federal (~350 MB por lote). "
-        "Isso leva alguns minutos mas acontece só uma vez — depois fica em cache por 30 dias.",
+        "**Primeiro uso:** baixa os arquivos da RF (~350 MB por lote). "
+        "Acontece uma vez — fica em cache por 30 dias.",
         icon="ℹ️",
     )
 
-    with st.form("form_cnpj"):
+    with st.form("form_rf"):
         col1, col2 = st.columns(2)
         with col1:
-            municipio = st.text_input(
+            municipio_rf = st.text_input(
                 "Município (opcional)",
                 placeholder="Ex: São Paulo",
                 help="Deixe em branco para buscar em todo o estado.",
             )
         with col2:
-            uf_cnpj = st.selectbox(
+            uf_rf = st.selectbox(
                 "Estado *",
-                options=[
-                    "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA",
-                    "MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN",
-                    "RS","RO","RR","SC","SP","SE","TO",
-                ],
-                index=24,  # SP
-                help="Estado onde buscar",
+                options=SIGLAS_ESTADOS,
+                index=SIGLAS_ESTADOS.index("SP"),
             )
 
-        limite_cnpj = st.slider(
+        limite_rf = st.slider(
             "Número máximo de resultados",
             min_value=50, max_value=2000, value=300, step=50,
-            help="Sem limite real — todos os escritórios ativos do estado estão disponíveis",
         )
 
-        buscar_cnpj = st.form_submit_button(
+        buscar_rf_btn = st.form_submit_button(
             "🔍 Buscar na Receita Federal",
             use_container_width=True,
             type="primary",
         )
 
-    if buscar_cnpj:
+    if buscar_rf_btn:
         from modules.receita_federal import buscar_por_cnae_rf
 
-        local_label = municipio.strip() if municipio.strip() else uf_cnpj
+        local = municipio_rf.strip() if municipio_rf.strip() else uf_rf
+        barra_rf = st.progress(0, text="Iniciando...")
 
-        progresso_placeholder = st.empty()
-        barra = st.progress(0, text="Iniciando...")
+        def cb_rf(atual, total, msg):
+            if total and total > 0:
+                barra_rf.progress(min(atual / total, 1.0), text=msg)
 
-        def atualizar_progresso(atual, total, msg):
-            barra.progress(atual / total, text=msg)
+        try:
+            res_rf = buscar_por_cnae_rf(
+                uf=uf_rf,
+                municipio=municipio_rf.strip(),
+                limite=limite_rf,
+                callback_progresso=cb_rf,
+            )
+            barra_rf.progress(1.0, text="Concluído!")
+            st.session_state["rf_res"]     = res_rf
+            st.session_state["rf_prefixo"] = f"rf_{local.lower().replace(' ', '_')}"
+        except Exception as e:
+            st.error(f"Erro: {e}")
+            st.session_state["rf_res"] = []
 
-        with st.spinner(f"Buscando escritórios em {local_label} nos dados da Receita Federal..."):
-            try:
-                resultados_cnpj = buscar_por_cnae_rf(
-                    uf=uf_cnpj,
-                    municipio=municipio.strip(),
-                    limite=limite_cnpj,
-                    callback_progresso=atualizar_progresso,
-                )
-                barra.progress(1.0, text="Concluído!")
-                st.session_state["cnpj_resultados"] = resultados_cnpj
-                st.session_state["cnpj_prefixo"] = (
-                    f"advocacia_rf_{local_label.lower().replace(' ', '_')}"
-                )
-            except Exception as e:
-                st.error(f"Erro ao acessar dados da Receita Federal: {e}")
-                st.session_state["cnpj_resultados"] = []
-
-    if "cnpj_resultados" in st.session_state and st.session_state["cnpj_resultados"]:
-        res = st.session_state["cnpj_resultados"]
-        st.success(f"✅ {len(res)} escritórios encontrados!")
+    if st.session_state.get("rf_res"):
+        res = st.session_state["rf_res"]
+        st.success(f"✅ {len(res)} resultados encontrados!")
         _mostrar_stats(res)
-        _mostrar_botoes_download(res, st.session_state.get("cnpj_prefixo", "prospecao_rf"))
+        _mostrar_botoes_download(res, st.session_state.get("rf_prefixo", "prospecao_rf"), sheets_ok)
         st.markdown("#### Prévia dos resultados")
         _mostrar_tabela(res)
