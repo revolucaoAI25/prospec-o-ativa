@@ -1,150 +1,207 @@
 """
-Módulo de exportação para Google Sheets via Service Account.
+Módulo de integração com Google Sheets via OAuth2.
 
-Como configurar (uma única vez):
-  1. No Google Cloud Console, crie um Service Account no mesmo projeto da Maps API
-  2. Gere uma chave JSON para o Service Account
-  3. Copie o conteúdo JSON inteiro e cole em Streamlit Secrets como GOOGLE_SERVICE_ACCOUNT
-  4. Compartilhe sua planilha Google com o e-mail do Service Account (com permissão de editor)
-  5. Configure a URL da planilha e o nome da aba nas configurações do app
+O usuário autentica com a própria conta Google, escolhe a planilha
+desejada de uma lista e exporta sem precisar de Service Account.
 
-O Service Account funciona como um "robô" que escreve na sua planilha sem
-precisar de login interativo — ideal para automações.
+Configuração necessária (Streamlit Secrets):
+  GOOGLE_CLIENT_ID     = "..."
+  GOOGLE_CLIENT_SECRET = "..."
+  APP_URL              = "https://seu-app.streamlit.app"
+
+No Google Cloud Console:
+  1. Credenciais → Criar → ID do cliente OAuth 2.0 → Aplicativo da Web
+  2. Origens JavaScript autorizadas: adicionar a URL do app
+  3. URIs de redirecionamento autorizados: adicionar a URL do app
 """
 
 import json
 from typing import Optional
 
 try:
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from google_auth_oauthlib.flow import Flow
+    from googleapiclient.discovery import build
     import gspread
-    from google.oauth2.service_account import Credentials
-    _GSPREAD_OK = True
+    _OAUTH_OK = True
 except ImportError:
-    _GSPREAD_OK = False
+    _OAUTH_OK = False
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
+# Colunas exportadas para o Google Sheets
 COLUNAS_EXPORT = [
-    ("nome",                   "Nome"),
-    ("telefone",               "Telefone"),
-    ("telefone2",              "Telefone 2"),
-    ("email",                  "E-mail"),
-    ("endereco",               "Endereço"),
-    ("municipio",              "Município"),
-    ("uf",                     "UF"),
-    ("cep",                    "CEP"),
-    ("site",                   "Site"),
-    ("maps_url",               "Google Maps"),
-    ("avaliacao",              "Avaliação"),
-    ("total_avaliacoes",       "Nº Avaliações"),
-    ("cnpj",                   "CNPJ"),
-    ("nicho_busca",            "Nicho"),
-    ("subnicho_busca",         "Subnicho"),
-    ("cidade_busca",           "Cidade Buscada"),
-    ("estado_busca",           "Estado Buscado"),
-    ("fonte",                  "Fonte"),
+    ("nome",             "Nome"),
+    ("telefone",         "Telefone"),
+    ("telefone2",        "Telefone 2"),
+    ("email",            "E-mail"),
+    ("endereco",         "Endereço"),
+    ("municipio",        "Município"),
+    ("uf",               "UF"),
+    ("cep",              "CEP"),
+    ("site",             "Site"),
+    ("maps_url",         "Google Maps"),
+    ("avaliacao",        "Avaliação"),
+    ("total_avaliacoes", "Nº Avaliações"),
+    ("cnpj",             "CNPJ"),
+    ("nicho_busca",      "Nicho"),
+    ("subnicho_busca",   "Subnicho"),
+    ("cidade_busca",     "Cidade Buscada"),
+    ("estado_busca",     "Estado Buscado"),
+    ("fonte",            "Fonte"),
 ]
 
 
-def gspread_disponivel() -> bool:
-    return _GSPREAD_OK
+def oauth_disponivel() -> bool:
+    return _OAUTH_OK
 
 
-def _conectar(service_account_json: str) -> "gspread.Client":
-    if not _GSPREAD_OK:
-        raise ImportError("gspread não instalado. Execute: pip install gspread google-auth")
-    info = json.loads(service_account_json)
-    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-    return gspread.authorize(creds)
+def _criar_flow(client_id: str, client_secret: str, redirect_uri: str) -> "Flow":
+    config = {
+        "web": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [redirect_uri],
+        }
+    }
+    return Flow.from_client_config(config, scopes=SCOPES, redirect_uri=redirect_uri)
 
 
-def testar_conexao(service_account_json: str, sheet_url: str) -> tuple[bool, str]:
+def gerar_url_auth(client_id: str, client_secret: str, redirect_uri: str) -> str:
+    """Gera a URL de autorização para o usuário clicar."""
+    flow = _criar_flow(client_id, client_secret, redirect_uri)
+    url, _ = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+        include_granted_scopes="true",
+    )
+    return url
+
+
+def trocar_codigo(client_id: str, client_secret: str, redirect_uri: str, code: str) -> dict:
+    """Troca o código de autorização por credenciais e retorna como dict."""
+    flow = _criar_flow(client_id, client_secret, redirect_uri)
+    flow.fetch_token(code=code)
+    creds = flow.credentials
+    return {
+        "token":         creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_uri":     creds.token_uri,
+        "client_id":     creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes":        list(creds.scopes or []),
+    }
+
+
+def _creds_from_dict(d: dict) -> "Credentials":
+    creds = Credentials(
+        token=d["token"],
+        refresh_token=d.get("refresh_token"),
+        token_uri=d.get("token_uri", "https://oauth2.googleapis.com/token"),
+        client_id=d["client_id"],
+        client_secret=d["client_secret"],
+        scopes=d.get("scopes"),
+    )
+    # Renova token se expirado
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except Exception:
+            pass
+    return creds
+
+
+def listar_planilhas(creds_dict: dict) -> list[dict]:
     """
-    Testa se o Service Account consegue acessar a planilha.
-    Retorna (sucesso, mensagem).
+    Retorna lista de planilhas do usuário como [{"id": ..., "name": ...}].
     """
-    try:
-        client = _conectar(service_account_json)
-        sheet = client.open_by_url(sheet_url)
-        return True, f"✅ Conectado: '{sheet.title}'"
-    except json.JSONDecodeError:
-        return False, "❌ JSON do Service Account inválido. Verifique o conteúdo em Secrets."
-    except Exception as e:
-        msg = str(e)
-        if "PERMISSION_DENIED" in msg or "403" in msg:
-            return False, "❌ Sem permissão. Compartilhe a planilha com o e-mail do Service Account."
-        if "404" in msg or "not found" in msg.lower():
-            return False, "❌ Planilha não encontrada. Verifique a URL."
-        return False, f"❌ Erro: {msg}"
+    creds = _creds_from_dict(creds_dict)
+    service = build("drive", "v3", credentials=creds, cache_discovery=False)
+    result = service.files().list(
+        q="mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
+        pageSize=50,
+        fields="files(id, name)",
+        orderBy="modifiedTime desc",
+    ).execute()
+    return result.get("files", [])
+
+
+def listar_abas(creds_dict: dict, sheet_id: str) -> list[str]:
+    """Retorna nomes das abas de uma planilha."""
+    creds = _creds_from_dict(creds_dict)
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(sheet_id)
+    return [ws.title for ws in sh.worksheets()]
 
 
 def exportar(
     resultados: list[dict],
-    service_account_json: str,
-    sheet_url: str,
+    creds_dict: dict,
+    sheet_id: str,
     aba_nome: str = "Prospecção",
     modo: str = "substituir",
 ) -> tuple[bool, str]:
     """
-    Exporta resultados para o Google Sheets.
+    Exporta resultados para o Google Sheets usando credenciais OAuth.
 
     Parâmetros:
-        resultados          - Lista de dicts com os dados
-        service_account_json - JSON do Service Account (string)
-        sheet_url           - URL completa da planilha Google
-        aba_nome            - Nome da aba onde escrever
-        modo                - "substituir" (apaga e reescreve) ou "acrescentar"
-
-    Retorna (sucesso, mensagem).
+        resultados - lista de dicts com os dados
+        creds_dict - credenciais serializadas (de trocar_codigo)
+        sheet_id   - ID da planilha (extraído da URL)
+        aba_nome   - nome da aba onde escrever
+        modo       - "substituir" ou "acrescentar"
     """
     if not resultados:
         return False, "Nenhum resultado para exportar."
 
     try:
-        client = _conectar(service_account_json)
-        sheet = client.open_by_url(sheet_url)
+        creds = _creds_from_dict(creds_dict)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(sheet_id)
     except Exception as e:
-        return False, f"Erro ao conectar: {e}"
+        return False, f"Erro ao conectar com a planilha: {e}"
 
-    # Abre ou cria a aba
     try:
-        ws = sheet.worksheet(aba_nome)
+        ws = sh.worksheet(aba_nome)
     except Exception:
-        ws = sheet.add_worksheet(title=aba_nome, rows=len(resultados) + 10, cols=len(COLUNAS_EXPORT) + 2)
+        ws = sh.add_worksheet(title=aba_nome, rows=len(resultados) + 20, cols=len(COLUNAS_EXPORT) + 2)
 
-    cabecalho = [label for _, label in COLUNAS_EXPORT]
-    linhas_novas = [[str(r.get(col, "") or "") for col, _ in COLUNAS_EXPORT] for r in resultados]
+    cabecalho = [lbl for _, lbl in COLUNAS_EXPORT]
+    linhas = [[str(r.get(col, "") or "") for col, _ in COLUNAS_EXPORT] for r in resultados]
 
     try:
         if modo == "substituir":
             ws.clear()
-            ws.update([cabecalho] + linhas_novas)
-            # Formata cabeçalho em negrito
+            ws.update([cabecalho] + linhas)
             try:
-                ws.format("1:1", {"textFormat": {"bold": True}})
+                ws.format("1:1", {"textFormat": {"bold": True}, "backgroundColor": {"red": 0, "green": 0.85, "blue": 0.49}})
             except Exception:
                 pass
-        else:  # acrescentar
+        else:
             existentes = ws.get_all_values()
             if not existentes:
-                ws.update([cabecalho] + linhas_novas)
+                ws.update([cabecalho] + linhas)
             else:
-                ws.append_rows(linhas_novas)
+                ws.append_rows(linhas)
 
-        total = len(linhas_novas)
-        return True, f"✅ {total} registros exportados para '{aba_nome}' em '{sheet.title}'"
-
+        return True, f"✅ {len(linhas)} registros exportados para **{aba_nome}**"
     except Exception as e:
         return False, f"Erro ao escrever na planilha: {e}"
 
 
-def obter_email_service_account(service_account_json: str) -> Optional[str]:
-    """Extrai o e-mail do Service Account do JSON para exibir ao usuário."""
-    try:
-        info = json.loads(service_account_json)
-        return info.get("client_email", "")
-    except Exception:
-        return None
+def extrair_sheet_id(url_ou_id: str) -> Optional[str]:
+    """Extrai o ID de uma URL do Google Sheets ou retorna o próprio ID."""
+    if "spreadsheets/d/" in url_ou_id:
+        try:
+            return url_ou_id.split("spreadsheets/d/")[1].split("/")[0]
+        except Exception:
+            return None
+    if len(url_ou_id) > 20 and "/" not in url_ou_id:
+        return url_ou_id
+    return None
