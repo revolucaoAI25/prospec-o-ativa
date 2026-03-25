@@ -196,7 +196,6 @@ with st.sidebar:
     st.subheader("Status das chaves de API")
 
     gmaps_ok = bool(os.getenv("GOOGLE_MAPS_API_KEY"))
-    brasilio_ok = bool(os.getenv("BRASILIO_TOKEN"))
 
     if gmaps_ok:
         st.markdown('<span class="badge-ok">✓ Google Maps configurado</span>', unsafe_allow_html=True)
@@ -204,14 +203,10 @@ with st.sidebar:
         st.markdown('<span class="badge-err">✗ Google Maps não configurado</span>', unsafe_allow_html=True)
 
     st.markdown("")
-
-    if brasilio_ok:
-        st.markdown('<span class="badge-ok">✓ Brasil.io configurado</span>', unsafe_allow_html=True)
-    else:
-        st.markdown('<span class="badge-warn">⚠ Brasil.io não configurado</span>', unsafe_allow_html=True)
+    st.markdown('<span class="badge-ok">✓ Receita Federal — sem conta necessária</span>', unsafe_allow_html=True)
 
     st.divider()
-    with st.expander("Como configurar as chaves?"):
+    with st.expander("Como configurar a chave do Google Maps?"):
         st.markdown("""
 **Google Maps API** (para busca Maps):
 1. Acesse [console.cloud.google.com](https://console.cloud.google.com/)
@@ -219,13 +214,10 @@ with st.sidebar:
 3. Credenciais > Criar Chave de API
 4. Adicione em `.env` ou nos Secrets do Streamlit
 
-**Brasil.io** (para busca CNPJ):
-1. Crie conta grátis em [brasil.io](https://brasil.io/)
-2. Acesse: brasil.io/auth/tokens-api/
-3. Gere um token e adicione em `.env`
-
 > O Google dá **US$ 200/mês grátis** (~5.000 buscas).
-> Brasil.io é 100% gratuito.
+
+**Receita Federal**: não precisa de nenhuma conta.
+Os dados são públicos e baixados direto do governo.
 """)
 
 
@@ -340,31 +332,30 @@ with aba_maps:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ABA 2 — CNPJ / Receita Federal
+# ABA 2 — Receita Federal (dados abertos, sem conta)
 # ══════════════════════════════════════════════════════════════════════════════
 with aba_cnpj:
     st.markdown("""
-    Busca escritórios diretamente nos dados oficiais da **Receita Federal**,
-    via Brasil.io (espelho público gratuito). Ideal para **volumes maiores** e
-    quando você precisa do CNPJ, e-mail e dados cadastrais.
+    Busca nos **dados abertos oficiais da Receita Federal** — sem precisar de
+    conta em nenhum serviço. Os arquivos são baixados direto do governo e
+    filtrados localmente. Ideal para **volumes maiores** e quando você precisa
+    do CNPJ, e-mail e dados cadastrais completos.
     """)
 
-    if not brasilio_ok:
-        st.info(
-            "💡 Configure o token do Brasil.io para usar esta busca (gratuito). "
-            "Veja as instruções na sidebar.",
-            icon="ℹ️",
-        )
+    st.info(
+        "**Primeiro uso:** o sistema baixa os arquivos da Receita Federal (~350 MB por lote). "
+        "Isso leva alguns minutos mas acontece só uma vez — depois fica em cache por 30 dias.",
+        icon="ℹ️",
+    )
 
     with st.form("form_cnpj"):
         col1, col2 = st.columns(2)
         with col1:
             municipio = st.text_input(
-                "Município",
-                placeholder="Ex: SAO PAULO  (em maiúsculas, sem acento)",
-                help="Nome do município exatamente como na Receita Federal: em MAIÚSCULAS e sem acento. "
-                     "Deixe em branco para buscar em todo o estado.",
-            ).upper()
+                "Município (opcional)",
+                placeholder="Ex: São Paulo",
+                help="Deixe em branco para buscar em todo o estado.",
+            )
         with col2:
             uf_cnpj = st.selectbox(
                 "Estado *",
@@ -379,38 +370,48 @@ with aba_cnpj:
 
         limite_cnpj = st.slider(
             "Número máximo de resultados",
-            min_value=50, max_value=1000, value=200, step=50,
-            help="Diferente do Google Maps, aqui você pode buscar centenas de registros",
+            min_value=50, max_value=2000, value=300, step=50,
+            help="Sem limite real — todos os escritórios ativos do estado estão disponíveis",
         )
 
         buscar_cnpj = st.form_submit_button(
             "🔍 Buscar na Receita Federal",
-            disabled=not brasilio_ok,
             use_container_width=True,
             type="primary",
         )
 
     if buscar_cnpj:
-        from modules.cnpj import buscar_por_cnae
+        from modules.receita_federal import buscar_por_cnae_rf
 
-        local_label = municipio if municipio else uf_cnpj
-        with st.spinner(f"Buscando escritórios em {local_label} na base da Receita Federal..."):
+        local_label = municipio.strip() if municipio.strip() else uf_cnpj
+
+        progresso_placeholder = st.empty()
+        barra = st.progress(0, text="Iniciando...")
+
+        def atualizar_progresso(atual, total, msg):
+            barra.progress(atual / total, text=msg)
+
+        with st.spinner(f"Buscando escritórios em {local_label} nos dados da Receita Federal..."):
             try:
-                resultados_cnpj = buscar_por_cnae(
-                    municipio=municipio.strip(),
+                resultados_cnpj = buscar_por_cnae_rf(
                     uf=uf_cnpj,
+                    municipio=municipio.strip(),
                     limite=limite_cnpj,
+                    callback_progresso=atualizar_progresso,
                 )
+                barra.progress(1.0, text="Concluído!")
                 st.session_state["cnpj_resultados"] = resultados_cnpj
-                st.session_state["cnpj_prefixo"] = f"advocacia_cnpj_{local_label.lower().replace(' ', '_')}"
+                st.session_state["cnpj_prefixo"] = (
+                    f"advocacia_rf_{local_label.lower().replace(' ', '_')}"
+                )
             except Exception as e:
-                st.error(f"Erro: {e}")
+                st.error(f"Erro ao acessar dados da Receita Federal: {e}")
                 st.session_state["cnpj_resultados"] = []
 
     if "cnpj_resultados" in st.session_state and st.session_state["cnpj_resultados"]:
         res = st.session_state["cnpj_resultados"]
         st.success(f"✅ {len(res)} escritórios encontrados!")
         _mostrar_stats(res)
-        _mostrar_botoes_download(res, st.session_state.get("cnpj_prefixo", "prospecao_cnpj"))
+        _mostrar_botoes_download(res, st.session_state.get("cnpj_prefixo", "prospecao_rf"))
         st.markdown("#### Prévia dos resultados")
         _mostrar_tabela(res)

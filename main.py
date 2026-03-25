@@ -49,18 +49,22 @@ def cmd_maps(args):
 
 
 def cmd_cnpj(args):
-    """Busca via CNPJ/Brasil.io por CNAE de advocacia."""
-    from modules.cnpj import buscar_por_cnae
+    """Busca via dados abertos da Receita Federal (sem conta, sem autenticação)."""
+    from modules.receita_federal import buscar_por_cnae_rf
     from modules.export import exportar_csv, exportar_excel, mostrar_preview
 
-    resultados = buscar_por_cnae(
+    if not args.uf:
+        console.print("[red]Informe o estado com --uf (ex: --uf SP)[/red]")
+        return
+
+    resultados = buscar_por_cnae_rf(
+        uf=args.uf,
         municipio=args.municipio or "",
-        uf=args.uf or "",
         limite=args.limite,
     )
 
     if not resultados:
-        console.print("[yellow]Nenhum resultado. Verifique o token Brasil.io no .env[/yellow]")
+        console.print("[yellow]Nenhum resultado encontrado.[/yellow]")
         return
 
     mostrar_preview(resultados)
