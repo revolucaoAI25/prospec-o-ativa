@@ -1,0 +1,19 @@
+# Variáveis de ambiente (NUNCA subir para o Git)
+.env
+
+# Resultados gerados
+resultados/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Editores
+.vscode/
+.idea/
+*.swp
