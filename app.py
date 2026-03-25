@@ -309,23 +309,37 @@ with aba_maps:
 
             termo = "" if especialidade == "Todos (sem filtro)" else especialidade.lower()
 
-            with st.spinner(f"Buscando escritórios em {cidade}... pode levar 1-2 minutos."):
-                try:
-                    resultados = buscar_escritorios(
-                        cidade=cidade.strip(),
-                        estado=estado.strip(),
-                        termo_extra=termo,
-                        limite=limite,
-                        api_key=_get_secret("GOOGLE_MAPS_API_KEY"),
-                    )
-                    st.session_state["maps_resultados"] = resultados
-                    st.session_state["maps_prefixo"] = f"advocacia_{cidade.lower().replace(' ', '_')}"
-                except ValueError as e:
-                    st.error(str(e))
-                    st.session_state["maps_resultados"] = []
-                except Exception as e:
-                    st.error(f"Erro inesperado: {e}")
-                    st.session_state["maps_resultados"] = []
+            status_text = st.empty()
+            barra_maps = st.progress(0, text="Iniciando busca...")
+
+            def atualizar_maps(atual, total, msg):
+                status_text.caption(msg)
+                if total and total > 0:
+                    barra_maps.progress(min(atual / total, 1.0), text=msg)
+
+            try:
+                resultados = buscar_escritorios(
+                    cidade=cidade.strip(),
+                    estado=estado.strip(),
+                    termo_extra=termo,
+                    limite=limite,
+                    api_key=_get_secret("GOOGLE_MAPS_API_KEY"),
+                    progress_callback=atualizar_maps,
+                )
+                barra_maps.progress(1.0, text="Concluído!")
+                status_text.empty()
+                st.session_state["maps_resultados"] = resultados
+                st.session_state["maps_prefixo"] = f"advocacia_{cidade.lower().replace(' ', '_')}"
+            except ValueError as e:
+                barra_maps.empty()
+                status_text.empty()
+                st.error(str(e))
+                st.session_state["maps_resultados"] = []
+            except Exception as e:
+                barra_maps.empty()
+                status_text.empty()
+                st.error(f"Erro inesperado: {e}")
+                st.session_state["maps_resultados"] = []
 
     if "maps_resultados" in st.session_state and st.session_state["maps_resultados"]:
         res = st.session_state["maps_resultados"]

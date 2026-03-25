@@ -7,10 +7,14 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from rich.console import Console
-from rich.table import Table
-
-console = Console()
+try:
+    from rich.console import Console
+    from rich.table import Table
+    _console = Console()
+    _RICH = True
+except Exception:
+    _RICH = False
+    _console = None
 
 COLUNAS_PADRAO = [
     ("nome", "Nome"),
@@ -70,7 +74,7 @@ def exportar_csv(
             linha = [r.get(col, "") for col, _ in COLUNAS_PADRAO]
             writer.writerow(linha)
 
-    console.print(f"[bold green]✓ CSV salvo:[/bold green] {caminho}")
+    print(f"[bold green]✓ CSV salvo:[/bold green] {caminho}")
     return caminho
 
 
@@ -90,7 +94,7 @@ def exportar_excel(
         from openpyxl.styles import Font, PatternFill, Alignment
         from openpyxl.utils import get_column_letter
     except ImportError:
-        console.print("[red]openpyxl não instalado. Execute: pip install openpyxl[/red]")
+        print("[red]openpyxl não instalado. Execute: pip install openpyxl[/red]")
         return exportar_csv(resultados, cidade, None, diretorio)
 
     Path(diretorio).mkdir(parents=True, exist_ok=True)
@@ -142,31 +146,33 @@ def exportar_excel(
     ws.freeze_panes = "A2"
 
     wb.save(caminho)
-    console.print(f"[bold green]✓ Excel salvo:[/bold green] {caminho}")
+    print(f"[bold green]✓ Excel salvo:[/bold green] {caminho}")
     return caminho
 
 
 def mostrar_preview(resultados: list[dict], limite: int = 10) -> None:
     """Mostra uma prévia dos resultados no terminal."""
     if not resultados:
-        console.print("[yellow]Nenhum resultado para exibir.[/yellow]")
+        print("Nenhum resultado para exibir.")
         return
 
-    table = Table(title=f"Prévia — {len(resultados)} resultados", show_lines=True)
-    table.add_column("Nome", style="bold", max_width=35)
-    table.add_column("Telefone", style="cyan")
-    table.add_column("Cidade", style="green")
-    table.add_column("Site", style="dim", max_width=30)
-
-    for r in resultados[:limite]:
-        table.add_row(
-            r.get("nome", "—"),
-            r.get("telefone", "—") or r.get("telefone2", "—") or "—",
-            r.get("municipio", "") or r.get("cidade_busca", "—"),
-            r.get("site", "—") or "—",
-        )
-
-    if len(resultados) > limite:
-        table.caption = f"... e mais {len(resultados) - limite} resultados"
-
-    console.print(table)
+    if _RICH:
+        table = Table(title=f"Prévia — {len(resultados)} resultados", show_lines=True)
+        table.add_column("Nome", style="bold", max_width=35)
+        table.add_column("Telefone", style="cyan")
+        table.add_column("Cidade", style="green")
+        table.add_column("Site", style="dim", max_width=30)
+        for r in resultados[:limite]:
+            table.add_row(
+                r.get("nome", "—"),
+                r.get("telefone", "—") or r.get("telefone2", "—") or "—",
+                r.get("municipio", "") or r.get("cidade_busca", "—"),
+                r.get("site", "—") or "—",
+            )
+        if len(resultados) > limite:
+            table.caption = f"... e mais {len(resultados) - limite} resultados"
+        _console.print(table)
+    else:
+        print(f"\nPrévia — {len(resultados)} resultados:")
+        for r in resultados[:limite]:
+            print(f"  {r.get('nome','—')} | {r.get('telefone','—')} | {r.get('municipio','—')}")
