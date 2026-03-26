@@ -349,6 +349,7 @@ button[kind="primaryFormSubmit"]:hover {
 </style>""", unsafe_allow_html=True)
 
 from modules.google_sheets import COLUNAS_EXPORT
+from modules.auth import _COOKIE_NAME  # nome do cookie de sessão
 
 def _logo_html(size: int = 40) -> str:
     """Retorna HTML com a logo.
@@ -944,11 +945,35 @@ def main():
         )
         st.stop()
 
-    # ── Restaura sessão do cookie se não há sessão ativa ─────────────────────
-    # st.context.cookies lê o header HTTP Cookie sem nenhum componente React.
-    # Zero overhead — não causa render duplo nem lentidão.
+    # ── Restaura sessão do cookie (st.context.cookies — sem componente React) ─
     if "user" not in st.session_state:
         restaurar_sessao()
+
+    # ── CookieManager: renderizado SOMENTE quando há escrita/deleção pendente ─
+    # Durante navegação normal nenhuma flag estará ativa → nenhum componente
+    # renderizado → zero rerun extra → transições rápidas.
+    _pending_rt       = st.session_state.get("_pending_rt")
+    _do_logout_cookie = st.session_state.get("_do_logout_cookie")
+
+    if _pending_rt or _do_logout_cookie:
+        try:
+            import extra_streamlit_components as stx
+            from datetime import datetime, timedelta
+            _cm = stx.CookieManager(key="__le_cm")
+            if _pending_rt:
+                _cm.set(_COOKIE_NAME, _pending_rt,
+                        expires_at=datetime.now() + timedelta(days=30))
+                st.session_state["_cookie_set"] = _pending_rt
+                st.session_state.pop("_pending_rt", None)
+            elif _do_logout_cookie:
+                try:
+                    _cm.delete(_COOKIE_NAME)
+                except Exception:
+                    pass
+                st.session_state.pop("_do_logout_cookie", None)
+        except Exception:
+            st.session_state.pop("_pending_rt", None)
+            st.session_state.pop("_do_logout_cookie", None)
 
     user = usuario_logado()
 

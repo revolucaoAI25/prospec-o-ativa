@@ -55,62 +55,45 @@ def _admin_client() -> Optional["Client"]:
 # ── Autenticação ──────────────────────────────────────────────────────────────
 
 # ── Persistência de sessão via cookie ────────────────────────────────────────
-# Leitura: st.context.cookies — zero overhead, nativo do Streamlit >= 1.37
-# Escrita: st.components.v1.html com JS mínimo — só no login/logout, nunca
-#          durante navegação normal. Sem CookieManager React (era a causa da lentidão).
+# LEITURA : st.context.cookies — nativo Streamlit ≥1.37, zero componente,
+#            zero rerun extra. Lê o cookie do header HTTP da requisição inicial.
+# ESCRITA : extra-streamlit-components CookieManager — provadamente funciona.
+#            MAS é renderizado SOMENTE quando há algo para escrever/apagar
+#            (login / logout / renovação pós-restore). Durante navegação normal
+#            o CookieManager NUNCA é renderizado → transições rápidas.
+#
+# Mecanismo: salvar_sessao_cookie() apenas seta um flag "_pending_rt" em
+# session_state. O main() de app.py lê esse flag e renderiza o CookieManager
+# uma única vez para efetivar a escrita.
 
 _COOKIE_NAME = "le_rt"
 
 
-def _js_set_cookie(value: str, max_age: int) -> str:
-    safe = value.replace('"', '').replace("'", '').replace(';', '').replace('\n', '')
-    return (
-        f'<script>(function(){{'
-        f'var c="{safe}";var m={max_age};'
-        f'var e=new Date();e.setTime(e.getTime()+m*1000);'
-        f'var s="{_COOKIE_NAME}="+c+";expires="+e.toUTCString()+";path=/;SameSite=Lax";'
-        f'try{{window.parent.document.cookie=s;}}catch(x){{}}'
-        f'try{{document.cookie=s;}}catch(x){{}}'
-        f'}})();</script>'
-    )
-
-
 def salvar_sessao_cookie(refresh_token: str):
-    """Salva o refresh token em cookie via JS (30 dias). Só injeta JS uma vez por token."""
-    if not refresh_token:
-        return
-    if st.session_state.get("_cookie_set") == refresh_token:
-        return
-    try:
-        import streamlit.components.v1 as components
-        components.html(_js_set_cookie(refresh_token, 30 * 24 * 3600), height=0)
-        st.session_state["_cookie_set"] = refresh_token
-    except Exception:
-        pass
+    """Marca o refresh token como pendente de escrita no cookie.
+    A escrita real ocorre em main() via CookieManager (uma vez)."""
+    if refresh_token and st.session_state.get("_cookie_set") != refresh_token:
+        st.session_state["_pending_rt"] = refresh_token
 
 
 def limpar_cookie():
-    """Apaga o cookie de sessão via JS."""
-    try:
-        import streamlit.components.v1 as components
-        components.html(_js_set_cookie("", 0), height=0)
-        st.session_state.pop("_cookie_set", None)
-    except Exception:
-        pass
+    """Marca o cookie para deleção no próximo render de main()."""
+    st.session_state["_do_logout_cookie"] = True
+    st.session_state.pop("_pending_rt", None)
+    st.session_state.pop("_cookie_set", None)
 
 
 def restaurar_sessao() -> bool:
     """
-    Tenta restaurar sessão a partir do cookie le_rt.
-    Usa st.context.cookies (nativo, sem React, zero latência extra).
-    Retorna True se a sessão foi restaurada com sucesso.
+    Restaura sessão a partir do cookie le_rt via st.context.cookies.
+    Zero componente React, zero rerun extra — só uma chamada HTTP ao Supabase.
     """
     if "user" in st.session_state:
         return True
     try:
         rt = st.context.cookies.get(_COOKIE_NAME, "")
-    except AttributeError:
-        return False  # Streamlit < 1.37 — sem suporte nativo
+    except Exception:
+        return False
     if not rt:
         return False
     sb = _client()
@@ -137,6 +120,7 @@ def restaurar_sessao() -> bool:
             st.session_state["user_gmaps_key"] = dados["google_maps_api_key"]
         if dados.get("google_sheets_creds"):
             st.session_state["sheets_creds"] = dados["google_sheets_creds"]
+        # Renova cookie com novo token (write via CookieManager no próximo render)
         salvar_sessao_cookie(sess.refresh_token)
         return True
     except Exception:
