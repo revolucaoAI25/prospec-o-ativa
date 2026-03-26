@@ -193,7 +193,9 @@ def deletar_pesquisa(search_id: str) -> tuple[bool, str]:
 # ── Configurações do usuário ──────────────────────────────────────────────────
 
 def carregar_configuracoes() -> dict:
-    """Carrega configurações do usuário logado."""
+    """Carrega configurações do usuário logado. Resultado cacheado por sessão."""
+    if "_cfg_cache" in st.session_state:
+        return st.session_state["_cfg_cache"]
     sb = _client_autenticado()
     if not sb:
         return {}
@@ -206,13 +208,16 @@ def carregar_configuracoes() -> dict:
                   .eq("id", user_id)
                   .single()
                   .execute())
-        return resp.data or {}
+        result = resp.data or {}
+        st.session_state["_cfg_cache"] = result
+        return result
     except Exception:
         return {}
 
 
 def salvar_configuracoes(dados: dict) -> tuple[bool, str]:
     """Atualiza campos de configuração do usuário logado."""
+    st.session_state.pop("_cfg_cache", None)  # invalida cache ao salvar
     sb = _client_autenticado()
     if not sb:
         return False, "Banco não disponível."

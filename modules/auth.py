@@ -169,7 +169,7 @@ def logout(cm=None):
     limpar_cookie(cm)
     for k in ["user", "user_gmaps_key", "sheets_creds", "sheets_lista",
               "sheets_selected_id", "sheets_selected_name", "sheets_abas",
-              "maps_res", "rf_res", "page"]:
+              "maps_res", "rf_res", "page", "_cfg_cache", "_cm_ready"]:
         st.session_state.pop(k, None)
 
 
