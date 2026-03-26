@@ -133,6 +133,7 @@ def buscar(
     cidade: str = "",
     estado: str = "",
     progress_callback: Callable[[int, int, str], None] = None,
+    exclude_phones: set = None,
 ) -> list[dict]:
     """
     Busca estabelecimentos no Google Maps e retorna lista de dicts.
@@ -140,11 +141,13 @@ def buscar(
     Parâmetros:
         query_base        - Termo principal (ex: "escritório de advocacia")
         localidade        - Cidade e/ou estado (ex: "São Paulo, SP")
-        limite            - Máx de resultados (até ~500 com multi-query)
+        limite            - Máx de resultados únicos a retornar
         api_key           - Chave da Google Maps API
         nicho/subnicho    - Metadados para incluir nos resultados
         cidade/estado     - Metadados para incluir nos resultados
         progress_callback - função(atual, total, msg) para atualizar UI
+        exclude_phones    - Set de telefones já vistos; duplicatas são puladas e
+                            a busca continua até completar `limite` ou esgotar resultados
     """
     if api_key is None:
         api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
@@ -153,6 +156,8 @@ def buscar(
             "Chave da API do Google Maps não encontrada.\n"
             "Configure GOOGLE_MAPS_API_KEY no .env ou nos Secrets do Streamlit."
         )
+
+    exclude_phones = exclude_phones or set()
 
     def log(atual, total, msg):
         if progress_callback:
@@ -164,24 +169,38 @@ def buscar(
     if subnicho:
         query_completa = f"{query_base} {subnicho.lower()} em {localidade}"
 
+    # Se há deduplicação ativa, busca mais place_ids do que o limite pedido
+    # para compensar as que serão descartadas por serem duplicatas.
+    fetch_limit = limite if not exclude_phones else min(len(_MODIFICADORES) * 60, limite * 3)
+
     # ── Coleta place_ids ──────────────────────────────────────────────────────
     log(0, limite, f"Coletando resultados para: {query_completa}")
-    place_ids = _coletar_place_ids(query_completa, api_key, limite, log)
-    log(len(place_ids), limite, f"{len(place_ids)} lugares encontrados. Buscando detalhes...")
+    place_ids = _coletar_place_ids(query_completa, api_key, fetch_limit, log)
+    log(0, limite, f"{len(place_ids)} candidatos encontrados. Buscando detalhes...")
 
-    # ── Busca detalhes de cada lugar ──────────────────────────────────────────
+    # ── Busca detalhes, pulando duplicatas até completar a cota ───────────────
     resultados = []
-    total = len(place_ids)
+    pulados = 0
 
-    for i, pid in enumerate(place_ids):
+    for pid in place_ids:
+        if len(resultados) >= limite:
+            break
         try:
             det = _get_details(pid, api_key)
         except requests.HTTPError:
             continue
 
+        telefone = det.get("formatted_phone_number", "")
+        if exclude_phones and telefone and telefone in exclude_phones:
+            pulados += 1
+            log(len(resultados), limite,
+                f"Detalhes: {len(resultados)}/{limite} (pulados {pulados} repetidos)")
+            time.sleep(0.1)
+            continue
+
         resultados.append({
             "nome":                    det.get("name", ""),
-            "telefone":                det.get("formatted_phone_number", ""),
+            "telefone":                telefone,
             "telefone_internacional":  det.get("international_phone_number", ""),
             "endereco":                det.get("formatted_address", ""),
             "site":                    det.get("website", ""),
@@ -196,10 +215,11 @@ def buscar(
             "fonte":                   "Google Maps",
         })
 
-        log(i + 1, total, f"Detalhes: {i + 1}/{total}")
+        log(len(resultados), limite, f"Detalhes: {len(resultados)}/{limite}")
         time.sleep(0.1)
 
-    log(total, total, f"Concluído: {len(resultados)} resultados.")
+    sufixo = f" ({pulados} repetidos ignorados)" if pulados else ""
+    log(limite, limite, f"Concluído: {len(resultados)} resultados{sufixo}.")
     return resultados
 
 

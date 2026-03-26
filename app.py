@@ -227,6 +227,11 @@ def pagina_busca():
                 sub_final = "" if (is_custom or subnicho_sel=="Todos (sem filtro)") else (sub_custom.strip() if subnicho_sel=="✏️ Personalizado..." else subnicho_sel)
                 localidade = f"{cv}, {ESTADOS.get(ev,ev)}" if cv and ev else cv or ESTADOS.get(ev,ev)
                 slug = f"{nicho_lbl[:15]}_{localidade[:15]}".lower().replace(" ","_").replace(",","")
+                # Carrega identificadores já salvos antes de iniciar a busca
+                excl_tels_maps = set()
+                if apenas_novos_maps:
+                    from modules.database import buscar_identificadores_existentes
+                    excl_tels_maps, _ = buscar_identificadores_existentes()
                 prog = st.progress(0, text="Iniciando...")
                 def _cb(a, t, m):
                     v = min(a / t, 1.0) if t and t > 0 else 0
@@ -234,22 +239,10 @@ def pagina_busca():
                 try:
                     res = maps_buscar(query_base=qbase, localidade=localidade, limite=lim,
                                       api_key=gmaps_key, nicho=nicho_lbl, subnicho=sub_final,
-                                      cidade=cv, estado=ev, progress_callback=_cb)
+                                      cidade=cv, estado=ev, progress_callback=_cb,
+                                      exclude_phones=excl_tels_maps if apenas_novos_maps else None)
                     prog.progress(1.0, text=f"Concluído! {len(res)} resultados.")
                     prog.empty()
-                    # Deduplicação contra histórico do usuário
-                    if apenas_novos_maps and res:
-                        from modules.database import buscar_identificadores_existentes
-                        tels_usados, cnpjs_usados = buscar_identificadores_existentes()
-                        antes = len(res)
-                        res = [
-                            r for r in res
-                            if (not r.get("telefone") or r["telefone"] not in tels_usados)
-                            and (not r.get("cnpj") or r["cnpj"] not in cnpjs_usados)
-                        ]
-                        removidos = antes - len(res)
-                        if removidos:
-                            st.info(f"🔄 {removidos} lead(s) já encontrado(s) em buscas anteriores foram removidos. Exibindo **{len(res)}** novo(s).")
                     st.session_state["maps_res"] = res
                     st.session_state["maps_prefix"] = slug
                 except ValueError as e:
@@ -287,27 +280,24 @@ def pagina_busca():
         if btn_rf:
             from modules.receita_federal import buscar_por_cnae_rf
             local = mun_rf.strip() or uf_rf
+            # Carrega identificadores já salvos antes de iniciar a busca
+            excl_tels_rf, excl_cnpjs_rf = set(), set()
+            if apenas_novos_rf:
+                from modules.database import buscar_identificadores_existentes
+                excl_tels_rf, excl_cnpjs_rf = buscar_identificadores_existentes()
             bar = st.progress(0, text="Iniciando...")
             def _cbrf(a, t, m):
                 v = min(a / t, 1.0) if t and t > 0 else 0
                 bar.progress(v, text=str(m)[:120])
             try:
-                res_rf = buscar_por_cnae_rf(uf=uf_rf, municipio=mun_rf.strip(), limite=lim_rf, callback_progresso=_cbrf)
+                res_rf = buscar_por_cnae_rf(
+                    uf=uf_rf, municipio=mun_rf.strip(), limite=lim_rf,
+                    callback_progresso=_cbrf,
+                    exclude_phones=excl_tels_rf if apenas_novos_rf else None,
+                    exclude_cnpjs=excl_cnpjs_rf if apenas_novos_rf else None,
+                )
                 bar.progress(1.0, text=f"Concluído! {len(res_rf)} resultados.")
                 bar.empty()
-                # Deduplicação contra histórico do usuário
-                if apenas_novos_rf and res_rf:
-                    from modules.database import buscar_identificadores_existentes
-                    tels_usados, cnpjs_usados = buscar_identificadores_existentes()
-                    antes_rf = len(res_rf)
-                    res_rf = [
-                        r for r in res_rf
-                        if (not r.get("telefone") or r["telefone"] not in tels_usados)
-                        and (not r.get("cnpj") or r["cnpj"] not in cnpjs_usados)
-                    ]
-                    removidos_rf = antes_rf - len(res_rf)
-                    if removidos_rf:
-                        st.info(f"🔄 {removidos_rf} empresa(s) já encontrada(s) em buscas anteriores foram removidas. Exibindo **{len(res_rf)}** nova(s).")
                 st.session_state["rf_res"] = res_rf
                 st.session_state["rf_prefix"] = f"rf_{local.lower().replace(' ','_')}"
             except Exception as e:

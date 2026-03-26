@@ -184,24 +184,29 @@ def buscar_por_cnae_rf(
     cnae: str = CNAE_ADVOCACIA,
     limite: int = 500,
     callback_progresso: Callable[[int, int, str], None] = None,
+    exclude_phones: set = None,
+    exclude_cnpjs: set = None,
 ) -> list[dict]:
     """
-    Busca escritórios de advocacia nos dados abertos da Receita Federal.
+    Busca empresas nos dados abertos da Receita Federal.
 
     Parâmetros:
         uf                 - Sigla do estado (ex: "SP")
         municipio          - Nome do município (ex: "São Paulo") — opcional
         cnae               - Código CNAE (padrão: 6911701 = advocacia)
-        limite             - Número máximo de resultados
+        limite             - Número máximo de resultados únicos a retornar
         callback_progresso - função(atual, total, mensagem) para atualizar UI
-
-    Retorna lista de dicts com: nome, cnpj, telefone, email, endereço, etc.
+        exclude_phones     - Set de telefones já vistos; empresas com esses
+                             telefones são puladas e a busca continua
+        exclude_cnpjs      - Set de CNPJs já vistos; idem
 
     NOTA: O primeiro uso baixa os arquivos da RF (~350 MB por shard).
           Os resultados filtrados ficam em cache por 30 dias.
     """
     uf = uf.upper().strip()
     municipio = municipio.strip()
+    exclude_phones = exclude_phones or set()
+    exclude_cnpjs  = exclude_cnpjs  or set()
 
     def _cb(atual, total, msg):
         if callback_progresso:
@@ -222,6 +227,7 @@ def buscar_por_cnae_rf(
             _cb(0, 0, f"Município '{municipio}' não encontrado — buscando em todo {uf}.")
 
     todos = []
+    pulados = 0
 
     for i in range(NUM_SHARDS):
         if len(todos) >= limite:
@@ -239,11 +245,7 @@ def buscar_por_cnae_rf(
 
         def _dl_cb(pct, msg_dl, _shard=i):
             if callback_progresso:
-                callback_progresso(
-                    _shard + pct,
-                    NUM_SHARDS,
-                    msg_dl,
-                )
+                callback_progresso(_shard + pct, NUM_SHARDS, msg_dl)
 
         parcial = _baixar_e_filtrar_shard(
             shard=i,
@@ -252,12 +254,25 @@ def buscar_por_cnae_rf(
             municipio_cod=mun_cod,
             download_callback=_dl_cb if not em_cache else None,
         )
-        todos.extend(parcial)
-        _cb(i + 1, NUM_SHARDS, f"Shard {i+1}/{NUM_SHARDS} ✓ — {len(todos)} encontrados")
 
-    resultado_final = todos[:limite]
-    _cb(NUM_SHARDS, NUM_SHARDS, f"Concluído: {len(resultado_final)} escritórios.")
-    return resultado_final
+        # Filtra duplicatas registro a registro para continuar completando a cota
+        for r in parcial:
+            if len(todos) >= limite:
+                break
+            tel  = r.get("telefone", "")
+            cnpj = r.get("cnpj", "")
+            if (exclude_cnpjs and cnpj and cnpj in exclude_cnpjs) or \
+               (exclude_phones and tel and tel in exclude_phones):
+                pulados += 1
+                continue
+            todos.append(r)
+
+        sufixo = f" ({pulados} repetidos ignorados)" if pulados else ""
+        _cb(i + 1, NUM_SHARDS, f"Shard {i+1}/{NUM_SHARDS} ✓ — {len(todos)} encontrados{sufixo}")
+
+    sufixo_final = f" ({pulados} repetidos ignorados)" if pulados else ""
+    _cb(NUM_SHARDS, NUM_SHARDS, f"Concluído: {len(todos)} resultados{sufixo_final}.")
+    return todos
 
 
 def _fmt_tel(ddd: str, numero: str) -> str:
