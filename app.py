@@ -728,7 +728,7 @@ def pagina_configuracoes():
                 st.rerun()
         else:
             if new_cid and new_cs:
-                url = gerar_url_auth(new_cid, new_ru)
+                url = gerar_url_auth(new_cid, new_cs, new_ru)
                 st.link_button("🔗 Conectar conta Google", url, use_container_width=True)
             else:
                 st.info("Preencha o Client ID e Secret acima para conectar sua conta Google.", icon="ℹ️")
