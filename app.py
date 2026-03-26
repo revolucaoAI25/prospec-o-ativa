@@ -222,20 +222,30 @@ def pagina_busca():
                 sub_final = "" if (is_custom or subnicho_sel=="Todos (sem filtro)") else (sub_custom.strip() if subnicho_sel=="✏️ Personalizado..." else subnicho_sel)
                 localidade = f"{cv}, {ESTADOS.get(ev,ev)}" if cv and ev else cv or ESTADOS.get(ev,ev)
                 slug = f"{nicho_lbl[:15]}_{localidade[:15]}".lower().replace(" ","_").replace(",","")
-                prog = st.progress(0, text="Iniciando..."); cap = st.empty()
-                def _cb(a,t,m): cap.caption(m); prog.progress(min(a/t,1.0),text=m) if t and t>0 else None
+                prog = st.progress(0, text="Iniciando...")
+                def _cb(a, t, m):
+                    v = min(a / t, 1.0) if t and t > 0 else 0
+                    prog.progress(v, text=str(m)[:120])
                 try:
                     res = maps_buscar(query_base=qbase, localidade=localidade, limite=lim,
                                       api_key=gmaps_key, nicho=nicho_lbl, subnicho=sub_final,
                                       cidade=cv, estado=ev, progress_callback=_cb)
-                    prog.progress(1.0, text="Concluído!"); cap.empty()
-                    st.session_state["maps_res"] = res; st.session_state["maps_prefix"] = slug
-                    # Salva no banco
-                    from modules.database import salvar_pesquisa, salvar_leads
-                    sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade, "maps", len(res))
-                    if sid: salvar_leads(sid, res)
-                except ValueError as e: prog.empty(); cap.empty(); st.error(str(e)); st.session_state["maps_res"]=[]
-                except Exception as e: prog.empty(); cap.empty(); st.error(f"Erro: {e}"); st.session_state["maps_res"]=[]
+                    prog.progress(1.0, text=f"Concluído! {len(res)} resultados.")
+                    st.session_state["maps_res"] = res
+                    st.session_state["maps_prefix"] = slug
+                    prog.empty()
+                except ValueError as e:
+                    prog.empty(); st.error(str(e)); st.session_state["maps_res"] = []
+                except Exception as e:
+                    prog.empty(); st.error(f"Erro: {e}"); st.session_state["maps_res"] = []
+                else:
+                    # Salva no banco em background — não bloqueia exibição de resultados
+                    try:
+                        from modules.database import salvar_pesquisa, salvar_leads
+                        sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade, "maps", len(res))
+                        if sid: salvar_leads(sid, res)
+                    except Exception:
+                        pass  # falha no banco não apaga os resultados
 
         if st.session_state.get("maps_res"):
             res = st.session_state["maps_res"]
@@ -253,16 +263,26 @@ def pagina_busca():
             btn_rf=st.form_submit_button("🔍 Buscar na Receita Federal", use_container_width=True, type="primary")
         if btn_rf:
             from modules.receita_federal import buscar_por_cnae_rf
-            local=mun_rf.strip() or uf_rf; bar=st.progress(0,text="Iniciando...")
-            def _cbrf(a,t,m): bar.progress(min(a/t,1.0),text=m) if t and t>0 else None
+            local = mun_rf.strip() or uf_rf
+            bar = st.progress(0, text="Iniciando...")
+            def _cbrf(a, t, m):
+                v = min(a / t, 1.0) if t and t > 0 else 0
+                bar.progress(v, text=str(m)[:120])
             try:
-                res_rf=buscar_por_cnae_rf(uf=uf_rf,municipio=mun_rf.strip(),limite=lim_rf,callback_progresso=_cbrf)
-                bar.progress(1.0,text="Concluído!")
-                st.session_state["rf_res"]=res_rf; st.session_state["rf_prefix"]=f"rf_{local.lower().replace(' ','_')}"
-                from modules.database import salvar_pesquisa, salvar_leads
-                sid=salvar_pesquisa("Advocacia (RF)","",mun_rf.strip(),uf_rf,local,"receita_federal",len(res_rf))
-                if sid: salvar_leads(sid,res_rf)
-            except Exception as e: st.error(f"Erro: {e}"); st.session_state["rf_res"]=[]
+                res_rf = buscar_por_cnae_rf(uf=uf_rf, municipio=mun_rf.strip(), limite=lim_rf, callback_progresso=_cbrf)
+                bar.progress(1.0, text=f"Concluído! {len(res_rf)} resultados.")
+                st.session_state["rf_res"] = res_rf
+                st.session_state["rf_prefix"] = f"rf_{local.lower().replace(' ','_')}"
+                bar.empty()
+            except Exception as e:
+                bar.empty(); st.error(f"Erro: {e}"); st.session_state["rf_res"] = []
+            else:
+                try:
+                    from modules.database import salvar_pesquisa, salvar_leads
+                    sid = salvar_pesquisa("Advocacia (RF)", "", mun_rf.strip(), uf_rf, local, "receita_federal", len(res_rf))
+                    if sid: salvar_leads(sid, res_rf)
+                except Exception:
+                    pass
         if st.session_state.get("rf_res"):
             res=st.session_state["rf_res"]
             st.success(f"✅ **{len(res)}** resultados")
