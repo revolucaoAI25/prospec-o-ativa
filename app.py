@@ -101,34 +101,40 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 /* ── Buttons ──────────────────────────────────────────────── */
 [data-testid="stButton"] > button,
 [data-testid="stDownloadButton"] > button {
-  border-radius: 10px !important; font-weight: 600 !important;
-  font-size: 0.875rem !important; transition: all 0.2s ease !important;
-  letter-spacing: 0.01em !important;
+  border-radius: 8px !important; font-weight: 500 !important;
+  font-size: 0.845rem !important; transition: all 0.18s ease !important;
+  letter-spacing: 0.005em !important; padding: 7px 16px !important;
+  min-height: unset !important; height: auto !important;
 }
 [data-testid="stButton"] > button[kind="primary"],
 button[kind="primaryFormSubmit"] {
-  background: linear-gradient(135deg, #00D97E 0%, #00B56A 100%) !important;
-  color: #050A08 !important; border: none !important;
-  box-shadow: 0 4px 20px #00D97E35 !important;
+  background: #00C472 !important;
+  color: #030E06 !important; border: none !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 12px #00C47230 !important;
+  padding: 9px 20px !important;
 }
 [data-testid="stButton"] > button[kind="primary"]:hover,
 button[kind="primaryFormSubmit"]:hover {
-  box-shadow: 0 6px 28px #00D97E55 !important; transform: translateY(-1px) !important;
+  background: #00D97E !important;
+  box-shadow: 0 4px 20px #00D97E45 !important;
+  transform: translateY(-1px) !important;
 }
 [data-testid="stButton"] > button[kind="secondary"] {
-  background: #0E1220 !important; border: 1px solid #1A2235 !important;
-  color: #8A94B0 !important;
+  background: transparent !important; border: 1px solid #1C2438 !important;
+  color: #6878A0 !important;
 }
 [data-testid="stButton"] > button[kind="secondary"]:hover {
-  background: #121828 !important; border-color: #00D97E35 !important; color: #D0D8F0 !important;
+  background: #0D1220 !important; border-color: #283050 !important;
+  color: #C0C8DC !important;
 }
 [data-testid="stDownloadButton"] > button {
-  background: #0E1220 !important; border: 1px solid #1A2235 !important;
-  color: #8A94B0 !important;
+  background: transparent !important; border: 1px solid #1C2438 !important;
+  color: #6878A0 !important;
 }
 [data-testid="stDownloadButton"] > button:hover {
-  background: #0D1C14 !important; border-color: #00D97E50 !important;
-  color: #00D97E !important; box-shadow: 0 2px 12px #00D97E20 !important;
+  background: #0A1410 !important; border-color: #1A3C28 !important;
+  color: #00C472 !important;
 }
 
 /* ── Tabs ─────────────────────────────────────────────────── */
@@ -299,32 +305,40 @@ button[kind="primaryFormSubmit"]:hover {
 .b-warn{ background: #140E00; color: #FFB800; border: 1px solid #FFB80025; }
 .b-err { background: #140404; color: #FF4757; border: 1px solid #FF475725; }
 
-/* ── Login ────────────────────────────────────────────────── */
-.login-outer {
-  display: flex; align-items: center; justify-content: center;
-  min-height: 80vh; padding: 2rem 1rem;
+/* ── Login form override ──────────────────────────────────── */
+/* The login form is a single unified card: logo + title + fields */
+[data-testid="stForm"] { padding: 28px 28px 24px !important; }
+.login-head { text-align: center; padding: 2px 0 22px; }
+.login-title {
+  font-size: 1.3rem; font-weight: 700; color: #E0E6F5;
+  letter-spacing: -0.02em; margin-top: 14px;
 }
-.login-card {
-  background: linear-gradient(160deg, #0C0F1C 0%, #08090F 100%);
-  border: 1px solid #141828; border-radius: 24px;
-  padding: 48px 44px; width: 100%; max-width: 420px;
-  box-shadow: 0 32px 80px #00000070, 0 0 0 1px #00D97E08,
-              inset 0 1px 0 #FFFFFF06;
+.login-sub {
+  font-size: 0.66rem; color: #4A8C6A; font-weight: 600;
+  letter-spacing: 0.13em; text-transform: uppercase; margin-top: 3px;
 }
-.login-logo {
-  width: 54px; height: 54px;
-  background: linear-gradient(135deg, #00D97E, #00A85E);
-  border-radius: 15px; display: flex; align-items: center;
-  justify-content: center; font-weight: 800; color: #040A06;
-  font-size: 22px; box-shadow: 0 8px 32px #00D97E50;
-  margin: 0 auto 22px;
-}
-.login-title { font-size: 1.45rem; font-weight: 800; color: #E8EDF8; text-align: center; letter-spacing: -0.025em; }
-.login-sub   { font-size: 0.7rem; color: #00D97E; font-weight: 700; text-align: center; letter-spacing: 0.13em; text-transform: uppercase; margin-top: 5px; margin-bottom: 28px; }
 
 </style>""", unsafe_allow_html=True)
 
 from modules.google_sheets import COLUNAS_EXPORT
+
+def _logo_html(size: int = 40) -> str:
+    """Retorna HTML com a logo. Usa static/logo.png se existir, senão fallback SVG."""
+    from pathlib import Path
+    import base64
+    p = Path("static/logo.png")
+    if p.exists():
+        b64 = base64.b64encode(p.read_bytes()).decode()
+        r = size // 5
+        return (f'<img src="data:image/png;base64,{b64}" '
+                f'style="width:{size}px;height:{size}px;border-radius:{r}px;'
+                f'object-fit:cover;display:inline-block" />')
+    # Fallback: círculo verde com "R"
+    r = size // 4
+    fs = int(size * 0.38)
+    return (f'<div style="width:{size}px;height:{size}px;background:#00C472;'
+            f'border-radius:{r}px;display:inline-flex;align-items:center;'
+            f'justify-content:center;font-size:{fs}px;font-weight:800;color:#030E06">R</div>')
 _EXTRA=[("telefone_internacional","Telefone Intl."),("status_funcionamento","Status"),
         ("porte","Porte"),("data_abertura","Data Abertura")]
 ALL_COLS = COLUNAS_EXPORT + [c for c in _EXTRA if c not in COLUNAS_EXPORT]
@@ -399,18 +413,19 @@ def _export_sheets(rows):
 # ══════════════════════════════════════════════════════════════
 
 def pagina_login():
-    st.markdown('<div class="login-outer">', unsafe_allow_html=True)
-    col = st.columns([1, 2, 1])[1]
+    # Centralização vertical: espaçador + colunas
+    st.markdown("<div style='height:12vh'></div>", unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 2, 1])
     with col:
-        st.markdown(
-            '<div class="login-card">'
-            '<div class="login-logo">⚡</div>'
-            '<div class="login-title">Lead Extractor</div>'
-            '<div class="login-sub">Revolução AI</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
         with st.form("login"):
+            st.markdown(
+                f'<div class="login-head">'
+                f'{_logo_html(52)}'
+                f'<div class="login-title">Lead Extractor</div>'
+                f'<div class="login-sub">Revolução AI</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
             email = st.text_input("E-mail", placeholder="seu@email.com")
             senha = st.text_input("Senha", type="password", placeholder="••••••••")
             btn   = st.form_submit_button("Entrar", use_container_width=True, type="primary")
@@ -422,14 +437,13 @@ def pagina_login():
                 if not supabase_configurado():
                     st.error("Supabase não configurado. Verifique SUPABASE_URL e SUPABASE_ANON_KEY nos Secrets.")
                 else:
-                    with st.spinner("Autenticando..."):
-                        ok, msg = login(email, senha)
+                    with st.spinner(""):
+                        ok, msg = login(email, senha, cm=st.session_state.get("_cm"))
                     if ok:
                         st.session_state["page"] = "busca"
                         st.rerun()
                     else:
                         st.error(msg)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def pagina_busca():
@@ -839,13 +853,14 @@ def _sidebar():
         # ── Brand ──────────────────────────────────────────────
         user = st.session_state.get("user", {})
         role = user.get("role", "user")
+        logo = _logo_html(30)
         st.markdown(
-            '<div class="brand-header">'
-            '<div style="display:flex;align-items:center;gap:10px">'
-            '<div class="brand-dot">⚡</div>'
-            '<div><div class="brand-title">Lead Extractor</div>'
-            '<div class="brand-sub">Revolução AI</div></div>'
-            '</div></div>',
+            f'<div class="brand-header">'
+            f'<div style="display:flex;align-items:center;gap:10px">'
+            f'{logo}'
+            f'<div><div class="brand-title">Lead Extractor</div>'
+            f'<div class="brand-sub">Revolução AI</div></div>'
+            f'</div></div>',
             unsafe_allow_html=True,
         )
 
@@ -862,16 +877,15 @@ def _sidebar():
 
         st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
 
-        # ── Nav ─────────────────────────────────────────────────
+        # ── Nav — sem emojis, texto limpo ────────────────────────
         page = st.session_state.get("page", "busca")
-
         nav_items = [
-            ("busca",         "🔍  Busca"),
-            ("historico",     "📁  Histórico"),
-            ("configuracoes", "⚙️  Configurações"),
+            ("busca",         "Busca"),
+            ("historico",     "Histórico"),
+            ("configuracoes", "Configurações"),
         ]
         if eh_admin():
-            nav_items.append(("admin", "👑  Admin"))
+            nav_items.append(("admin", "Admin"))
 
         st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
         for key, label in nav_items:
@@ -885,14 +899,15 @@ def _sidebar():
         st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
         st.markdown('<hr style="border-color:#141828;margin:0 8px 12px">', unsafe_allow_html=True)
         st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
-        if st.button("🚪  Sair", use_container_width=True, key="nav_logout", type="secondary"):
-            logout()
+        cm = st.session_state.get("_cm")
+        if st.button("Sair", use_container_width=True, key="nav_logout", type="secondary"):
+            logout(cm)
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
 
 def main():
-    from modules.auth import usuario_logado, eh_admin, supabase_configurado
+    from modules.auth import usuario_logado, eh_admin, supabase_configurado, restaurar_sessao
 
     if not supabase_configurado():
         st.error(
@@ -902,6 +917,19 @@ def main():
             icon="🔒",
         )
         st.stop()
+
+    # ── CookieManager (deve renderizar em todo ciclo para funcionar) ───────────
+    cm = None
+    try:
+        import extra_streamlit_components as stx
+        cm = stx.CookieManager(key="__le_auth")
+        st.session_state["_cm"] = cm
+    except Exception:
+        pass
+
+    # ── Restaura sessão do cookie se não há sessão ativa ─────────────────────
+    if "user" not in st.session_state:
+        restaurar_sessao(cm)
 
     user = usuario_logado()
 

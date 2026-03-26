@@ -54,7 +54,73 @@ def _admin_client() -> Optional["Client"]:
 
 # ── Autenticação ──────────────────────────────────────────────────────────────
 
-def login(email: str, senha: str) -> tuple[bool, str]:
+# ── Persistência de sessão via cookie ────────────────────────────────────────
+
+def salvar_sessao_cookie(cm, refresh_token: str):
+    """Salva o refresh token em cookie do navegador (30 dias)."""
+    if not cm or not refresh_token:
+        return
+    try:
+        from datetime import datetime, timedelta
+        cm.set("le_rt", refresh_token, expires_at=datetime.now() + timedelta(days=30))
+    except Exception:
+        pass
+
+
+def limpar_cookie(cm):
+    """Remove o cookie de sessão no logout."""
+    if not cm:
+        return
+    try:
+        cm.delete("le_rt")
+    except Exception:
+        pass
+
+
+def restaurar_sessao(cm) -> bool:
+    """
+    Tenta restaurar sessão a partir do refresh token salvo em cookie.
+    Retorna True se a sessão foi restaurada com sucesso.
+    """
+    if "user" in st.session_state:
+        return True
+    if not cm:
+        return False
+    try:
+        rt = cm.get("le_rt")
+        if not rt:
+            return False
+        sb = _client()
+        if not sb:
+            return False
+        resp = sb.auth.refresh_session(rt)
+        if not resp or not resp.user or not resp.session:
+            return False
+        user = resp.user
+        sess = resp.session
+        perfil = sb.table("profiles").select(
+            "role, google_maps_api_key, google_sheets_creds"
+        ).eq("id", user.id).single().execute()
+        dados = perfil.data or {}
+        st.session_state["user"] = {
+            "id":            user.id,
+            "email":         user.email,
+            "role":          dados.get("role", "user"),
+            "access_token":  sess.access_token,
+            "refresh_token": sess.refresh_token,
+        }
+        if dados.get("google_maps_api_key"):
+            st.session_state["user_gmaps_key"] = dados["google_maps_api_key"]
+        if dados.get("google_sheets_creds"):
+            st.session_state["sheets_creds"] = dados["google_sheets_creds"]
+        # Renova o cookie com o novo refresh_token
+        salvar_sessao_cookie(cm, sess.refresh_token)
+        return True
+    except Exception:
+        return False
+
+
+def login(email: str, senha: str, cm=None) -> tuple[bool, str]:
     """
     Autentica o usuário com email e senha.
     Armazena dados na session_state em caso de sucesso.
@@ -86,6 +152,7 @@ def login(email: str, senha: str) -> tuple[bool, str]:
         if dados.get("google_sheets_creds"):
             st.session_state["sheets_creds"] = dados["google_sheets_creds"]
 
+        salvar_sessao_cookie(cm, sess.refresh_token)
         return True, "Login realizado com sucesso."
 
     except Exception as e:
@@ -97,8 +164,9 @@ def login(email: str, senha: str) -> tuple[bool, str]:
         return False, f"Erro ao autenticar: {msg}"
 
 
-def logout():
-    """Remove sessão do state."""
+def logout(cm=None):
+    """Remove sessão do state e apaga o cookie."""
+    limpar_cookie(cm)
     for k in ["user", "user_gmaps_key", "sheets_creds", "sheets_lista",
               "sheets_selected_id", "sheets_selected_name", "sheets_abas",
               "maps_res", "rf_res", "page"]:
