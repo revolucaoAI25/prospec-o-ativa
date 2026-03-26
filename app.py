@@ -444,7 +444,7 @@ def pagina_login():
                     st.error("Supabase não configurado. Verifique SUPABASE_URL e SUPABASE_ANON_KEY nos Secrets.")
                 else:
                     with st.spinner(""):
-                        ok, msg = login(email, senha, cm=st.session_state.get("_cm"))
+                        ok, msg = login(email, senha)
                     if ok:
                         st.session_state["page"] = "busca"
                         st.rerun()
@@ -905,9 +905,8 @@ def _sidebar():
         st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
         st.markdown('<hr style="border-color:#141828;margin:0 8px 12px">', unsafe_allow_html=True)
         st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
-        cm = st.session_state.get("_cm")
         if st.button("Sair", use_container_width=True, key="nav_logout", type="secondary"):
-            logout(cm)
+            logout()
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -924,24 +923,11 @@ def main():
         )
         st.stop()
 
-    # ── CookieManager (deve renderizar em todo ciclo para funcionar) ───────────
-    # O componente React é assíncrono: na 1ª execução os cookies ainda não
-    # estão disponíveis. Forçamos um rerun() UMA vez para deixar o JS carregar.
-    cm = None
-    try:
-        import extra_streamlit_components as stx
-        cm = stx.CookieManager(key="__le_auth")
-        st.session_state["_cm"] = cm
-    except Exception:
-        pass
-
     # ── Restaura sessão do cookie se não há sessão ativa ─────────────────────
+    # st.context.cookies lê o header HTTP Cookie sem nenhum componente React.
+    # Zero overhead — não causa render duplo nem lentidão.
     if "user" not in st.session_state:
-        if not st.session_state.get("_cm_ready"):
-            # Primeira vez sem usuário: aguarda 1 ciclo p/ o JS do CookieManager carregar
-            st.session_state["_cm_ready"] = True
-            st.rerun()
-        restaurar_sessao(cm)
+        restaurar_sessao()
 
     user = usuario_logado()
 

@@ -55,44 +55,68 @@ def _admin_client() -> Optional["Client"]:
 # ── Autenticação ──────────────────────────────────────────────────────────────
 
 # ── Persistência de sessão via cookie ────────────────────────────────────────
+# Leitura: st.context.cookies — zero overhead, nativo do Streamlit >= 1.37
+# Escrita: st.components.v1.html com JS mínimo — só no login/logout, nunca
+#          durante navegação normal. Sem CookieManager React (era a causa da lentidão).
 
-def salvar_sessao_cookie(cm, refresh_token: str):
-    """Salva o refresh token em cookie do navegador (30 dias)."""
-    if not cm or not refresh_token:
+_COOKIE_NAME = "le_rt"
+
+
+def _js_set_cookie(value: str, max_age: int) -> str:
+    safe = value.replace('"', '').replace("'", '').replace(';', '').replace('\n', '')
+    return (
+        f'<script>(function(){{'
+        f'var c="{safe}";var m={max_age};'
+        f'var e=new Date();e.setTime(e.getTime()+m*1000);'
+        f'var s="{_COOKIE_NAME}="+c+";expires="+e.toUTCString()+";path=/;SameSite=Strict";'
+        f'try{{window.parent.document.cookie=s;}}catch(x){{}}'
+        f'try{{document.cookie=s;}}catch(x){{}}'
+        f'}})();</script>'
+    )
+
+
+def salvar_sessao_cookie(refresh_token: str):
+    """Salva o refresh token em cookie via JS (30 dias). Só injeta JS uma vez por token."""
+    if not refresh_token:
+        return
+    if st.session_state.get("_cookie_set") == refresh_token:
         return
     try:
-        from datetime import datetime, timedelta
-        cm.set("le_rt", refresh_token, expires_at=datetime.now() + timedelta(days=30))
+        import streamlit.components.v1 as components
+        components.html(_js_set_cookie(refresh_token, 30 * 24 * 3600), height=0)
+        st.session_state["_cookie_set"] = refresh_token
     except Exception:
         pass
 
 
-def limpar_cookie(cm):
-    """Remove o cookie de sessão no logout."""
-    if not cm:
-        return
+def limpar_cookie():
+    """Apaga o cookie de sessão via JS."""
     try:
-        cm.delete("le_rt")
+        import streamlit.components.v1 as components
+        components.html(_js_set_cookie("", 0), height=0)
+        st.session_state.pop("_cookie_set", None)
     except Exception:
         pass
 
 
-def restaurar_sessao(cm) -> bool:
+def restaurar_sessao() -> bool:
     """
-    Tenta restaurar sessão a partir do refresh token salvo em cookie.
+    Tenta restaurar sessão a partir do cookie le_rt.
+    Usa st.context.cookies (nativo, sem React, zero latência extra).
     Retorna True se a sessão foi restaurada com sucesso.
     """
     if "user" in st.session_state:
         return True
-    if not cm:
+    try:
+        rt = st.context.cookies.get(_COOKIE_NAME, "")
+    except AttributeError:
+        return False  # Streamlit < 1.37 — sem suporte nativo
+    if not rt:
+        return False
+    sb = _client()
+    if not sb:
         return False
     try:
-        rt = cm.get("le_rt")
-        if not rt:
-            return False
-        sb = _client()
-        if not sb:
-            return False
         resp = sb.auth.refresh_session(rt)
         if not resp or not resp.user or not resp.session:
             return False
@@ -113,14 +137,13 @@ def restaurar_sessao(cm) -> bool:
             st.session_state["user_gmaps_key"] = dados["google_maps_api_key"]
         if dados.get("google_sheets_creds"):
             st.session_state["sheets_creds"] = dados["google_sheets_creds"]
-        # Renova o cookie com o novo refresh_token
-        salvar_sessao_cookie(cm, sess.refresh_token)
+        salvar_sessao_cookie(sess.refresh_token)
         return True
     except Exception:
         return False
 
 
-def login(email: str, senha: str, cm=None) -> tuple[bool, str]:
+def login(email: str, senha: str) -> tuple[bool, str]:
     """
     Autentica o usuário com email e senha.
     Armazena dados na session_state em caso de sucesso.
@@ -146,13 +169,12 @@ def login(email: str, senha: str, cm=None) -> tuple[bool, str]:
             "access_token":  sess.access_token,
             "refresh_token": sess.refresh_token,
         }
-        # Carrega credenciais salvas do usuário no session_state
         if dados.get("google_maps_api_key"):
             st.session_state["user_gmaps_key"] = dados["google_maps_api_key"]
         if dados.get("google_sheets_creds"):
             st.session_state["sheets_creds"] = dados["google_sheets_creds"]
 
-        salvar_sessao_cookie(cm, sess.refresh_token)
+        salvar_sessao_cookie(sess.refresh_token)
         return True, "Login realizado com sucesso."
 
     except Exception as e:
@@ -164,12 +186,12 @@ def login(email: str, senha: str, cm=None) -> tuple[bool, str]:
         return False, f"Erro ao autenticar: {msg}"
 
 
-def logout(cm=None):
+def logout():
     """Remove sessão do state e apaga o cookie."""
-    limpar_cookie(cm)
+    limpar_cookie()
     for k in ["user", "user_gmaps_key", "sheets_creds", "sheets_lista",
               "sheets_selected_id", "sheets_selected_name", "sheets_abas",
-              "maps_res", "rf_res", "page", "_cfg_cache", "_cm_ready"]:
+              "maps_res", "rf_res", "page", "_cfg_cache", "_cookie_set"]:
         st.session_state.pop(k, None)
 
 
