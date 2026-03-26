@@ -68,7 +68,7 @@ def _js_set_cookie(value: str, max_age: int) -> str:
         f'<script>(function(){{'
         f'var c="{safe}";var m={max_age};'
         f'var e=new Date();e.setTime(e.getTime()+m*1000);'
-        f'var s="{_COOKIE_NAME}="+c+";expires="+e.toUTCString()+";path=/;SameSite=Strict";'
+        f'var s="{_COOKIE_NAME}="+c+";expires="+e.toUTCString()+";path=/;SameSite=Lax";'
         f'try{{window.parent.document.cookie=s;}}catch(x){{}}'
         f'try{{document.cookie=s;}}catch(x){{}}'
         f'}})();</script>'

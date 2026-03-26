@@ -74,14 +74,31 @@ def _criar_flow(client_id: str, client_secret: str, redirect_uri: str) -> "Flow"
 
 
 def gerar_url_auth(client_id: str, client_secret: str, redirect_uri: str) -> str:
-    """Gera a URL de autorização para o usuário clicar."""
+    """Gera a URL de autorização. Codifica credenciais no state para sobreviver ao redirect."""
+    import base64, json
+    state = base64.urlsafe_b64encode(json.dumps({
+        "cid": client_id,
+        "cs":  client_secret,
+        "ru":  redirect_uri,
+    }).encode()).decode()
     flow = _criar_flow(client_id, client_secret, redirect_uri)
     url, _ = flow.authorization_url(
         access_type="offline",
         prompt="consent",
         include_granted_scopes="true",
+        state=state,
     )
     return url
+
+
+def extrair_credenciais_state(state: str) -> tuple[str, str, str]:
+    """Decodifica client_id, client_secret e redirect_uri do parâmetro state OAuth."""
+    import base64, json
+    try:
+        data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
+        return data.get("cid",""), data.get("cs",""), data.get("ru","")
+    except Exception:
+        return "", "", ""
 
 
 def trocar_codigo(client_id: str, client_secret: str, redirect_uri: str, code: str) -> dict:
