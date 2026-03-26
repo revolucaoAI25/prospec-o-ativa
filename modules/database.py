@@ -160,6 +160,24 @@ def buscar_leads_da_pesquisa(search_id: str) -> list[dict]:
         return []
 
 
+def buscar_identificadores_existentes() -> tuple[set, set]:
+    """
+    Retorna (set de telefones, set de CNPJs) já salvos pelo usuário.
+    Usado para deduplicação: filtra leads repetidos entre pesquisas.
+    Apenas valores não-vazios são incluídos nos sets.
+    """
+    sb = _client_autenticado()
+    if not sb:
+        return set(), set()
+    try:
+        resp = sb.table("leads").select("telefone, cnpj").execute()
+        telefones = {r["telefone"] for r in (resp.data or []) if r.get("telefone")}
+        cnpjs     = {r["cnpj"]     for r in (resp.data or []) if r.get("cnpj")}
+        return telefones, cnpjs
+    except Exception:
+        return set(), set()
+
+
 def deletar_pesquisa(search_id: str) -> tuple[bool, str]:
     """Deleta pesquisa e seus leads (cascade no banco)."""
     sb = _client_autenticado()

@@ -209,6 +209,11 @@ def pagina_busca():
             with cl:
                 lim = st.slider("Resultados", 20, 500, 60, 20, label_visibility="collapsed")
                 st.caption(f"Máx. **{lim}** resultados")
+            apenas_novos_maps = st.toggle(
+                "🔄 Apenas leads novos (remover repetidos de buscas anteriores)",
+                value=True,
+                help="Quando ativado, leads com mesmo telefone ou CNPJ de pesquisas anteriores são removidos dos resultados.",
+            )
             buscar_btn = st.form_submit_button("🔍 Buscar no Google Maps", disabled=not gmaps_ok, use_container_width=True, type="primary")
 
         if buscar_btn:
@@ -231,9 +236,22 @@ def pagina_busca():
                                       api_key=gmaps_key, nicho=nicho_lbl, subnicho=sub_final,
                                       cidade=cv, estado=ev, progress_callback=_cb)
                     prog.progress(1.0, text=f"Concluído! {len(res)} resultados.")
+                    prog.empty()
+                    # Deduplicação contra histórico do usuário
+                    if apenas_novos_maps and res:
+                        from modules.database import buscar_identificadores_existentes
+                        tels_usados, cnpjs_usados = buscar_identificadores_existentes()
+                        antes = len(res)
+                        res = [
+                            r for r in res
+                            if (not r.get("telefone") or r["telefone"] not in tels_usados)
+                            and (not r.get("cnpj") or r["cnpj"] not in cnpjs_usados)
+                        ]
+                        removidos = antes - len(res)
+                        if removidos:
+                            st.info(f"🔄 {removidos} lead(s) já encontrado(s) em buscas anteriores foram removidos. Exibindo **{len(res)}** novo(s).")
                     st.session_state["maps_res"] = res
                     st.session_state["maps_prefix"] = slug
-                    prog.empty()
                 except ValueError as e:
                     prog.empty(); st.error(str(e)); st.session_state["maps_res"] = []
                 except Exception as e:
@@ -260,6 +278,11 @@ def pagina_busca():
             with c1: mun_rf=st.text_input("Município (opcional)", placeholder="Ex: São Paulo", label_visibility="collapsed")
             with c2: uf_rf=st.selectbox("Estado *", SIGLAS_ESTADOS, index=SIGLAS_ESTADOS.index("SP"), label_visibility="collapsed")
             lim_rf=st.slider("Máx. resultados",50,2000,300,50)
+            apenas_novos_rf = st.toggle(
+                "🔄 Apenas leads novos (remover repetidos de buscas anteriores)",
+                value=True,
+                help="Quando ativado, empresas com mesmo CNPJ ou telefone de pesquisas anteriores são removidas.",
+            )
             btn_rf=st.form_submit_button("🔍 Buscar na Receita Federal", use_container_width=True, type="primary")
         if btn_rf:
             from modules.receita_federal import buscar_por_cnae_rf
@@ -271,9 +294,22 @@ def pagina_busca():
             try:
                 res_rf = buscar_por_cnae_rf(uf=uf_rf, municipio=mun_rf.strip(), limite=lim_rf, callback_progresso=_cbrf)
                 bar.progress(1.0, text=f"Concluído! {len(res_rf)} resultados.")
+                bar.empty()
+                # Deduplicação contra histórico do usuário
+                if apenas_novos_rf and res_rf:
+                    from modules.database import buscar_identificadores_existentes
+                    tels_usados, cnpjs_usados = buscar_identificadores_existentes()
+                    antes_rf = len(res_rf)
+                    res_rf = [
+                        r for r in res_rf
+                        if (not r.get("telefone") or r["telefone"] not in tels_usados)
+                        and (not r.get("cnpj") or r["cnpj"] not in cnpjs_usados)
+                    ]
+                    removidos_rf = antes_rf - len(res_rf)
+                    if removidos_rf:
+                        st.info(f"🔄 {removidos_rf} empresa(s) já encontrada(s) em buscas anteriores foram removidas. Exibindo **{len(res_rf)}** nova(s).")
                 st.session_state["rf_res"] = res_rf
                 st.session_state["rf_prefix"] = f"rf_{local.lower().replace(' ','_')}"
-                bar.empty()
             except Exception as e:
                 bar.empty(); st.error(f"Erro: {e}"); st.session_state["rf_res"] = []
             else:
