@@ -14,13 +14,31 @@ def _s(k, d=""):
 # ── OAuth callback ────────────────────────────────────────────
 _code = st.query_params.get("code","")
 if _code and "sheets_creds" not in st.session_state:
-    cid, cs, ru = _s("GOOGLE_CLIENT_ID"), _s("GOOGLE_CLIENT_SECRET"), _s("APP_URL","http://localhost:8501")
+    # O Google redireciona com ?code= numa página nova (session_state zerada).
+    # Precisamos restaurar a sessão do cookie ANTES de ler as credenciais do Supabase.
+    if "user" not in st.session_state:
+        from modules.auth import restaurar_sessao
+        restaurar_sessao()
+
+    # Credenciais vêm do Supabase (onde o usuário as salvou), com fallback para env/Secrets
+    from modules.database import carregar_configuracoes
+    _cfg_oauth = carregar_configuracoes()
+    cid = _cfg_oauth.get("google_client_id","") or _s("GOOGLE_CLIENT_ID")
+    cs  = _cfg_oauth.get("google_client_secret","") or _s("GOOGLE_CLIENT_SECRET")
+    ru  = _cfg_oauth.get("app_url","") or _s("APP_URL","http://localhost:8501")
+
     if cid and cs:
         try:
             from modules.google_sheets import trocar_codigo
-            st.session_state["sheets_creds"] = trocar_codigo(cid, cs, ru, _code)
+            creds = trocar_codigo(cid, cs, ru, _code)
+            st.session_state["sheets_creds"] = creds
+            # Persiste no Supabase para não perder ao recarregar
+            from modules.database import salvar_configuracoes
+            salvar_configuracoes({"google_sheets_creds": creds})
         except Exception as e:
             st.session_state["_oauth_err"] = str(e)
+    else:
+        st.session_state["_oauth_err"] = "Client ID ou Secret não encontrados. Verifique as Configurações."
     st.query_params.clear()
     st.rerun()
 
