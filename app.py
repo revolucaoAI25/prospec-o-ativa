@@ -1,4 +1,4 @@
-"""Prospec-o-Ativa · Revolução AI"""
+"""Lead Extractor · Revolução AI"""
 import os, io, csv, time, json
 import streamlit as st
 from dotenv import load_dotenv
@@ -24,41 +24,304 @@ if _code and "sheets_creds" not in st.session_state:
     st.query_params.clear()
     st.rerun()
 
-st.set_page_config(page_title="Prospec-o-Ativa · Revolução AI", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Lead Extractor · Revolução AI", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # ── CSS ───────────────────────────────────────────────────────
 st.markdown("""<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-html,body,[class*="css"]{font-family:'Inter',sans-serif}
-.brand-header{background:linear-gradient(135deg,#0D1F15,#0A0A0F 60%,#061A10);
-  border-bottom:1px solid #00D97E30;padding:16px 28px 12px;
-  margin:-1rem -1rem 1.5rem;display:flex;align-items:center;gap:12px}
-.brand-dot{width:34px;height:34px;background:#00D97E;border-radius:9px;
-  display:flex;align-items:center;justify-content:center;
-  font-weight:700;color:#0A0A0F;font-size:17px;flex-shrink:0}
-.brand-title{font-size:1.2rem;font-weight:700;color:#F0F0F5;line-height:1.2}
-.brand-sub{font-size:.72rem;color:#00D97E;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
-.stat-card{background:#141418;border:1px solid #1E1E28;border-radius:12px;
-  padding:16px 18px;text-align:center;position:relative;overflow:hidden}
-.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;
-  background:linear-gradient(90deg,#00D97E,#00A85E)}
-.stat-num{font-size:2rem;font-weight:700;color:#00D97E;line-height:1}
-.stat-lbl{font-size:.75rem;color:#8888A0;margin-top:5px;text-transform:uppercase;letter-spacing:.06em}
-.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;
-  border-radius:20px;font-size:.78rem;font-weight:500}
-.b-ok{background:#052e16;color:#00D97E;border:1px solid #00D97E40}
-.b-warn{background:#2d1b00;color:#FFB800;border:1px solid #FFB80040}
-.b-err{background:#2d0a0a;color:#FF4757;border:1px solid #FF475740}
-.sec{font-size:.68rem;font-weight:600;color:#00D97E;text-transform:uppercase;
-  letter-spacing:.12em;margin:1rem 0 .4rem}
-.hr{border:none;border-top:1px solid #1E1E28;margin:.8rem 0}
-div[data-testid="stForm"]{background:#141418;border:1px solid #1E1E28;border-radius:14px;padding:22px}
-.info-box{background:#0D1F15;border:1px solid #00D97E30;border-radius:10px;
-  padding:11px 15px;font-size:.84rem;color:#A0C8B0;margin-bottom:1rem}
-.login-card{background:#141418;border:1px solid #1E1E28;border-radius:18px;
-  padding:40px 36px;max-width:400px;margin:60px auto 0}
-.page-title{font-size:1.4rem;font-weight:700;color:#F0F0F5;margin-bottom:.25rem}
-.page-sub{font-size:.85rem;color:#8888A0;margin-bottom:1.5rem}
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800&display=swap');
+
+/* ── Reset & Base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #08090E; }
+::-webkit-scrollbar-thumb { background: #1C2235; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #00D97E40; }
+
+/* ── Layout ───────────────────────────────────────────────── */
+.stApp { background: #07080D !important; }
+.block-container { padding: 2rem 2.5rem 4rem !important; max-width: 1280px !important; }
+[data-testid="stAppViewContainer"] { background: #07080D; }
+
+/* ── Sidebar ──────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, #0A0C14 0%, #070810 100%) !important;
+  border-right: 1px solid #141828 !important;
+}
+[data-testid="stSidebarContent"] { padding: 0 !important; }
+[data-testid="stSidebar"] hr { margin: 0 16px; border-color: #141828 !important; }
+[data-testid="stSidebar"] [data-testid="stButton"] > button {
+  width: 100% !important; text-align: left !important;
+  justify-content: flex-start !important; padding: 10px 16px !important;
+  border-radius: 10px !important; font-size: 0.875rem !important;
+  font-weight: 500 !important; transition: all 0.15s ease !important;
+  margin: 1px 0 !important; border: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stButton"] > button[kind="secondary"] {
+  background: transparent !important; color: #6A7490 !important;
+}
+[data-testid="stSidebar"] [data-testid="stButton"] > button[kind="secondary"]:hover {
+  background: #0F1420 !important; color: #C0C8DC !important;
+}
+[data-testid="stSidebar"] [data-testid="stButton"] > button[kind="primary"] {
+  background: linear-gradient(135deg, #0D2018, #0A1810) !important;
+  color: #00D97E !important; border: 1px solid #00D97E25 !important;
+  font-weight: 600 !important;
+}
+
+/* ── Inputs & Selects ─────────────────────────────────────── */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input {
+  background: #0C0F1A !important; border: 1px solid #181E30 !important;
+  border-radius: 10px !important; color: #E0E4F0 !important;
+  padding: 10px 14px !important; font-size: 0.9rem !important;
+  transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus {
+  border-color: #00D97E55 !important; box-shadow: 0 0 0 3px #00D97E12 !important;
+  outline: none !important;
+}
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stNumberInput"] input::placeholder { color: #3A4255 !important; }
+[data-testid="stSelectbox"] > div > div,
+[data-testid="stMultiSelect"] > div > div {
+  background: #0C0F1A !important; border: 1px solid #181E30 !important;
+  border-radius: 10px !important; color: #E0E4F0 !important;
+}
+
+/* ── Forms ────────────────────────────────────────────────── */
+[data-testid="stForm"] {
+  background: linear-gradient(160deg, #0C0F1C 0%, #090B15 100%) !important;
+  border: 1px solid #161C2E !important; border-radius: 16px !important;
+  padding: 24px 26px !important;
+  box-shadow: 0 8px 32px #00000040, inset 0 1px 0 #FFFFFF06 !important;
+}
+
+/* ── Buttons ──────────────────────────────────────────────── */
+[data-testid="stButton"] > button,
+[data-testid="stDownloadButton"] > button {
+  border-radius: 10px !important; font-weight: 600 !important;
+  font-size: 0.875rem !important; transition: all 0.2s ease !important;
+  letter-spacing: 0.01em !important;
+}
+[data-testid="stButton"] > button[kind="primary"],
+button[kind="primaryFormSubmit"] {
+  background: linear-gradient(135deg, #00D97E 0%, #00B56A 100%) !important;
+  color: #050A08 !important; border: none !important;
+  box-shadow: 0 4px 20px #00D97E35 !important;
+}
+[data-testid="stButton"] > button[kind="primary"]:hover,
+button[kind="primaryFormSubmit"]:hover {
+  box-shadow: 0 6px 28px #00D97E55 !important; transform: translateY(-1px) !important;
+}
+[data-testid="stButton"] > button[kind="secondary"] {
+  background: #0E1220 !important; border: 1px solid #1A2235 !important;
+  color: #8A94B0 !important;
+}
+[data-testid="stButton"] > button[kind="secondary"]:hover {
+  background: #121828 !important; border-color: #00D97E35 !important; color: #D0D8F0 !important;
+}
+[data-testid="stDownloadButton"] > button {
+  background: #0E1220 !important; border: 1px solid #1A2235 !important;
+  color: #8A94B0 !important;
+}
+[data-testid="stDownloadButton"] > button:hover {
+  background: #0D1C14 !important; border-color: #00D97E50 !important;
+  color: #00D97E !important; box-shadow: 0 2px 12px #00D97E20 !important;
+}
+
+/* ── Tabs ─────────────────────────────────────────────────── */
+[data-testid="stTabs"] [role="tablist"] {
+  background: #0A0C16 !important; border-radius: 12px !important;
+  padding: 5px !important; border: 1px solid #141828 !important; gap: 3px;
+}
+[data-testid="stTabs"] [role="tab"] {
+  border-radius: 9px !important; color: #505870 !important;
+  font-weight: 500 !important; font-size: 0.875rem !important;
+  padding: 9px 22px !important; transition: all 0.2s !important;
+  border: none !important;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+  background: linear-gradient(135deg, #0D2018, #091610) !important;
+  color: #00D97E !important; font-weight: 600 !important;
+  box-shadow: 0 2px 10px #00000030, inset 0 1px 0 #00D97E15 !important;
+}
+[data-testid="stTabs"] [role="tab"]:hover:not([aria-selected="true"]) {
+  background: #0F1220 !important; color: #8090B0 !important;
+}
+
+/* ── Expanders ────────────────────────────────────────────── */
+[data-testid="stExpander"] {
+  background: #0A0D18 !important; border: 1px solid #141828 !important;
+  border-radius: 14px !important; margin-bottom: 10px !important;
+  overflow: hidden !important; transition: border-color 0.2s !important;
+}
+[data-testid="stExpander"]:hover { border-color: #1E2840 !important; }
+[data-testid="stExpander"] summary {
+  padding: 14px 20px !important; color: #C0C8DC !important;
+  font-weight: 500 !important; font-size: 0.9rem !important;
+}
+[data-testid="stExpander"] summary:hover { background: #0D1020 !important; color: #E8EDF8 !important; }
+[data-testid="stExpander"] > div > div { padding: 0 20px 18px !important; }
+
+/* ── Alerts ───────────────────────────────────────────────── */
+[data-testid="stAlert"] { border-radius: 12px !important; border-width: 1px !important; }
+.stSuccess { background: #071510 !important; border-color: #00D97E30 !important; }
+.stInfo { background: #050C1C !important; border-color: #2060C030 !important; }
+.stWarning { background: #140F02 !important; border-color: #FFB80030 !important; }
+.stError { background: #140404 !important; border-color: #FF475730 !important; }
+
+/* ── Progress ─────────────────────────────────────────────── */
+[data-testid="stProgress"] { margin: 12px 0 !important; }
+[data-testid="stProgress"] > div { background: #10141E !important; border-radius: 6px !important; height: 6px !important; }
+[data-testid="stProgress"] > div > div {
+  background: linear-gradient(90deg, #00D97E, #00F090) !important;
+  border-radius: 6px !important; box-shadow: 0 0 10px #00D97E60 !important;
+}
+
+/* ── DataFrames ───────────────────────────────────────────── */
+.stDataFrame { border-radius: 12px !important; overflow: hidden !important; }
+.stDataFrame [data-testid="stDataFrameResizable"] { border: 1px solid #141828 !important; border-radius: 12px !important; }
+
+/* ── Toggle ───────────────────────────────────────────────── */
+[data-testid="stToggle"] { background: transparent !important; padding: 8px 0 !important; }
+
+/* ── Captions & Labels ────────────────────────────────────── */
+[data-testid="stCaptionContainer"] { color: #4A5570 !important; }
+[data-testid="stWidgetLabel"] { color: #6A7490 !important; font-size: 0.82rem !important; font-weight: 500 !important; }
+
+/* ══════════════════════════════════════════════════════════
+   CUSTOM COMPONENTS
+══════════════════════════════════════════════════════════ */
+
+/* ── Sidebar brand ────────────────────────────────────────── */
+.brand-header {
+  padding: 22px 20px 18px; margin-bottom: 4px;
+  background: linear-gradient(160deg, #0D1820 0%, #080A12 100%);
+  border-bottom: 1px solid #141828;
+}
+.brand-dot {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, #00D97E, #00A85E);
+  border-radius: 10px; display: inline-flex; align-items: center;
+  justify-content: center; font-weight: 800; color: #040A06;
+  font-size: 16px; box-shadow: 0 4px 16px #00D97E45;
+  vertical-align: middle; margin-right: 10px; flex-shrink: 0;
+}
+.brand-title {
+  font-size: 0.92rem; font-weight: 700; color: #E8EDF8;
+  line-height: 1.2; letter-spacing: -0.01em;
+}
+.brand-sub {
+  font-size: 0.62rem; color: #00D97E; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.14em; margin-top: 2px;
+}
+
+/* ── User card in sidebar ─────────────────────────────────── */
+.user-card {
+  margin: 8px 12px 4px;
+  background: #0C1020; border: 1px solid #141828;
+  border-radius: 12px; padding: 10px 14px;
+}
+.user-email { font-size: 0.78rem; color: #7080A0; font-weight: 500; word-break: break-all; }
+.user-role-badge {
+  display: inline-block; margin-top: 5px; padding: 2px 8px;
+  border-radius: 6px; font-size: 0.65rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.role-admin { background: #0A1E14; color: #00D97E; border: 1px solid #00D97E20; }
+.role-user  { background: #0A0E1C; color: #6080C0; border: 1px solid #2040A030; }
+
+/* ── Page header ──────────────────────────────────────────── */
+.page-header {
+  margin-bottom: 2rem; padding-bottom: 1.5rem;
+  border-bottom: 1px solid #0E1220;
+  display: flex; align-items: flex-start; gap: 14px;
+}
+.page-header-icon {
+  width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; background: #0C1820; border: 1px solid #1A2A40;
+}
+.page-title {
+  font-size: 1.55rem; font-weight: 800; letter-spacing: -0.025em;
+  line-height: 1.15;
+  background: linear-gradient(135deg, #E8EDF8 20%, #8090B0 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; margin-bottom: 0.2rem;
+}
+.page-sub { font-size: 0.855rem; color: #485068; font-weight: 400; }
+
+/* ── Stat cards ───────────────────────────────────────────── */
+.stats-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin: 1.25rem 0; }
+.stat-card {
+  background: linear-gradient(160deg, #0C1020 0%, #090C18 100%);
+  border: 1px solid #141828; border-radius: 16px; padding: 18px 20px;
+  position: relative; overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.stat-card:hover { border-color: #00D97E25; transform: translateY(-2px); box-shadow: 0 8px 32px #00000050; }
+.stat-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, #00D97E, transparent);
+}
+.stat-num { font-size: 2.1rem; font-weight: 800; color: #00D97E; line-height: 1; letter-spacing: -0.03em; }
+.stat-lbl { font-size: 0.7rem; color: #485068; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
+
+/* ── Section label ────────────────────────────────────────── */
+.sec {
+  font-size: 0.68rem; font-weight: 700; color: #00D97E;
+  text-transform: uppercase; letter-spacing: 0.13em;
+  margin: 1.1rem 0 0.45rem;
+  display: flex; align-items: center; gap: 8px;
+}
+.sec::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, #00D97E20, transparent);
+}
+
+/* ── Info box ─────────────────────────────────────────────── */
+.info-box {
+  background: linear-gradient(135deg, #090F14, #060C10);
+  border: 1px solid #14202A; border-left: 3px solid #00D97E;
+  border-radius: 10px; padding: 12px 16px;
+  font-size: 0.84rem; color: #607888; line-height: 1.65; margin-bottom: 1.25rem;
+}
+.info-box strong { color: #90B0A0; }
+
+/* ── Divider ──────────────────────────────────────────────── */
+.hr { border: none; border-top: 1px solid #0E1220; margin: 1rem 0; }
+
+/* ── Badges ───────────────────────────────────────────────── */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+.b-ok  { background: #061510; color: #00D97E; border: 1px solid #00D97E25; }
+.b-warn{ background: #140E00; color: #FFB800; border: 1px solid #FFB80025; }
+.b-err { background: #140404; color: #FF4757; border: 1px solid #FF475725; }
+
+/* ── Login ────────────────────────────────────────────────── */
+.login-outer {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 80vh; padding: 2rem 1rem;
+}
+.login-card {
+  background: linear-gradient(160deg, #0C0F1C 0%, #08090F 100%);
+  border: 1px solid #141828; border-radius: 24px;
+  padding: 48px 44px; width: 100%; max-width: 420px;
+  box-shadow: 0 32px 80px #00000070, 0 0 0 1px #00D97E08,
+              inset 0 1px 0 #FFFFFF06;
+}
+.login-logo {
+  width: 54px; height: 54px;
+  background: linear-gradient(135deg, #00D97E, #00A85E);
+  border-radius: 15px; display: flex; align-items: center;
+  justify-content: center; font-weight: 800; color: #040A06;
+  font-size: 22px; box-shadow: 0 8px 32px #00D97E50;
+  margin: 0 auto 22px;
+}
+.login-title { font-size: 1.45rem; font-weight: 800; color: #E8EDF8; text-align: center; letter-spacing: -0.025em; }
+.login-sub   { font-size: 0.7rem; color: #00D97E; font-weight: 700; text-align: center; letter-spacing: 0.13em; text-transform: uppercase; margin-top: 5px; margin-bottom: 28px; }
+
 </style>""", unsafe_allow_html=True)
 
 from modules.google_sheets import COLUNAS_EXPORT
@@ -96,12 +359,15 @@ def _xlsx(rows):
     buf=io.BytesIO(); wb.save(buf); return buf.getvalue()
 
 def _stats(rows):
-    tot=len(rows); tel=sum(1 for r in rows if r.get("telefone") or r.get("telefone2"))
-    site=sum(1 for r in rows if r.get("site")); em=sum(1 for r in rows if r.get("email"))
-    cs=st.columns(4)
-    for col,n,lbl in zip(cs,[tot,tel,site,em],["Total","Com telefone","Com site","Com e-mail"]):
-        col.markdown(f'<div class="stat-card"><div class="stat-num">{n}</div><div class="stat-lbl">{lbl}</div></div>',unsafe_allow_html=True)
-    st.markdown("")
+    tot  = len(rows)
+    tel  = sum(1 for r in rows if r.get("telefone") or r.get("telefone2"))
+    site = sum(1 for r in rows if r.get("site"))
+    em   = sum(1 for r in rows if r.get("email"))
+    cards = "".join(
+        f'<div class="stat-card"><div class="stat-num">{n}</div><div class="stat-lbl">{l}</div></div>'
+        for n, l in [(tot,"Total leads"),(tel,"Com telefone"),(site,"Com site"),(em,"Com e-mail")]
+    )
+    st.markdown(f'<div class="stats-row">{cards}</div>', unsafe_allow_html=True)
 
 def _tabela(rows):
     import pandas as pd
@@ -133,20 +399,21 @@ def _export_sheets(rows):
 # ══════════════════════════════════════════════════════════════
 
 def pagina_login():
-    st.markdown("""<div class="login-card">
-    <div style="text-align:center;margin-bottom:28px">
-        <div style="width:48px;height:48px;background:#00D97E;border-radius:13px;display:inline-flex;
-            align-items:center;justify-content:center;font-weight:700;color:#0A0A0F;font-size:22px">R</div>
-        <div style="font-size:1.4rem;font-weight:700;color:#F0F0F5;margin-top:12px">Prospec-o-Ativa</div>
-        <div style="font-size:.72rem;color:#00D97E;letter-spacing:.1em;text-transform:uppercase">Revolução AI</div>
-    </div></div>""", unsafe_allow_html=True)
-
-    col=st.columns([1,2,1])[1]
+    st.markdown('<div class="login-outer">', unsafe_allow_html=True)
+    col = st.columns([1, 2, 1])[1]
     with col:
+        st.markdown(
+            '<div class="login-card">'
+            '<div class="login-logo">⚡</div>'
+            '<div class="login-title">Lead Extractor</div>'
+            '<div class="login-sub">Revolução AI</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         with st.form("login"):
-            email=st.text_input("E-mail",placeholder="seu@email.com")
-            senha=st.text_input("Senha",type="password",placeholder="••••••••")
-            btn=st.form_submit_button("Entrar",use_container_width=True,type="primary")
+            email = st.text_input("E-mail", placeholder="seu@email.com")
+            senha = st.text_input("Senha", type="password", placeholder="••••••••")
+            btn   = st.form_submit_button("Entrar", use_container_width=True, type="primary")
         if btn:
             if not email or not senha:
                 st.error("Preencha e-mail e senha.")
@@ -162,22 +429,32 @@ def pagina_login():
                         st.rerun()
                     else:
                         st.error(msg)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def pagina_busca():
     from modules.nichos import NICHOS, ESTADOS, NOMES_NICHOS, SIGLAS_ESTADOS
 
-    st.markdown('<div class="page-title">🔍 Nova Busca</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Busque leads por nicho e localidade</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="page-header">'
+        '<div class="page-header-icon">🔍</div>'
+        '<div><div class="page-title">Nova Busca</div>'
+        '<div class="page-sub">Busque leads por nicho e localidade usando Google Maps ou Receita Federal</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
-    gmaps_key = st.session_state.get("user_gmaps_key") or _s("GOOGLE_MAPS_API_KEY")
+    # Chave do Google Maps vem EXCLUSIVAMENTE das configurações do usuário (Supabase)
+    from modules.database import carregar_configuracoes
+    _cfg_busca = carregar_configuracoes()
+    gmaps_key = _cfg_busca.get("google_maps_api_key", "") or st.session_state.get("user_gmaps_key", "")
     gmaps_ok  = bool(gmaps_key)
 
     aba_maps, aba_rf = st.tabs(["🗺️  Google Maps  ·  com telefone", "📋  Receita Federal  ·  dados oficiais"])
 
     with aba_maps:
         if not gmaps_ok:
-            st.warning("Chave do Google Maps não configurada. Adicione em Configurações ou nos Secrets.", icon="⚠️")
+            st.warning("Chave do Google Maps não configurada. Acesse **Configurações → Google Maps API** para adicionar.", icon="⚠️")
         st.markdown('<div class="info-box">Melhor fonte para <strong>telefones</strong>. Até ~500 resultados com múltiplas buscas automáticas.</div>', unsafe_allow_html=True)
 
         col_n, col_s = st.columns(2)
@@ -319,8 +596,14 @@ def pagina_busca():
 def pagina_historico():
     from modules.database import listar_pesquisas, buscar_leads_da_pesquisa, deletar_pesquisa
 
-    st.markdown('<div class="page-title">📁 Histórico de Pesquisas</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Todas as suas extrações anteriores com leads salvos</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="page-header">'
+        '<div class="page-header-icon">📁</div>'
+        '<div><div class="page-title">Histórico</div>'
+        '<div class="page-sub">Todas as suas extrações anteriores com leads salvos</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     pesquisas = listar_pesquisas()
     if not pesquisas:
@@ -365,8 +648,14 @@ def pagina_configuracoes():
     from modules.database import carregar_configuracoes, salvar_configuracoes
     from modules.google_sheets import gerar_url_auth
 
-    st.markdown('<div class="page-title">⚙️ Configurações</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Gerencie suas credenciais e integrações</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="page-header">'
+        '<div class="page-header-icon">⚙️</div>'
+        '<div><div class="page-title">Configurações</div>'
+        '<div class="page-sub">Gerencie suas credenciais e integrações</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     cfg = carregar_configuracoes()
 
@@ -457,8 +746,14 @@ def pagina_admin():
         alterar_role, redefinir_senha,
     )
 
-    st.markdown('<div class="page-title">👑 Painel Admin</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Gerencie os usuários da plataforma</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="page-header">'
+        '<div class="page-header-icon">👑</div>'
+        '<div><div class="page-title">Painel Admin</div>'
+        '<div class="page-sub">Gerencie os usuários da plataforma</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     # ── Criar usuário ────────────────────────────────────────────────────────────
     with st.expander("➕ Criar novo usuário", expanded=False):
@@ -541,44 +836,59 @@ def _sidebar():
     from modules.auth import logout, eh_admin
 
     with st.sidebar:
+        # ── Brand ──────────────────────────────────────────────
+        user = st.session_state.get("user", {})
+        role = user.get("role", "user")
         st.markdown(
-            '<div style="text-align:center;padding:1.2rem 0 0.5rem;">'
-            '<span style="font-size:2rem;">⚡</span><br>'
-            '<span style="font-size:1.2rem;font-weight:700;color:#00D97E;">Prospec-o-Ativa</span>'
-            '</div>',
+            '<div class="brand-header">'
+            '<div style="display:flex;align-items:center;gap:10px">'
+            '<div class="brand-dot">⚡</div>'
+            '<div><div class="brand-title">Lead Extractor</div>'
+            '<div class="brand-sub">Revolução AI</div></div>'
+            '</div></div>',
             unsafe_allow_html=True,
         )
-        st.markdown("---")
 
-        user = st.session_state.get("user", {})
-        st.caption(f"👤 {user.get('email','')}")
-        role_badge = "👑 Admin" if user.get("role") == "admin" else "🙂 Usuário"
-        st.caption(role_badge)
-        st.markdown("---")
+        # ── User card ───────────────────────────────────────────
+        role_cls   = "role-admin" if role == "admin" else "role-user"
+        role_label = "Admin" if role == "admin" else "Usuário"
+        st.markdown(
+            f'<div class="user-card">'
+            f'<div class="user-email">{user.get("email","")}</div>'
+            f'<span class="user-role-badge {role_cls}">{role_label}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
+        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+
+        # ── Nav ─────────────────────────────────────────────────
         page = st.session_state.get("page", "busca")
 
-        if st.button("🔍 Busca", use_container_width=True, key="nav_busca",
-                     type="primary" if page == "busca" else "secondary"):
-            st.session_state["page"] = "busca"; st.rerun()
-
-        if st.button("📁 Histórico", use_container_width=True, key="nav_hist",
-                     type="primary" if page == "historico" else "secondary"):
-            st.session_state["page"] = "historico"; st.rerun()
-
-        if st.button("⚙️ Configurações", use_container_width=True, key="nav_cfg",
-                     type="primary" if page == "configuracoes" else "secondary"):
-            st.session_state["page"] = "configuracoes"; st.rerun()
-
+        nav_items = [
+            ("busca",         "🔍  Busca"),
+            ("historico",     "📁  Histórico"),
+            ("configuracoes", "⚙️  Configurações"),
+        ]
         if eh_admin():
-            if st.button("👑 Admin", use_container_width=True, key="nav_admin",
-                         type="primary" if page == "admin" else "secondary"):
-                st.session_state["page"] = "admin"; st.rerun()
+            nav_items.append(("admin", "👑  Admin"))
 
-        st.markdown("---")
-        if st.button("🚪 Sair", use_container_width=True, key="nav_logout"):
+        st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
+        for key, label in nav_items:
+            if st.button(label, use_container_width=True, key=f"nav_{key}",
+                         type="primary" if page == key else "secondary"):
+                st.session_state["page"] = key
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # ── Logout ──────────────────────────────────────────────
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+        st.markdown('<hr style="border-color:#141828;margin:0 8px 12px">', unsafe_allow_html=True)
+        st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
+        if st.button("🚪  Sair", use_container_width=True, key="nav_logout", type="secondary"):
             logout()
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def main():
