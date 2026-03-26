@@ -30,7 +30,7 @@ def _get_secret(key: str) -> str:
 def _client_autenticado() -> Optional["Client"]:
     """
     Retorna cliente Supabase autenticado com o token do usuário logado.
-    Isso garante que o RLS seja respeitado.
+    O cliente é cacheado por sessão — create_client() é chamado uma única vez.
     """
     if not _OK:
         return None
@@ -42,7 +42,12 @@ def _client_autenticado() -> Optional["Client"]:
     user = st.session_state.get("user", {})
     token = user.get("access_token", "")
 
-    sb = create_client(url, key)
+    # Reutiliza cliente existente se disponível (evita overhead de create_client a cada chamada)
+    sb = st.session_state.get("_sb_client")
+    if sb is None:
+        sb = create_client(url, key)
+        st.session_state["_sb_client"] = sb
+
     if token:
         sb.postgrest.auth(token)
     return sb
@@ -69,6 +74,7 @@ def salvar_pesquisa(
     user_id = st.session_state.get("user", {}).get("id")
     if not user_id:
         return None
+    st.session_state.pop("_pesquisas_cache", None)  # invalida cache ao salvar nova pesquisa
     try:
         resp = sb.table("searches").insert({
             "user_id":       user_id,
@@ -129,7 +135,9 @@ def salvar_leads(search_id: str, resultados: list[dict]) -> bool:
 
 
 def listar_pesquisas(limite: int = 50) -> list[dict]:
-    """Retorna pesquisas do usuário logado, mais recentes primeiro."""
+    """Retorna pesquisas do usuário logado, mais recentes primeiro. Cacheado por sessão."""
+    if "_pesquisas_cache" in st.session_state:
+        return st.session_state["_pesquisas_cache"]
     sb = _client_autenticado()
     if not sb:
         return []
@@ -139,7 +147,9 @@ def listar_pesquisas(limite: int = 50) -> list[dict]:
                   .order("created_at", desc=True)
                   .limit(limite)
                   .execute())
-        return resp.data or []
+        result = resp.data or []
+        st.session_state["_pesquisas_cache"] = result
+        return result
     except Exception:
         return []
 
@@ -180,6 +190,7 @@ def buscar_identificadores_existentes() -> tuple[set, set]:
 
 def deletar_pesquisa(search_id: str) -> tuple[bool, str]:
     """Deleta pesquisa e seus leads (cascade no banco)."""
+    st.session_state.pop("_pesquisas_cache", None)
     sb = _client_autenticado()
     if not sb:
         return False, "Banco não disponível."

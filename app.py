@@ -323,28 +323,21 @@ button[kind="primaryFormSubmit"]:hover {
 from modules.google_sheets import COLUNAS_EXPORT
 
 def _logo_html(size: int = 40) -> str:
-    """Retorna HTML com a logo. Usa static/logo.png se existir, senão fallback SVG.
-    Resultado é cacheado em session_state para evitar releitura do arquivo a cada render."""
-    cache_key = f"_logo_{size}"
-    if cache_key in st.session_state:
-        return st.session_state[cache_key]
+    """Retorna HTML com a logo.
+    Usa URL estática (app/static/logo.png) — o browser faz cache da imagem e
+    ela NÃO é reenviada via WebSocket a cada render, ao contrário do base64."""
     from pathlib import Path
-    import base64
     p = Path("static/logo.png")
+    r = size // 5
     if p.exists():
-        b64 = base64.b64encode(p.read_bytes()).decode()
-        r = size // 5
-        html = (f'<img src="data:image/png;base64,{b64}" '
+        return (f'<img src="app/static/logo.png" '
                 f'style="width:{size}px;height:{size}px;border-radius:{r}px;'
                 f'object-fit:cover;display:inline-block" />')
-    else:
-        r = size // 4
-        fs = int(size * 0.38)
-        html = (f'<div style="width:{size}px;height:{size}px;background:#00C472;'
-                f'border-radius:{r}px;display:inline-flex;align-items:center;'
-                f'justify-content:center;font-size:{fs}px;font-weight:800;color:#030E06">R</div>')
-    st.session_state[cache_key] = html
-    return html
+    r2 = size // 4
+    fs = int(size * 0.38)
+    return (f'<div style="width:{size}px;height:{size}px;background:#00C472;'
+            f'border-radius:{r2}px;display:inline-flex;align-items:center;'
+            f'justify-content:center;font-size:{fs}px;font-weight:800;color:#030E06">R</div>')
 _EXTRA=[("telefone_internacional","Telefone Intl."),("status_funcionamento","Status"),
         ("porte","Porte"),("data_abertura","Data Abertura")]
 ALL_COLS = COLUNAS_EXPORT + [c for c in _EXTRA if c not in COLUNAS_EXPORT]
