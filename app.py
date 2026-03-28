@@ -832,219 +832,204 @@ def pagina_configuracoes():
     with st.expander("📊 Google Sheets (OAuth)", expanded=True):
         st.markdown("Conecte sua conta Google para exportar resultados diretamente para planilhas.")
 
-        # Credenciais OAuth do app
-        cid = cfg.get("google_client_id","") or _s("GOOGLE_CLIENT_ID")
-        cs  = cfg.get("google_client_secret","") or _s("GOOGLE_CLIENT_SECRET")
+        # Credenciais OAuth vêm sempre das secrets do app (não por usuário)
+        cid = _s("GOOGLE_CLIENT_ID")
+        cs  = _s("GOOGLE_CLIENT_SECRET")
         ru  = cfg.get("app_url","") or _s("APP_URL","http://localhost:8501")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            new_cid = st.text_input("Google Client ID",  value=cid, placeholder="...apps.googleusercontent.com", key="cfg_cid")
-        with col2:
-            new_cs  = st.text_input("Google Client Secret", value=cs, type="password", placeholder="GOCSPX-...", key="cfg_cs")
-
-        new_ru = st.text_input("URL do app (para redirect OAuth)", value=ru, placeholder="https://seu-app.streamlit.app", key="cfg_ru")
-
-        if st.button("💾 Salvar credenciais Google", key="save_google_creds"):
-            ok, msg = salvar_configuracoes({
-                "google_client_id": new_cid,
-                "google_client_secret": new_cs,
-                "app_url": new_ru,
-            })
-            (st.success if ok else st.error)(msg)
-
-        st.markdown("---")
-
-        # Exibe erro de OAuth persistente (não usa pop — sobrevive a reruns)
-        if st.session_state.get("_oauth_err"):
-            st.error(f"Erro ao conectar conta Google:\n\n`{st.session_state['_oauth_err']}`", icon="❌")
-            if st.button("✖ Fechar erro", key="clear_oauth_err"):
-                st.session_state.pop("_oauth_err", None)
-                st.rerun()
-
-        if "sheets_creds" in st.session_state:
-            st.success("✅ Conta Google vinculada!", icon="✅")
-
-            from modules.google_sheets import listar_planilhas, listar_abas, extrair_sheet_id
-
-            def _salvar_planilhas():
-                return salvar_configuracoes({"google_sheets_creds": {
-                    "oauth":       st.session_state["sheets_creds"],
-                    "planilhas":   st.session_state.get("sheets_planilhas", []),
-                    "auto_export": st.session_state.get("auto_export_enabled", False),
-                }})
-
-            # ── Auto-export toggle ──────────────────────────────────────────
-            auto_val = st.session_state.get("auto_export_enabled", False)
-            auto_new = st.toggle(
-                "🔄 Exportar automaticamente após cada busca (planilha padrão ⭐)",
-                value=auto_val, key="cfg_auto_export",
+        if not (cid and cs):
+            st.warning(
+                "As credenciais Google OAuth não estão configuradas nas secrets do app.\n\n"
+                "Adicione `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `APP_URL` nas **Secrets** do Streamlit Cloud.",
+                icon="⚠️",
             )
-            if auto_new != auto_val:
-                st.session_state["auto_export_enabled"] = auto_new
-                _salvar_planilhas()
+        else:
+            # Exibe erro de OAuth persistente (não usa pop — sobrevive a reruns)
+            if st.session_state.get("_oauth_err"):
+                st.error(f"Erro ao conectar conta Google:\n\n`{st.session_state['_oauth_err']}`", icon="❌")
+                if st.button("✖ Fechar erro", key="clear_oauth_err"):
+                    st.session_state.pop("_oauth_err", None)
+                    st.rerun()
 
-            st.markdown("---")
-            st.markdown("**📋 Planilhas configuradas**")
+            if "sheets_creds" in st.session_state:
+                st.success("✅ Conta Google vinculada!", icon="✅")
 
-            # ── Lista de planilhas cadastradas ──────────────────────────────
-            planilhas_cfg = st.session_state.get("sheets_planilhas", [])
-            if not planilhas_cfg:
-                st.caption("Nenhuma planilha adicionada ainda.")
-            else:
-                for i, p in enumerate(planilhas_cfg):
-                    badge = " ⭐" if p.get("padrao") else ""
-                    c_info, c_pad, c_del = st.columns([6, 2, 1])
-                    with c_info:
-                        st.markdown(f"**{p['nome']}{badge}** · `{p['aba']}` · {p.get('modo','substituir')}")
-                    with c_pad:
-                        if not p.get("padrao"):
-                            if st.button("⭐ Padrão", key=f"pad_{i}", use_container_width=True):
-                                for j in range(len(planilhas_cfg)):
-                                    planilhas_cfg[j]["padrao"] = (j == i)
+                from modules.google_sheets import listar_planilhas, listar_abas, extrair_sheet_id
+
+                def _salvar_planilhas():
+                    return salvar_configuracoes({"google_sheets_creds": {
+                        "oauth":       st.session_state["sheets_creds"],
+                        "planilhas":   st.session_state.get("sheets_planilhas", []),
+                        "auto_export": st.session_state.get("auto_export_enabled", False),
+                    }})
+
+                # ── Auto-export toggle ──────────────────────────────────────────
+                auto_val = st.session_state.get("auto_export_enabled", False)
+                auto_new = st.toggle(
+                    "🔄 Exportar automaticamente após cada busca (planilha padrão ⭐)",
+                    value=auto_val, key="cfg_auto_export",
+                )
+                if auto_new != auto_val:
+                    st.session_state["auto_export_enabled"] = auto_new
+                    _salvar_planilhas()
+
+                st.markdown("---")
+                st.markdown("**📋 Planilhas configuradas**")
+
+                # ── Lista de planilhas cadastradas ──────────────────────────────
+                planilhas_cfg = st.session_state.get("sheets_planilhas", [])
+                if not planilhas_cfg:
+                    st.caption("Nenhuma planilha adicionada ainda.")
+                else:
+                    for i, p in enumerate(planilhas_cfg):
+                        badge = " ⭐" if p.get("padrao") else ""
+                        c_info, c_pad, c_del = st.columns([6, 2, 1])
+                        with c_info:
+                            st.markdown(f"**{p['nome']}{badge}** · `{p['aba']}` · {p.get('modo','substituir')}")
+                        with c_pad:
+                            if not p.get("padrao"):
+                                if st.button("⭐ Padrão", key=f"pad_{i}", use_container_width=True):
+                                    for j in range(len(planilhas_cfg)):
+                                        planilhas_cfg[j]["padrao"] = (j == i)
+                                    st.session_state["sheets_planilhas"] = planilhas_cfg
+                                    _salvar_planilhas()
+                                    st.rerun()
+                        with c_del:
+                            if st.button("🗑️", key=f"del_p_{i}", use_container_width=True):
+                                planilhas_cfg.pop(i)
                                 st.session_state["sheets_planilhas"] = planilhas_cfg
                                 _salvar_planilhas()
                                 st.rerun()
-                    with c_del:
-                        if st.button("🗑️", key=f"del_p_{i}", use_container_width=True):
-                            planilhas_cfg.pop(i)
-                            st.session_state["sheets_planilhas"] = planilhas_cfg
-                            _salvar_planilhas()
+
+                # ── Formulário: adicionar planilha ──────────────────────────────
+                st.markdown("")
+                with st.expander("➕ Adicionar planilha", expanded=False):
+                    # Carrega lista do Drive (uma vez por sessão)
+                    _lista_err = None
+                    if "sheets_lista" not in st.session_state:
+                        with st.spinner("Buscando planilhas no Google Drive..."):
+                            try:
+                                st.session_state["sheets_lista"] = listar_planilhas(st.session_state["sheets_creds"])
+                            except Exception as e:
+                                st.session_state["sheets_lista"] = []
+                                _lista_err = str(e)
+
+                    drive_lista = st.session_state.get("sheets_lista", [])
+
+                    if _lista_err:
+                        st.warning(
+                            f"Não foi possível listar planilhas do Drive: {_lista_err}\n\n"
+                            "Habilite a **Google Drive API** no Cloud Console ou cole a URL abaixo.",
+                            icon="⚠️",
+                        )
+
+                    # Seleção: Drive ou URL manual
+                    _new_id, _new_nome_drive = "", ""
+                    if drive_lista:
+                        nomes_drive = ["— cole URL manualmente —"] + [p["name"] for p in drive_lista]
+                        ids_drive   = [""] + [p["id"] for p in drive_lista]
+                        escolha_drive = st.selectbox("Escolher do Google Drive", nomes_drive, key="add_drive_sel")
+                        idx_d = nomes_drive.index(escolha_drive)
+                        _new_id = ids_drive[idx_d]
+                        _new_nome_drive = escolha_drive if _new_id else ""
+
+                    url_add = st.text_input(
+                        "URL ou ID da planilha" if not drive_lista else "Ou cole a URL manualmente",
+                        placeholder="https://docs.google.com/spreadsheets/d/...",
+                        key="add_sheet_url",
+                    )
+                    if url_add.strip():
+                        _new_id = extrair_sheet_id(url_add.strip()) or url_add.strip()
+                        _new_nome_drive = ""
+
+                    # Nome de exibição
+                    nome_add = st.text_input("Nome de exibição", value=_new_nome_drive,
+                                             placeholder="Ex: Advocacia SP", key="add_nome")
+
+                    # Carrega abas se há ID
+                    _abas_add = []
+                    if _new_id:
+                        _cache_key     = f"_abas_add_{_new_id}"
+                        _cache_err_key = f"_abas_err_{_new_id}"
+                        if _cache_key not in st.session_state:
+                            with st.spinner("Carregando abas..."):
+                                try:
+                                    st.session_state[_cache_key] = listar_abas(
+                                        st.session_state["sheets_creds"], _new_id)
+                                    st.session_state.pop(_cache_err_key, None)
+                                except Exception as e:
+                                    st.session_state[_cache_key]     = []
+                                    st.session_state[_cache_err_key] = str(e)
+                        _abas_add = st.session_state.get(_cache_key, [])
+
+                    _abas_err = st.session_state.get(f"_abas_err_{_new_id}") if _new_id else None
+                    if _abas_err:
+                        st.warning(
+                            "**Não foi possível carregar as abas desta planilha.**\n\n"
+                            "A **Google Sheets API** não está habilitada no seu projeto Google Cloud. "
+                            "Para ativar: [Google Cloud Console](https://console.cloud.google.com) → "
+                            "**APIs e Serviços → Biblioteca** → procure *Google Sheets API* → **Ativar**.\n\n"
+                            f"Erro: `{_abas_err}`\n\n"
+                            "Enquanto isso, **digite o nome da aba manualmente** abaixo.",
+                            icon="⚠️",
+                        )
+                        if _new_id and st.button("🔄 Tentar novamente", key=f"retry_abas_{_new_id[:8]}"):
+                            st.session_state.pop(f"_abas_add_{_new_id}", None)
+                            st.session_state.pop(f"_abas_err_{_new_id}", None)
                             st.rerun()
 
-            # ── Formulário: adicionar planilha ──────────────────────────────
-            st.markdown("")
-            with st.expander("➕ Adicionar planilha", expanded=False):
-                # Carrega lista do Drive (uma vez por sessão)
-                _lista_err = None
-                if "sheets_lista" not in st.session_state:
-                    with st.spinner("Buscando planilhas no Google Drive..."):
-                        try:
-                            st.session_state["sheets_lista"] = listar_planilhas(st.session_state["sheets_creds"])
-                        except Exception as e:
-                            st.session_state["sheets_lista"] = []
-                            _lista_err = str(e)
-
-                drive_lista = st.session_state.get("sheets_lista", [])
-
-                if _lista_err:
-                    st.warning(
-                        f"Não foi possível listar planilhas do Drive: {_lista_err}\n\n"
-                        "Habilite a **Google Drive API** no Cloud Console ou cole a URL abaixo.",
-                        icon="⚠️",
-                    )
-
-                # Seleção: Drive ou URL manual
-                _new_id, _new_nome_drive = "", ""
-                if drive_lista:
-                    nomes_drive = ["— cole URL manualmente —"] + [p["name"] for p in drive_lista]
-                    ids_drive   = [""] + [p["id"] for p in drive_lista]
-                    escolha_drive = st.selectbox("Escolher do Google Drive", nomes_drive, key="add_drive_sel")
-                    idx_d = nomes_drive.index(escolha_drive)
-                    _new_id = ids_drive[idx_d]
-                    _new_nome_drive = escolha_drive if _new_id else ""
-
-                url_add = st.text_input(
-                    "URL ou ID da planilha" if not drive_lista else "Ou cole a URL manualmente",
-                    placeholder="https://docs.google.com/spreadsheets/d/...",
-                    key="add_sheet_url",
-                )
-                if url_add.strip():
-                    _new_id = extrair_sheet_id(url_add.strip()) or url_add.strip()
-                    _new_nome_drive = ""
-
-                # Nome de exibição
-                nome_add = st.text_input("Nome de exibição", value=_new_nome_drive,
-                                         placeholder="Ex: Advocacia SP", key="add_nome")
-
-                # Carrega abas se há ID
-                _abas_add = []
-                if _new_id:
-                    _cache_key     = f"_abas_add_{_new_id}"
-                    _cache_err_key = f"_abas_err_{_new_id}"
-                    if _cache_key not in st.session_state:
-                        with st.spinner("Carregando abas..."):
-                            try:
-                                st.session_state[_cache_key] = listar_abas(
-                                    st.session_state["sheets_creds"], _new_id)
-                                st.session_state.pop(_cache_err_key, None)
-                            except Exception as e:
-                                st.session_state[_cache_key]     = []
-                                st.session_state[_cache_err_key] = str(e)
-                    _abas_add = st.session_state.get(_cache_key, [])
-
-                _abas_err = st.session_state.get(f"_abas_err_{_new_id}") if _new_id else None
-                if _abas_err:
-                    st.warning(
-                        "**Não foi possível carregar as abas desta planilha.**\n\n"
-                        "A **Google Sheets API** não está habilitada no seu projeto Google Cloud. "
-                        "Para ativar: [Google Cloud Console](https://console.cloud.google.com) → "
-                        "**APIs e Serviços → Biblioteca** → procure *Google Sheets API* → **Ativar**.\n\n"
-                        f"Erro: `{_abas_err}`\n\n"
-                        "Enquanto isso, **digite o nome da aba manualmente** abaixo.",
-                        icon="⚠️",
-                    )
-                    if _new_id and st.button("🔄 Tentar novamente", key=f"retry_abas_{_new_id[:8]}"):
-                        st.session_state.pop(f"_abas_add_{_new_id}", None)
-                        st.session_state.pop(f"_abas_err_{_new_id}", None)
-                        st.rerun()
-
-                if _abas_add:
-                    aba_add = st.selectbox("Aba destino", _abas_add, key="add_aba_sel")
-                else:
-                    aba_add = st.text_input(
-                        "Nome da aba *",
-                        placeholder="Ex: Planilha1, Leads, Dados…",
-                        key="add_aba_txt",
-                        help="Digite o nome exato da aba (verifique no rodapé da planilha no Google Sheets).",
-                    )
-
-                modo_add = st.selectbox("Modo de exportação", ["acrescentar", "substituir"], key="add_modo")
-                padrao_add = st.checkbox("⭐ Definir como planilha padrão (auto-export)", key="add_padrao")
-
-                if st.button("💾 Adicionar planilha", type="primary", use_container_width=True, key="btn_add_planilha"):
-                    if not _new_id:
-                        st.error("Selecione uma planilha ou cole a URL.")
-                    elif not nome_add.strip():
-                        st.error("Informe um nome de exibição.")
-                    elif not aba_add.strip():
-                        st.error("Informe o nome da aba.")
+                    if _abas_add:
+                        aba_add = st.selectbox("Aba destino", _abas_add, key="add_aba_sel")
                     else:
-                        nova = {
-                            "id":    _new_id,
-                            "nome":  nome_add.strip(),
-                            "aba":   aba_add.strip(),
-                            "modo":  modo_add,
-                            "padrao": padrao_add,
-                        }
-                        lista = st.session_state.get("sheets_planilhas", [])
-                        if padrao_add:
-                            for existing in lista:
-                                existing["padrao"] = False
-                        lista.append(nova)
-                        st.session_state["sheets_planilhas"] = lista
-                        # Limpa cache de abas temporário
-                        st.session_state.pop(f"_abas_add_{_new_id}", None)
-                        st.session_state.pop(f"_abas_err_{_new_id}", None)
-                        ok_save, err_save = _salvar_planilhas()
-                        if ok_save:
-                            st.toast(f"✅ Planilha **{nova['nome']}** adicionada!")
-                        else:
-                            st.toast(f"❌ Erro ao salvar: {err_save}", icon="❌")
-                        st.rerun()
+                        aba_add = st.text_input(
+                            "Nome da aba *",
+                            placeholder="Ex: Planilha1, Leads, Dados…",
+                            key="add_aba_txt",
+                            help="Digite o nome exato da aba (verifique no rodapé da planilha no Google Sheets).",
+                        )
 
-            st.markdown("")
-            if st.button("🔓 Desconectar conta Google", key="disc_google"):
-                for k in ["sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista"]:
-                    st.session_state.pop(k, None)
-                salvar_configuracoes({"google_sheets_creds": None})
-                st.rerun()
-        else:
-            if new_cid and new_cs:
-                url = gerar_url_auth(new_cid, new_cs, new_ru)
-                st.link_button("🔗 Conectar conta Google", url, use_container_width=True)
+                    modo_add = st.selectbox("Modo de exportação", ["acrescentar", "substituir"], key="add_modo")
+                    padrao_add = st.checkbox("⭐ Definir como planilha padrão (auto-export)", key="add_padrao")
+
+                    if st.button("💾 Adicionar planilha", type="primary", use_container_width=True, key="btn_add_planilha"):
+                        if not _new_id:
+                            st.error("Selecione uma planilha ou cole a URL.")
+                        elif not nome_add.strip():
+                            st.error("Informe um nome de exibição.")
+                        elif not aba_add.strip():
+                            st.error("Informe o nome da aba.")
+                        else:
+                            nova = {
+                                "id":    _new_id,
+                                "nome":  nome_add.strip(),
+                                "aba":   aba_add.strip(),
+                                "modo":  modo_add,
+                                "padrao": padrao_add,
+                            }
+                            lista = st.session_state.get("sheets_planilhas", [])
+                            if padrao_add:
+                                for existing in lista:
+                                    existing["padrao"] = False
+                            lista.append(nova)
+                            st.session_state["sheets_planilhas"] = lista
+                            st.session_state.pop(f"_abas_add_{_new_id}", None)
+                            st.session_state.pop(f"_abas_err_{_new_id}", None)
+                            ok_save, err_save = _salvar_planilhas()
+                            if ok_save:
+                                st.toast(f"✅ Planilha **{nova['nome']}** adicionada!")
+                            else:
+                                st.toast(f"❌ Erro ao salvar: {err_save}", icon="❌")
+                            st.rerun()
+
+                st.markdown("")
+                if st.button("🔓 Desconectar conta Google", key="disc_google"):
+                    for k in ["sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista"]:
+                        st.session_state.pop(k, None)
+                    salvar_configuracoes({"google_sheets_creds": None})
+                    st.rerun()
             else:
-                st.info("Preencha o Client ID e Secret acima para conectar sua conta Google.", icon="ℹ️")
+                url = gerar_url_auth(cid, cs, ru)
+                st.link_button("🔗 Conectar conta Google", url, use_container_width=True)
 
     # ── Alterar senha ────────────────────────────────────────────────────────────
     with st.expander("🔑 Alterar senha", expanded=False):
