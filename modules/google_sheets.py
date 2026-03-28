@@ -223,6 +223,7 @@ def exportar(
     try:
         escaped_aba = aba_nome.replace("'", "''")
 
+        upd_resp = None
         if modo == "substituir":
             # Limpa a aba inteira
             service.spreadsheets().values().clear(
@@ -230,7 +231,7 @@ def exportar(
                 range=f"'{escaped_aba}'",
             ).execute()
             # Escreve cabeçalho + dados a partir de A1
-            service.spreadsheets().values().update(
+            upd_resp = service.spreadsheets().values().update(
                 spreadsheetId=sheet_id,
                 range=f"'{escaped_aba}'!A1",
                 valueInputOption="USER_ENTERED",
@@ -244,7 +245,7 @@ def exportar(
             ).execute()
             if not existing.get("values"):
                 # Aba vazia — escreve com cabeçalho
-                service.spreadsheets().values().update(
+                upd_resp = service.spreadsheets().values().update(
                     spreadsheetId=sheet_id,
                     range=f"'{escaped_aba}'!A1",
                     valueInputOption="USER_ENTERED",
@@ -252,7 +253,7 @@ def exportar(
                 ).execute()
             else:
                 # Acrescenta linhas ao final
-                service.spreadsheets().values().append(
+                upd_resp = service.spreadsheets().values().append(
                     spreadsheetId=sheet_id,
                     range=f"'{escaped_aba}'",
                     valueInputOption="USER_ENTERED",
@@ -260,20 +261,12 @@ def exportar(
                     body={"values": linhas},
                 ).execute()
 
-        # Verificação: lê A1 de volta via API (sem cache)
-        check = service.spreadsheets().values().get(
-            spreadsheetId=sheet_id,
-            range=f"'{escaped_aba}'!A1",
-        ).execute()
-        if not check.get("values"):
-            return False, (
-                f"Escrita falhou — planilha vazia após update. "
-                f"Planilha: {sheet_title} | Aba: {aba_nome}"
-            )
+        # Células escritas segundo a resposta da API
+        updated_cells = upd_resp.get("updatedCells") if upd_resp else None
 
         return True, (
-            f"✅ {len(linhas)} registros exportados!\n\n"
-            f"📄 **{sheet_title}** → aba **{aba_nome}**\n\n"
+            f"✅ {len(linhas)} registros exportados para **{sheet_title}** → aba **{aba_nome}**  \n"
+            f"Células escritas (API): **{updated_cells}**  \n"
             f"🔗 {sheet_url}"
         )
     except Exception as e:

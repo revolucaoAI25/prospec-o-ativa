@@ -436,12 +436,15 @@ def _export_to_planilha(rows, planilha: dict):
     from modules.google_sheets import exportar
     creds = st.session_state.get("sheets_creds")
     if not creds:
-        st.toast("Conta Google não vinculada. Configure em ⚙️ Configurações.", icon="🔗")
+        st.error("Conta Google não vinculada. Configure em ⚙️ Configurações.")
         return
     with st.spinner(f"Exportando para {planilha['nome']}…"):
         ok, msg = exportar(rows, creds, planilha["id"], planilha["aba"],
                            planilha.get("modo", "substituir"))
-    st.toast(msg, icon="✅" if ok else "❌")
+    if ok:
+        st.success(msg)
+    else:
+        st.error(msg)
 
 def _dl_buttons(rows, prefix, sheets_auth):
     ts = int(time.time())
@@ -635,11 +638,14 @@ def pagina_busca():
                         _ok, _msg = exportar(res, st.session_state["sheets_creds"],
                                              _padrao["id"], _padrao["aba"],
                                              _padrao.get("modo","substituir"))
-                    st.toast(_msg, icon="✅" if _ok else "❌")
+                    if _ok:
+                        st.success(_msg)
+                    else:
+                        st.error(_msg)
                 elif not st.session_state.get("sheets_creds"):
-                    st.toast("Auto-export: conta Google não vinculada.", icon="⚠️")
+                    st.warning("Auto-export: conta Google não vinculada.")
                 else:
-                    st.toast("Auto-export: nenhuma planilha padrão ⭐ definida.", icon="⚠️")
+                    st.warning("Auto-export: nenhuma planilha padrão ⭐ definida.")
             st.success(f"✅ **{len(res)}** resultados")
             _stats(res); _dl_buttons(res, st.session_state.get("maps_prefix","prospecao"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
@@ -705,11 +711,14 @@ def pagina_busca():
                         _ok, _msg = exportar(res, st.session_state["sheets_creds"],
                                              _padrao["id"], _padrao["aba"],
                                              _padrao.get("modo","substituir"))
-                    st.toast(_msg, icon="✅" if _ok else "❌")
+                    if _ok:
+                        st.success(_msg)
+                    else:
+                        st.error(_msg)
                 elif not st.session_state.get("sheets_creds"):
-                    st.toast("Auto-export: conta Google não vinculada.", icon="⚠️")
+                    st.warning("Auto-export: conta Google não vinculada.")
                 else:
-                    st.toast("Auto-export: nenhuma planilha padrão ⭐ definida.", icon="⚠️")
+                    st.warning("Auto-export: nenhuma planilha padrão ⭐ definida.")
             st.success(f"✅ **{len(res)}** resultados")
             _stats(res); _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_rf"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
