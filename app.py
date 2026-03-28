@@ -945,13 +945,15 @@ def main():
         )
         st.stop()
 
-    # ── Restaura sessão do cookie (st.context.cookies — sem componente React) ─
+    # ── Restaura sessão do cookie via st.context.cookies (sem componente React) ─
     if "user" not in st.session_state:
         restaurar_sessao()
 
-    # ── CookieManager: renderizado SOMENTE quando há escrita/deleção pendente ─
-    # Durante navegação normal nenhuma flag estará ativa → nenhum componente
-    # renderizado → zero rerun extra → transições rápidas.
+    # ── CookieManager: só renderizado quando há escrita/deleção pendente ──────
+    # Após login, salvar_sessao_cookie() seta _pending_rt.
+    # Mantemos o CookieManager renderizado até cm.get() confirmar a escrita
+    # (2 renders) — só então removemos a flag. Durante navegação normal
+    # nenhuma flag fica ativa → nenhum componente React → transições rápidas.
     _pending_rt       = st.session_state.get("_pending_rt")
     _do_logout_cookie = st.session_state.get("_do_logout_cookie")
 
@@ -960,17 +962,24 @@ def main():
             import extra_streamlit_components as stx
             from datetime import datetime, timedelta
             _cm = stx.CookieManager(key="__le_cm")
+
             if _pending_rt:
-                _cm.set(_COOKIE_NAME, _pending_rt,
-                        expires_at=datetime.now() + timedelta(days=30))
-                st.session_state["_cookie_set"] = _pending_rt
-                st.session_state.pop("_pending_rt", None)
-            elif _do_logout_cookie:
+                # Verifica se o cookie já foi confirmado pelo componente
+                if _cm.get(_COOKIE_NAME) == _pending_rt:
+                    # Confirmado: remove a flag, CookieManager não renderizará mais
+                    st.session_state.pop("_pending_rt", None)
+                else:
+                    # Ainda não confirmado: escreve/reescreve e aguarda próximo render
+                    _cm.set(_COOKIE_NAME, _pending_rt,
+                            expires_at=datetime.now() + timedelta(days=30))
+
+            if _do_logout_cookie:
                 try:
                     _cm.delete(_COOKIE_NAME)
                 except Exception:
                     pass
                 st.session_state.pop("_do_logout_cookie", None)
+
         except Exception:
             st.session_state.pop("_pending_rt", None)
             st.session_state.pop("_do_logout_cookie", None)
