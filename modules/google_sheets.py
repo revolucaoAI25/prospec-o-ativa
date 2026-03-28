@@ -169,9 +169,9 @@ def listar_planilhas(creds_dict: dict) -> list[dict]:
 def listar_abas(creds_dict: dict, sheet_id: str) -> list[str]:
     """Retorna nomes das abas de uma planilha."""
     creds = _creds_from_dict(creds_dict)
-    gc = gspread.authorize(creds)
-    sh = gc.open_by_key(sheet_id)
-    return [ws.title for ws in sh.worksheets()]
+    service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+    meta = service.spreadsheets().get(spreadsheetId=sheet_id).execute()
+    return [s["properties"]["title"] for s in meta.get("sheets", [])]
 
 
 def exportar(
@@ -182,7 +182,7 @@ def exportar(
     modo: str = "substituir",
 ) -> tuple[bool, str]:
     """
-    Exporta resultados para o Google Sheets usando credenciais OAuth.
+    Exporta resultados para o Google Sheets usando Google Sheets API v4 direta.
 
     Parâmetros:
         resultados - lista de dicts com os dados
@@ -196,22 +196,24 @@ def exportar(
 
     try:
         creds = _creds_from_dict(creds_dict)
-        gc = gspread.authorize(creds)
-        sh = gc.open_by_key(sheet_id)
+        service = build("sheets", "v4", credentials=creds, cache_discovery=False)
     except Exception as e:
-        return False, f"Erro ao conectar com a planilha: {e}"
+        return False, f"Erro ao conectar com Google Sheets API: {e}"
 
-    sheet_title = sh.title  # nome real da planilha no Google
-    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-
-    # Não cria aba silenciosamente — retorna erro claro com abas disponíveis
+    # Busca metadados da planilha (título + abas)
     try:
-        ws = sh.worksheet(aba_nome)
-    except Exception:
-        disponiveis = [w.title for w in sh.worksheets()]
+        meta = service.spreadsheets().get(spreadsheetId=sheet_id).execute()
+    except Exception as e:
+        return False, f"Erro ao acessar planilha: {e}"
+
+    sheet_title = meta.get("properties", {}).get("title", sheet_id)
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+    tabs = [s["properties"]["title"] for s in meta.get("sheets", [])]
+
+    if aba_nome not in tabs:
         return False, (
             f"Aba **'{aba_nome}'** não encontrada em **{sheet_title}**. "
-            f"Abas disponíveis: {', '.join(disponiveis) or '(nenhuma)'}. "
+            f"Abas disponíveis: {', '.join(tabs) or '(nenhuma)'}. "
             "Corrija em ⚙️ Configurações."
         )
 
@@ -219,21 +221,53 @@ def exportar(
     linhas = [[str(r.get(col, "") or "") for col, _ in COLUNAS_EXPORT] for r in resultados]
 
     try:
-        if modo == "substituir":
-            ws.clear()
-            ws.update([cabecalho] + linhas)
-        else:
-            existentes = ws.get_all_values()
-            if not existentes:
-                ws.update([cabecalho] + linhas)
-            else:
-                ws.append_rows(linhas)
+        escaped_aba = aba_nome.replace("'", "''")
 
-        # Verificação: lê de volta para confirmar que os dados foram escritos
-        check = ws.get("A1")
-        if not check:
+        if modo == "substituir":
+            # Limpa a aba inteira
+            service.spreadsheets().values().clear(
+                spreadsheetId=sheet_id,
+                range=f"'{escaped_aba}'",
+            ).execute()
+            # Escreve cabeçalho + dados a partir de A1
+            service.spreadsheets().values().update(
+                spreadsheetId=sheet_id,
+                range=f"'{escaped_aba}'!A1",
+                valueInputOption="USER_ENTERED",
+                body={"values": [cabecalho] + linhas},
+            ).execute()
+        else:
+            # Modo acrescentar: verifica se já tem dados
+            existing = service.spreadsheets().values().get(
+                spreadsheetId=sheet_id,
+                range=f"'{escaped_aba}'!A1:A1",
+            ).execute()
+            if not existing.get("values"):
+                # Aba vazia — escreve com cabeçalho
+                service.spreadsheets().values().update(
+                    spreadsheetId=sheet_id,
+                    range=f"'{escaped_aba}'!A1",
+                    valueInputOption="USER_ENTERED",
+                    body={"values": [cabecalho] + linhas},
+                ).execute()
+            else:
+                # Acrescenta linhas ao final
+                service.spreadsheets().values().append(
+                    spreadsheetId=sheet_id,
+                    range=f"'{escaped_aba}'",
+                    valueInputOption="USER_ENTERED",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": linhas},
+                ).execute()
+
+        # Verificação: lê A1 de volta via API (sem cache)
+        check = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range=f"'{escaped_aba}'!A1",
+        ).execute()
+        if not check.get("values"):
             return False, (
-                f"Escrita falhou silenciosamente — planilha vazia após update. "
+                f"Escrita falhou — planilha vazia após update. "
                 f"Planilha: {sheet_title} | Aba: {aba_nome}"
             )
 
