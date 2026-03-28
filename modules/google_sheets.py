@@ -166,11 +166,11 @@ def listar_planilhas(creds_dict: dict) -> list[dict]:
 
 
 def listar_abas(creds_dict: dict, sheet_id: str) -> list[str]:
-    """Retorna nomes das abas de uma planilha via Sheets API v4."""
+    """Retorna nomes das abas de uma planilha."""
     creds = _creds_from_dict(creds_dict)
-    service = build("sheets", "v4", credentials=creds, cache_discovery=False)
-    meta = service.spreadsheets().get(spreadsheetId=sheet_id).execute()
-    return [s["properties"]["title"] for s in meta.get("sheets", [])]
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(sheet_id)
+    return [ws.title for ws in sh.worksheets()]
 
 
 def exportar(
@@ -181,7 +181,7 @@ def exportar(
     modo: str = "substituir",
 ) -> tuple[bool, str]:
     """
-    Exporta resultados para o Google Sheets via Sheets API v4 (googleapiclient).
+    Exporta resultados para o Google Sheets usando credenciais OAuth.
 
     Parâmetros:
         resultados - lista de dicts com os dados
@@ -195,55 +195,35 @@ def exportar(
 
     try:
         creds = _creds_from_dict(creds_dict)
-        service = build("sheets", "v4", credentials=creds, cache_discovery=False)
-        # Verifica se a aba existe
-        meta = service.spreadsheets().get(spreadsheetId=sheet_id).execute()
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(sheet_id)
     except Exception as e:
         return False, f"Erro ao conectar com a planilha: {e}"
 
-    tabs = [s["properties"]["title"] for s in meta.get("sheets", [])]
-    if aba_nome not in tabs:
+    # Não cria aba silenciosamente — retorna erro claro com abas disponíveis
+    try:
+        ws = sh.worksheet(aba_nome)
+    except Exception:
+        disponiveis = [w.title for w in sh.worksheets()]
         return False, (
             f"Aba **'{aba_nome}'** não encontrada. "
-            f"Abas disponíveis: {', '.join(tabs) or '(nenhuma)'}. "
-            "Corrija o nome da aba em ⚙️ Configurações."
+            f"Abas disponíveis: {', '.join(disponiveis) or '(nenhuma)'}. "
+            "Corrija em ⚙️ Configurações."
         )
 
     cabecalho = [lbl for _, lbl in COLUNAS_EXPORT]
     linhas = [[str(r.get(col, "") or "") for col, _ in COLUNAS_EXPORT] for r in resultados]
-    range_aba = f"'{aba_nome}'"
 
     try:
         if modo == "substituir":
-            service.spreadsheets().values().clear(
-                spreadsheetId=sheet_id, range=range_aba, body={}
-            ).execute()
-            service.spreadsheets().values().update(
-                spreadsheetId=sheet_id,
-                range=f"{range_aba}!A1",
-                valueInputOption="USER_ENTERED",
-                body={"values": [cabecalho] + linhas},
-            ).execute()
+            ws.clear()
+            ws.update([cabecalho] + linhas)
         else:
-            existing = service.spreadsheets().values().get(
-                spreadsheetId=sheet_id, range=f"{range_aba}!A1:A1"
-            ).execute()
-            if not existing.get("values"):
-                service.spreadsheets().values().update(
-                    spreadsheetId=sheet_id,
-                    range=f"{range_aba}!A1",
-                    valueInputOption="USER_ENTERED",
-                    body={"values": [cabecalho] + linhas},
-                ).execute()
+            existentes = ws.get_all_values()
+            if not existentes:
+                ws.update([cabecalho] + linhas)
             else:
-                service.spreadsheets().values().append(
-                    spreadsheetId=sheet_id,
-                    range=range_aba,
-                    valueInputOption="USER_ENTERED",
-                    insertDataOption="INSERT_ROWS",
-                    body={"values": linhas},
-                ).execute()
-
+                ws.append_rows(linhas)
         return True, f"✅ {len(linhas)} registros exportados para **{aba_nome}**"
     except Exception as e:
         return False, f"Erro ao escrever na planilha: {e}"
