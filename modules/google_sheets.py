@@ -74,39 +74,53 @@ def _criar_flow(client_id: str, client_secret: str, redirect_uri: str) -> "Flow"
 
 
 def gerar_url_auth(client_id: str, client_secret: str, redirect_uri: str) -> str:
-    """Gera a URL de autorização. Codifica credenciais no state para sobreviver ao redirect."""
-    import base64, json
+    """Gera a URL de autorização com PKCE. Codifica credenciais + code_verifier no state."""
+    import base64, json, os, hashlib
+
+    # Gera PKCE manualmente para controlar o code_verifier
+    code_verifier  = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).decode().rstrip("=")
+
     state = base64.urlsafe_b64encode(json.dumps({
         "cid": client_id,
         "cs":  client_secret,
         "ru":  redirect_uri,
-    }).encode()).decode()
+        "cv":  code_verifier,
+    }).encode()).decode().rstrip("=")
+
     flow = _criar_flow(client_id, client_secret, redirect_uri)
     url, _ = flow.authorization_url(
         access_type="offline",
         prompt="consent",
         include_granted_scopes="true",
         state=state,
+        code_challenge=code_challenge,
+        code_challenge_method="S256",
     )
     return url
 
 
-def extrair_credenciais_state(state: str) -> tuple[str, str, str]:
-    """Decodifica client_id, client_secret e redirect_uri do parâmetro state OAuth."""
+def extrair_credenciais_state(state: str) -> tuple[str, str, str, str]:
+    """Decodifica client_id, client_secret, redirect_uri e code_verifier do state OAuth."""
     import base64, json
     try:
-        # Adiciona padding se necessário (base64 exige múltiplo de 4)
         padded = state + "=" * (-len(state) % 4)
         data = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
-        return data.get("cid",""), data.get("cs",""), data.get("ru","")
+        return data.get("cid",""), data.get("cs",""), data.get("ru",""), data.get("cv","")
     except Exception:
-        return "", "", ""
+        return "", "", "", ""
 
 
-def trocar_codigo(client_id: str, client_secret: str, redirect_uri: str, code: str) -> dict:
-    """Troca o código de autorização por credenciais e retorna como dict."""
+def trocar_codigo(client_id: str, client_secret: str, redirect_uri: str,
+                  code: str, code_verifier: str = "") -> dict:
+    """Troca o código de autorização por credenciais OAuth."""
     flow = _criar_flow(client_id, client_secret, redirect_uri)
-    flow.fetch_token(code=code)
+    fetch_kwargs: dict = {"code": code}
+    if code_verifier:
+        fetch_kwargs["code_verifier"] = code_verifier
+    flow.fetch_token(**fetch_kwargs)
     creds = flow.credentials
     return {
         "token":         creds.token,

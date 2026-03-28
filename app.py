@@ -27,13 +27,13 @@ if st.session_state.get("_oauth_code_seen") and "sheets_creds" not in st.session
     _state_to_use = st.session_state.pop("_oauth_state_seen", "")
     st.session_state["_oauth_exchange_done"] = True  # impede segundo uso
 
-    # 1) Credenciais codificadas no parâmetro state (geradas em gerar_url_auth)
-    cid, cs, ru = "", "", ""
+    # 1) Credenciais + code_verifier codificados no state (gerados em gerar_url_auth)
+    cid, cs, ru, cv = "", "", "", ""
     if _state_to_use:
         from modules.google_sheets import extrair_credenciais_state
-        cid, cs, ru = extrair_credenciais_state(_state_to_use)
+        cid, cs, ru, cv = extrair_credenciais_state(_state_to_use)
 
-    # 2) Fallback: env vars
+    # 2) Fallback: env vars (sem code_verifier — PKCE não funcionará nesse caso)
     if not (cid and cs):
         cid = cid or _s("GOOGLE_CLIENT_ID")
         cs  = cs  or _s("GOOGLE_CLIENT_SECRET")
@@ -44,7 +44,7 @@ if st.session_state.get("_oauth_code_seen") and "sheets_creds" not in st.session
     if cid and cs:
         try:
             from modules.google_sheets import trocar_codigo
-            creds = trocar_codigo(cid, cs, ru, _code_to_use)
+            creds = trocar_codigo(cid, cs, ru, _code_to_use, code_verifier=cv)
             st.session_state["sheets_creds"] = creds
             st.session_state.pop("_oauth_exchange_done", None)  # limpa flag após sucesso
             if "user" in st.session_state:
