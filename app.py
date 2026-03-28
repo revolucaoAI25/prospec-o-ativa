@@ -539,7 +539,7 @@ def pagina_busca():
     gmaps_key = _cfg_busca.get("google_maps_api_key", "") or st.session_state.get("user_gmaps_key", "")
     gmaps_ok  = bool(gmaps_key)
 
-    aba_maps, aba_rf = st.tabs(["🗺️  Google Maps  ·  com telefone", "📋  Receita Federal  ·  dados oficiais"])
+    aba_maps, aba_rf = st.tabs(["🗺️  Google Maps  ·  com telefone", "🏢  Casa dos Dados  ·  CNPJ + filtros avançados"])
 
     with aba_maps:
         if not gmaps_ok:
@@ -651,57 +651,194 @@ def pagina_busca():
             st.markdown("#### Prévia"); _tabela(res)
 
     with aba_rf:
-        st.markdown('<div class="info-box">Dados oficiais da <strong>Receita Federal</strong>. Ideal para volumes maiores com CNPJ e e-mail. <strong>1º uso:</strong> baixa arquivos ~350 MB (fica em cache 30 dias).</div>', unsafe_allow_html=True)
-        with st.form("form_rf"):
-            c1,c2=st.columns(2)
-            with c1: mun_rf=st.text_input("Município (opcional)", placeholder="Ex: São Paulo", label_visibility="collapsed")
-            with c2: uf_rf=st.selectbox("Estado *", SIGLAS_ESTADOS, index=SIGLAS_ESTADOS.index("SP"), label_visibility="collapsed")
-            lim_rf=st.slider("Máx. resultados",50,2000,300,50)
-            apenas_novos_rf = st.toggle(
-                "🔄 Apenas leads novos (remover repetidos de buscas anteriores)",
-                value=True,
-                help="Quando ativado, empresas com mesmo CNPJ ou telefone de pesquisas anteriores são removidas.",
+        from modules.cnaes import OPCOES_MULTISELECT, CODIGO_PARA_DESC
+
+        cdd_key = _s("CDD_API_KEY")
+        if not cdd_key:
+            st.warning(
+                "Chave da API Casa dos Dados não configurada.  \n"
+                "Adicione `CDD_API_KEY` nas **Secrets** do Streamlit Cloud para habilitar esta busca.",
+                icon="⚠️",
             )
-            btn_rf=st.form_submit_button("🔍 Buscar na Receita Federal", use_container_width=True, type="primary")
-        if btn_rf:
-            from modules.receita_federal import buscar_por_cnae_rf
-            local = mun_rf.strip() or uf_rf
-            # Carrega identificadores já salvos antes de iniciar a busca
-            excl_tels_rf, excl_cnpjs_rf = set(), set()
-            if apenas_novos_rf:
-                from modules.database import buscar_identificadores_existentes
-                excl_tels_rf, excl_cnpjs_rf = buscar_identificadores_existentes()
-            bar = st.progress(0, text="Iniciando...")
-            def _cbrf(a, t, m):
-                v = min(a / t, 1.0) if t and t > 0 else 0
-                bar.progress(v, text=str(m)[:120])
-            try:
-                res_rf = buscar_por_cnae_rf(
-                    uf=uf_rf, municipio=mun_rf.strip(), limite=lim_rf,
-                    callback_progresso=_cbrf,
-                    exclude_phones=excl_tels_rf if apenas_novos_rf else None,
-                    exclude_cnpjs=excl_cnpjs_rf if apenas_novos_rf else None,
+        else:
+            st.markdown('<div class="info-box">Busca direta no cadastro da <strong>Receita Federal</strong> via <strong>Casa dos Dados</strong>. '
+                        'Filtros por CNAE, porte, regime tributário e muito mais. Resultados instantâneos.</div>', unsafe_allow_html=True)
+
+            with st.form("form_cdd"):
+                # ── CNAEs ──────────────────────────────────────────────────────
+                st.markdown("**CNAE(s) — Atividade principal**")
+                cnaes_sel = st.multiselect(
+                    "Selecione os CNAEs", OPCOES_MULTISELECT,
+                    placeholder="Digite para buscar por código ou atividade…",
+                    label_visibility="collapsed", key="cdd_cnaes",
                 )
-                bar.progress(1.0, text=f"Concluído! {len(res_rf)} resultados.")
-                bar.empty()
-                st.session_state["rf_res"] = res_rf
-                st.session_state["rf_prefix"] = f"rf_{local.lower().replace(' ','_')}"
-            except Exception as e:
-                bar.empty(); st.error(f"Erro: {e}"); st.session_state["rf_res"] = []
-            else:
-                try:
-                    from modules.database import salvar_pesquisa, salvar_leads
-                    sid = salvar_pesquisa("Advocacia (RF)", "", mun_rf.strip(), uf_rf, local, "receita_federal", len(res_rf))
-                    if sid: salvar_leads(sid, res_rf)
-                except Exception:
-                    pass
-                # Seta flag — auto-export roda fora do bloco else/tab abaixo
-                if st.session_state.get("auto_export_enabled"):
-                    st.session_state["_auto_exp_rf"] = True
+                cnae_manual = st.text_input(
+                    "Ou adicione código CNAE manualmente (separe por vírgula)",
+                    placeholder="Ex: 6911701, 6912500",
+                    key="cdd_cnae_manual",
+                )
+
+                # ── Localização ───────────────────────────────────────────────
+                c1, c2 = st.columns(2)
+                with c1:
+                    uf_cdd = st.selectbox("Estado *", SIGLAS_ESTADOS, index=SIGLAS_ESTADOS.index("SP"), key="cdd_uf")
+                with c2:
+                    mun_cdd = st.text_input("Município (opcional)", placeholder="Ex: São Paulo", key="cdd_mun")
+
+                lim_cdd = st.slider("Máx. resultados", 50, 2000, 300, 50, key="cdd_lim")
+
+                # ── Filtros da empresa ─────────────────────────────────────────
+                with st.expander("📊 Filtros da empresa"):
+                    fc1, fc2 = st.columns(2)
+                    with fc1:
+                        portes_sel = st.multiselect(
+                            "Porte da empresa",
+                            options=["01 — Micro Empresa", "03 — Empresa de Pequeno Porte", "05 — Demais"],
+                            default=[],
+                            key="cdd_porte",
+                        )
+                        matriz_fil = st.radio(
+                            "Matriz / Filial",
+                            ["Todos", "Somente Matriz", "Somente Filial"],
+                            horizontal=True, key="cdd_matriz",
+                        )
+                    with fc2:
+                        simples_op = st.radio(
+                            "Simples Nacional",
+                            ["Indiferente", "Apenas optantes", "Excluir optantes"],
+                            key="cdd_simples",
+                        )
+                        mei_op = st.radio(
+                            "MEI",
+                            ["Indiferente", "Apenas MEI", "Excluir MEI"],
+                            key="cdd_mei",
+                        )
+
+                    fd1, fd2 = st.columns(2)
+                    with fd1:
+                        dt_ini = st.date_input("Abertura — de", value=None, key="cdd_dt_ini")
+                        cap_min = st.number_input("Capital social mínimo (R$)", min_value=0, value=0, step=1000, key="cdd_cap_min")
+                    with fd2:
+                        dt_fim = st.date_input("Abertura — até", value=None, key="cdd_dt_fim")
+                        cap_max = st.number_input("Capital social máximo (R$)", min_value=0, value=0, step=1000, key="cdd_cap_max")
+
+                # ── Filtros de contato ─────────────────────────────────────────
+                with st.expander("📞 Filtros de contato"):
+                    ct1, ct2 = st.columns(2)
+                    with ct1:
+                        com_tel = st.toggle("Apenas com telefone", value=True, key="cdd_com_tel")
+                        com_email_cdd = st.toggle("Apenas com e-mail", value=False, key="cdd_com_email")
+                    with ct2:
+                        tipo_tel = st.radio("Tipo de telefone", ["Todos", "Somente celular", "Somente fixo"], key="cdd_tipo_tel")
+                        excl_contab = st.toggle("Excluir e-mails de contabilidade", value=True, key="cdd_excl_contab")
+
+                apenas_novos_cdd = st.toggle(
+                    "🔄 Apenas leads novos (remover repetidos de buscas anteriores)",
+                    value=True, key="cdd_apenas_novos",
+                    help="Remove empresas com CNPJ ou telefone já salvos em buscas anteriores.",
+                )
+
+                btn_cdd = st.form_submit_button("🔍 Buscar na Casa dos Dados", use_container_width=True, type="primary")
+
+            if btn_cdd:
+                from modules.casa_dos_dados import buscar as cdd_buscar
+
+                # Monta lista de CNAEs
+                cnaes_codigos = [op.split(" — ")[0].strip() for op in cnaes_sel]
+                if cnae_manual.strip():
+                    cnaes_codigos += [c.strip() for c in cnae_manual.split(",") if c.strip()]
+                cnaes_codigos = list(dict.fromkeys(cnaes_codigos))  # deduplication mantendo ordem
+
+                if not cnaes_codigos:
+                    st.error("Selecione ao menos um CNAE para buscar.")
+                else:
+                    # Porte
+                    porte_codigos = [op.split(" — ")[0].strip() for op in portes_sel] or None
+
+                    # Matriz/filial
+                    mf_map = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
+                    mf_val = mf_map.get(matriz_fil, "")
+
+                    # Simples
+                    simples_optante = True if simples_op == "Apenas optantes" else None
+                    excluir_simples = simples_op == "Excluir optantes"
+
+                    # MEI
+                    mei_optante = True if mei_op == "Apenas MEI" else None
+                    excluir_mei = mei_op == "Excluir MEI"
+
+                    # Tipo de telefone
+                    so_cel = tipo_tel == "Somente celular"
+                    so_fix = tipo_tel == "Somente fixo"
+
+                    # Datas
+                    dt_ini_str = dt_ini.strftime("%Y-%m-%d") if dt_ini else ""
+                    dt_fim_str = dt_fim.strftime("%Y-%m-%d") if dt_fim else ""
+
+                    # Capital
+                    cap_min_v = int(cap_min) if cap_min else None
+                    cap_max_v = int(cap_max) if cap_max else None
+
+                    # Deduplicação
+                    excl_tels_cdd, excl_cnpjs_cdd = set(), set()
+                    if apenas_novos_cdd:
+                        from modules.database import buscar_identificadores_existentes
+                        excl_tels_cdd, excl_cnpjs_cdd = buscar_identificadores_existentes()
+
+                    local_cdd = mun_cdd.strip() or uf_cdd
+                    nicho_label = CODIGO_PARA_DESC.get(cnaes_codigos[0], cnaes_codigos[0]) if cnaes_codigos else "CDD"
+
+                    bar_cdd = st.progress(0, text="Buscando…")
+                    def _cb_cdd(a, t, m):
+                        v = min(a / max(t, 1), 1.0)
+                        bar_cdd.progress(v, text=str(m)[:120])
+
+                    try:
+                        res_cdd = cdd_buscar(
+                            api_key=cdd_key,
+                            cnaes=cnaes_codigos,
+                            uf=uf_cdd,
+                            municipio=mun_cdd.strip(),
+                            porte=porte_codigos,
+                            matriz_filial=mf_val,
+                            simples_optante=simples_optante,
+                            excluir_simples=excluir_simples,
+                            mei_optante=mei_optante,
+                            excluir_mei=excluir_mei,
+                            com_telefone=com_tel,
+                            com_email=com_email_cdd,
+                            somente_celular=so_cel,
+                            somente_fixo=so_fix,
+                            excluir_email_contab=excl_contab,
+                            data_abertura_inicio=dt_ini_str,
+                            data_abertura_fim=dt_fim_str,
+                            capital_min=cap_min_v,
+                            capital_max=cap_max_v,
+                            limite=lim_cdd,
+                            exclude_phones=excl_tels_cdd if apenas_novos_cdd else None,
+                            exclude_cnpjs=excl_cnpjs_cdd if apenas_novos_cdd else None,
+                            callback=_cb_cdd,
+                        )
+                        bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
+                        bar_cdd.empty()
+                        st.session_state["rf_res"] = res_cdd
+                        st.session_state["rf_prefix"] = f"cdd_{local_cdd.lower().replace(' ','_')}"
+                    except Exception as e:
+                        bar_cdd.empty()
+                        st.error(f"Erro: {e}")
+                        st.session_state["rf_res"] = []
+                    else:
+                        try:
+                            from modules.database import salvar_pesquisa, salvar_leads
+                            sid = salvar_pesquisa(nicho_label, ", ".join(cnaes_codigos), mun_cdd.strip(), uf_cdd, local_cdd, "casa_dos_dados", len(res_cdd))
+                            if sid: salvar_leads(sid, res_cdd)
+                        except Exception:
+                            pass
+                        if st.session_state.get("auto_export_enabled"):
+                            st.session_state["_auto_exp_rf"] = True
 
         if st.session_state.get("rf_res"):
             res = st.session_state["rf_res"]
-            # Auto-export roda aqui, fora de qualquer contexto de form/tab/popover
             if st.session_state.pop("_auto_exp_rf", False):
                 _planilhas = st.session_state.get("sheets_planilhas", [])
                 _padrao = next((p for p in _planilhas if p.get("padrao")), None)
@@ -720,7 +857,7 @@ def pagina_busca():
                 else:
                     st.warning("Auto-export: nenhuma planilha padrão ⭐ definida.")
             st.success(f"✅ **{len(res)}** resultados")
-            _stats(res); _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_rf"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
+            _stats(res); _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
 
 
