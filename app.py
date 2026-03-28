@@ -445,6 +445,14 @@ def _export_to_planilha(rows, planilha: dict):
 
 def _dl_buttons(rows, prefix, sheets_auth):
     ts = int(time.time())
+
+    # Executa exportação pendente FORA do popover (evita contexto fechado)
+    _req_id = st.session_state.pop(f"_exp_req_{prefix}", None)
+    if _req_id:
+        _p = next((p for p in st.session_state.get("sheets_planilhas", []) if p["id"] == _req_id), None)
+        if _p:
+            _export_to_planilha(rows, _p)
+
     c1, c2, c3 = st.columns(3)
     with c1:
         st.download_button("⬇️ Excel", _xlsx(rows), f"{prefix}_{ts}.xlsx",
@@ -462,7 +470,9 @@ def _dl_buttons(rows, prefix, sheets_auth):
                     badge = " ⭐" if p.get("padrao") else ""
                     lbl = f"{p['nome']}{badge} → {p['aba']} ({p.get('modo','substituir')})"
                     if st.button(lbl, key=f"exp_{p['id'][:8]}_{prefix}", use_container_width=True):
-                        _export_to_planilha(rows, p)
+                        # Guarda flag — exportação roda fora do popover no próximo render
+                        st.session_state[f"_exp_req_{prefix}"] = p["id"]
+                        st.rerun()
         elif sheets_auth:
             st.button("📊 Google Sheets", use_container_width=True, disabled=True,
                       help="Adicione uma planilha em ⚙️ Configurações.")
@@ -609,20 +619,27 @@ def pagina_busca():
                         if sid: salvar_leads(sid, res)
                     except Exception:
                         pass
-                    # Auto-export para planilha padrão
-                    if st.session_state.get("auto_export_enabled") and res:
-                        _planilhas = st.session_state.get("sheets_planilhas", [])
-                        _padrao = next((p for p in _planilhas if p.get("padrao")), None)
-                        if _padrao and st.session_state.get("sheets_creds"):
-                            from modules.google_sheets import exportar
-                            with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
-                                _ok, _msg = exportar(res, st.session_state["sheets_creds"],
-                                                     _padrao["id"], _padrao["aba"],
-                                                     _padrao.get("modo","substituir"))
-                            st.toast(_msg, icon="✅" if _ok else "❌")
+                    # Seta flag — auto-export roda fora do bloco else/tab abaixo
+                    if st.session_state.get("auto_export_enabled"):
+                        st.session_state["_auto_exp_maps"] = True
 
         if st.session_state.get("maps_res"):
             res = st.session_state["maps_res"]
+            # Auto-export roda aqui, fora de qualquer contexto de form/tab/popover
+            if st.session_state.pop("_auto_exp_maps", False):
+                _planilhas = st.session_state.get("sheets_planilhas", [])
+                _padrao = next((p for p in _planilhas if p.get("padrao")), None)
+                if _padrao and st.session_state.get("sheets_creds"):
+                    from modules.google_sheets import exportar
+                    with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
+                        _ok, _msg = exportar(res, st.session_state["sheets_creds"],
+                                             _padrao["id"], _padrao["aba"],
+                                             _padrao.get("modo","substituir"))
+                    st.toast(_msg, icon="✅" if _ok else "❌")
+                elif not st.session_state.get("sheets_creds"):
+                    st.toast("Auto-export: conta Google não vinculada.", icon="⚠️")
+                else:
+                    st.toast("Auto-export: nenhuma planilha padrão ⭐ definida.", icon="⚠️")
             st.success(f"✅ **{len(res)}** resultados")
             _stats(res); _dl_buttons(res, st.session_state.get("maps_prefix","prospecao"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
@@ -672,21 +689,29 @@ def pagina_busca():
                     if sid: salvar_leads(sid, res_rf)
                 except Exception:
                     pass
-                # Auto-export para planilha padrão
-                if st.session_state.get("auto_export_enabled") and res_rf:
-                    _planilhas = st.session_state.get("sheets_planilhas", [])
-                    _padrao = next((p for p in _planilhas if p.get("padrao")), None)
-                    if _padrao and st.session_state.get("sheets_creds"):
-                        from modules.google_sheets import exportar
-                        with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
-                            _ok, _msg = exportar(res_rf, st.session_state["sheets_creds"],
-                                                 _padrao["id"], _padrao["aba"],
-                                                 _padrao.get("modo","substituir"))
-                        st.toast(_msg, icon="✅" if _ok else "❌")
+                # Seta flag — auto-export roda fora do bloco else/tab abaixo
+                if st.session_state.get("auto_export_enabled"):
+                    st.session_state["_auto_exp_rf"] = True
+
         if st.session_state.get("rf_res"):
-            res=st.session_state["rf_res"]
+            res = st.session_state["rf_res"]
+            # Auto-export roda aqui, fora de qualquer contexto de form/tab/popover
+            if st.session_state.pop("_auto_exp_rf", False):
+                _planilhas = st.session_state.get("sheets_planilhas", [])
+                _padrao = next((p for p in _planilhas if p.get("padrao")), None)
+                if _padrao and st.session_state.get("sheets_creds"):
+                    from modules.google_sheets import exportar
+                    with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
+                        _ok, _msg = exportar(res, st.session_state["sheets_creds"],
+                                             _padrao["id"], _padrao["aba"],
+                                             _padrao.get("modo","substituir"))
+                    st.toast(_msg, icon="✅" if _ok else "❌")
+                elif not st.session_state.get("sheets_creds"):
+                    st.toast("Auto-export: conta Google não vinculada.", icon="⚠️")
+                else:
+                    st.toast("Auto-export: nenhuma planilha padrão ⭐ definida.", icon="⚠️")
             st.success(f"✅ **{len(res)}** resultados")
-            _stats(res); _dl_buttons(res,st.session_state.get("rf_prefix","prospecao_rf"),"sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
+            _stats(res); _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_rf"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
 
 
@@ -730,6 +755,14 @@ def pagina_historico():
             ts = int(time.time())
             slug = f"{nicho[:12]}_{loc[:12]}".lower().replace(" ","_").replace(",","")
             _planilhas_h = st.session_state.get("sheets_planilhas", [])
+
+            # Executa exportação pendente fora do popover
+            _hreq = st.session_state.pop(f"_hexp_req_{p['id']}", None)
+            if _hreq and leads:
+                _hp = next((x for x in _planilhas_h if x["id"] == _hreq), None)
+                if _hp:
+                    _export_to_planilha(leads, _hp)
+
             c1, c2, c3 = st.columns(3)
             with c1: st.download_button("⬇️ Excel",_xlsx(leads),f"{slug}_{ts}.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",use_container_width=True,key=f"xl_{p['id']}")
             with c2: st.download_button("⬇️ CSV",_csv(leads),f"{slug}_{ts}.csv","text/csv",use_container_width=True,key=f"csv_{p['id']}")
@@ -741,7 +774,8 @@ def pagina_historico():
                             _badge = " ⭐" if _ph.get("padrao") else ""
                             _lbl = f"{_ph['nome']}{_badge} → {_ph['aba']} ({_ph.get('modo','substituir')})"
                             if st.button(_lbl, key=f"hexp_{_ph['id'][:8]}_{p['id'][:8]}", use_container_width=True):
-                                _export_to_planilha(leads, _ph)
+                                st.session_state[f"_hexp_req_{p['id']}"] = _ph["id"]
+                                st.rerun()
                 else:
                     sheets_tip = "Conecte sua conta Google em ⚙️ Configurações." if "sheets_creds" not in st.session_state else "Adicione uma planilha em ⚙️ Configurações."
                     st.button("📊 Google Sheets", disabled=True, use_container_width=True, help=sheets_tip, key=f"hgs_{p['id']}")
