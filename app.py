@@ -39,8 +39,11 @@ if _code and "sheets_creds" not in st.session_state:
                 salvar_configuracoes({"google_sheets_creds": creds})
             else:
                 st.session_state["_pending_sheets_save"] = True
+            # Redireciona para Configurações para o usuário ver a planilha selecionada
+            st.session_state["page"] = "configuracoes"
         except Exception as e:
             st.session_state["_oauth_err"] = str(e)
+            st.session_state["page"] = "configuracoes"
     else:
         st.session_state["_oauth_err"] = "Credenciais OAuth não encontradas. Salve Client ID e Secret nas Configurações antes de conectar."
     st.query_params.clear()
@@ -746,20 +749,36 @@ def pagina_configuracoes():
 
         st.markdown("---")
 
+        # Exibe erro de OAuth se houver
+        _oerr = st.session_state.pop("_oauth_err", None)
+        if _oerr:
+            st.error(f"Erro ao conectar conta Google: {_oerr}", icon="❌")
+
         if "sheets_creds" in st.session_state:
-            st.success("✅ Conta Google conectada!", icon="✅")
+            st.success("✅ Conta Google vinculada!", icon="✅")
 
             # ── Seleção de planilha ─────────────────────────────────────────
-            from modules.google_sheets import listar_planilhas, listar_abas
+            from modules.google_sheets import listar_planilhas, listar_abas, extrair_sheet_id
+
+            _lista_err = None
             if "sheets_lista" not in st.session_state:
                 with st.spinner("Buscando planilhas no Google Drive..."):
                     try:
                         st.session_state["sheets_lista"] = listar_planilhas(st.session_state["sheets_creds"])
                     except Exception as e:
                         st.session_state["sheets_lista"] = []
-                        st.warning(f"Erro ao listar planilhas: {e}")
+                        _lista_err = str(e)
 
             planilhas = st.session_state.get("sheets_lista", [])
+
+            if _lista_err:
+                st.error(
+                    f"Não foi possível listar planilhas: {_lista_err}\n\n"
+                    "Verifique se a **Google Drive API** está habilitada no Google Cloud Console "
+                    "(além da Sheets API). Você ainda pode usar a URL da planilha abaixo.",
+                    icon="❌",
+                )
+
             if planilhas:
                 nomes = [p["name"] for p in planilhas]
                 ids   = [p["id"]   for p in planilhas]
@@ -772,7 +791,25 @@ def pagina_configuracoes():
                     st.session_state["sheets_selected_id"] = chosen_id
                     st.session_state["sheets_selected_name"] = escolha
                     st.session_state.pop("sheets_abas", None)
+            else:
+                # Fallback: colar URL ou ID da planilha manualmente
+                st.markdown("**Cole a URL ou ID da planilha destino:**")
+                url_input = st.text_input(
+                    "URL da planilha",
+                    value="",
+                    placeholder="https://docs.google.com/spreadsheets/d/... ou só o ID",
+                    key="cfg_sheet_url",
+                    label_visibility="collapsed",
+                )
+                if url_input.strip():
+                    sid_manual = extrair_sheet_id(url_input.strip()) or url_input.strip()
+                    if sid_manual != st.session_state.get("sheets_selected_id"):
+                        st.session_state["sheets_selected_id"] = sid_manual
+                        st.session_state["sheets_selected_name"] = sid_manual[:40]
+                        st.session_state.pop("sheets_abas", None)
+                chosen_id = st.session_state.get("sheets_selected_id", "")
 
+            if chosen_id := st.session_state.get("sheets_selected_id", ""):
                 if "sheets_abas" not in st.session_state:
                     with st.spinner("Carregando abas..."):
                         try:
@@ -781,7 +818,7 @@ def pagina_configuracoes():
                             st.session_state["sheets_abas"] = ["Prospecção"]
 
                 abas = st.session_state.get("sheets_abas", ["Prospecção"])
-                aba_atual = st.session_state.get("sheets_aba", "Prospecção")
+                aba_atual = st.session_state.get("sheets_aba", abas[0] if abas else "Prospecção")
                 aba_idx = abas.index(aba_atual) if aba_atual in abas else 0
 
                 col_aba, col_modo = st.columns(2)
@@ -794,19 +831,14 @@ def pagina_configuracoes():
                     modo_sel = st.selectbox("📝 Modo de exportação", modo_opts, index=modo_idx, key="cfg_modo_sel")
                     st.session_state["sheets_modo"] = modo_sel
 
-                st.info(f"Exportação irá para **{escolha}** → aba **{aba_sel}** ({modo_sel})", icon="📊")
-            else:
-                st.warning("Nenhuma planilha encontrada. Crie uma planilha no Google Drive e recarregue.", icon="⚠️")
+                nome_planilha = st.session_state.get("sheets_selected_name", chosen_id[:30])
+                st.info(f"Exportação irá para **{nome_planilha}** → aba **{aba_sel}** ({modo_sel})", icon="📊")
 
             st.markdown("")
             if st.button("🔓 Desconectar conta Google", key="disc_google"):
-                st.session_state.pop("sheets_creds", None)
-                st.session_state.pop("sheets_lista", None)
-                st.session_state.pop("sheets_selected_id", None)
-                st.session_state.pop("sheets_selected_name", None)
-                st.session_state.pop("sheets_abas", None)
-                st.session_state.pop("sheets_aba", None)
-                st.session_state.pop("sheets_modo", None)
+                for k in ["sheets_creds", "sheets_lista", "sheets_selected_id",
+                          "sheets_selected_name", "sheets_abas", "sheets_aba", "sheets_modo"]:
+                    st.session_state.pop(k, None)
                 salvar_configuracoes({"google_sheets_creds": None})
                 st.rerun()
         else:
