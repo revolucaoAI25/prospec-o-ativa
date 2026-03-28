@@ -22,26 +22,18 @@ if _code and "sheets_creds" not in st.session_state:
         from modules.google_sheets import extrair_credenciais_state
         cid, cs, ru = extrair_credenciais_state(_state)
 
-    # 2) Fallback: tenta restaurar sessão e ler do Supabase
+    # 2) Fallback: lê do env (state tem prioridade, não depende de sessão)
     if not (cid and cs):
-        if "user" not in st.session_state:
-            from modules.auth import restaurar_sessao
-            restaurar_sessao()
-        from modules.database import carregar_configuracoes
-        _cfg_oauth = carregar_configuracoes()
-        cid = cid or _cfg_oauth.get("google_client_id","") or _s("GOOGLE_CLIENT_ID")
-        cs  = cs  or _cfg_oauth.get("google_client_secret","") or _s("GOOGLE_CLIENT_SECRET")
-        ru  = ru  or _cfg_oauth.get("app_url","") or _s("APP_URL","http://localhost:8501")
+        cid = cid or _s("GOOGLE_CLIENT_ID")
+        cs  = cs  or _s("GOOGLE_CLIENT_SECRET")
+        ru  = ru  or _s("APP_URL","http://localhost:8501")
 
     if cid and cs:
         try:
             from modules.google_sheets import trocar_codigo
             creds = trocar_codigo(cid, cs, ru, _code)
             st.session_state["sheets_creds"] = creds
-            # Persiste no Supabase (melhor esforço — só se sessão disponível)
-            if "user" not in st.session_state:
-                from modules.auth import restaurar_sessao
-                restaurar_sessao()
+            # Persiste no Supabase se sessão disponível (main() restaura depois)
             if "user" in st.session_state:
                 from modules.database import salvar_configuracoes
                 salvar_configuracoes({"google_sheets_creds": creds})
@@ -935,6 +927,8 @@ def _sidebar():
 
 def main():
     from modules.auth import usuario_logado, eh_admin, supabase_configurado, restaurar_sessao
+    import extra_streamlit_components as stx
+    from datetime import datetime, timedelta
 
     if not supabase_configurado():
         st.error(
@@ -945,44 +939,35 @@ def main():
         )
         st.stop()
 
-    # ── Restaura sessão do cookie via st.context.cookies (sem componente React) ─
+    # ── CookieManager sempre renderizado ─────────────────────────────────────
+    # st.context.cookies não funciona no Community Cloud (CDN remove headers HTTP).
+    # CookieManager usa JavaScript/WebSocket (document.cookie) — funciona sempre.
+    # Só dispara reruns quando o valor do cookie muda — navegação normal é rápida.
+    cm = stx.CookieManager(key="__le_cm")
+
+    # ── Restaura sessão do cookie ─────────────────────────────────────────────
     if "user" not in st.session_state:
-        restaurar_sessao()
+        if not st.session_state.get("_cm_init_done"):
+            # Primeiro render: CookieManager ainda não inicializou (retorna None).
+            # Seta flag e para — CookieManager dispara rerun automático (~100-300ms).
+            st.session_state["_cm_init_done"] = True
+            st.stop()
+        rt = cm.get(_COOKIE_NAME)
+        if rt:
+            restaurar_sessao(rt)
 
-    # ── CookieManager: só renderizado quando há escrita/deleção pendente ──────
-    # Após login, salvar_sessao_cookie() seta _pending_rt.
-    # Mantemos o CookieManager renderizado até cm.get() confirmar a escrita
-    # (2 renders) — só então removemos a flag. Durante navegação normal
-    # nenhuma flag fica ativa → nenhum componente React → transições rápidas.
-    _pending_rt       = st.session_state.get("_pending_rt")
-    _do_logout_cookie = st.session_state.get("_do_logout_cookie")
+    # ── Escreve cookie após login ─────────────────────────────────────────────
+    if st.session_state.get("_pending_rt"):
+        rt = st.session_state.pop("_pending_rt")
+        cm.set(_COOKIE_NAME, rt, expires_at=datetime.now() + timedelta(days=30))
 
-    if _pending_rt or _do_logout_cookie:
+    # ── Apaga cookie no logout ────────────────────────────────────────────────
+    if st.session_state.get("_do_logout_cookie"):
         try:
-            import extra_streamlit_components as stx
-            from datetime import datetime, timedelta
-            _cm = stx.CookieManager(key="__le_cm")
-
-            if _pending_rt:
-                # Verifica se o cookie já foi confirmado pelo componente
-                if _cm.get(_COOKIE_NAME) == _pending_rt:
-                    # Confirmado: remove a flag, CookieManager não renderizará mais
-                    st.session_state.pop("_pending_rt", None)
-                else:
-                    # Ainda não confirmado: escreve/reescreve e aguarda próximo render
-                    _cm.set(_COOKIE_NAME, _pending_rt,
-                            expires_at=datetime.now() + timedelta(days=30))
-
-            if _do_logout_cookie:
-                try:
-                    _cm.delete(_COOKIE_NAME)
-                except Exception:
-                    pass
-                st.session_state.pop("_do_logout_cookie", None)
-
+            cm.delete(_COOKIE_NAME)
         except Exception:
-            st.session_state.pop("_pending_rt", None)
-            st.session_state.pop("_do_logout_cookie", None)
+            pass
+        st.session_state.pop("_do_logout_cookie", None)
 
     user = usuario_logado()
 

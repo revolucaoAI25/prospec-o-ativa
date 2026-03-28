@@ -83,24 +83,20 @@ def limpar_cookie():
     st.session_state.pop("_cookie_set", None)
 
 
-def restaurar_sessao() -> bool:
+def restaurar_sessao(refresh_token: str) -> bool:
     """
-    Restaura sessão a partir do cookie le_rt via st.context.cookies.
-    Zero componente React, zero rerun extra — só uma chamada HTTP ao Supabase.
+    Restaura sessão a partir do refresh token fornecido pelo CookieManager.
+    O token é lido via JavaScript (document.cookie) — funciona no Community Cloud.
     """
     if "user" in st.session_state:
         return True
-    try:
-        rt = st.context.cookies.get(_COOKIE_NAME, "")
-    except Exception:
-        return False
-    if not rt:
+    if not refresh_token:
         return False
     sb = _client()
     if not sb:
         return False
     try:
-        resp = sb.auth.refresh_session(rt)
+        resp = sb.auth.refresh_session(refresh_token)
         if not resp or not resp.user or not resp.session:
             return False
         user = resp.user
@@ -176,7 +172,7 @@ def logout():
     for k in ["user", "user_gmaps_key", "sheets_creds", "sheets_lista",
               "sheets_selected_id", "sheets_selected_name", "sheets_abas",
               "maps_res", "rf_res", "page", "_cfg_cache", "_cookie_set",
-              "_pesquisas_cache", "_sb_client"]:
+              "_pesquisas_cache", "_sb_client", "_cm_init_done"]:
         st.session_state.pop(k, None)
 
 
