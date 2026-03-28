@@ -33,10 +33,12 @@ if _code and "sheets_creds" not in st.session_state:
             from modules.google_sheets import trocar_codigo
             creds = trocar_codigo(cid, cs, ru, _code)
             st.session_state["sheets_creds"] = creds
-            # Persiste no Supabase se sessão disponível (main() restaura depois)
+            # Persiste no Supabase. Se sessão ainda não restaurada, salva depois em main().
             if "user" in st.session_state:
                 from modules.database import salvar_configuracoes
                 salvar_configuracoes({"google_sheets_creds": creds})
+            else:
+                st.session_state["_pending_sheets_save"] = True
         except Exception as e:
             st.session_state["_oauth_err"] = str(e)
     else:
@@ -421,11 +423,19 @@ def _dl_buttons(rows, prefix, sheets_auth):
             st.button("📊 Google Sheets",use_container_width=True,disabled=True,help="Conecte sua conta Google em Configurações.")
 
 def _export_sheets(rows):
-    from modules.google_sheets import exportar, extrair_sheet_id
-    creds=st.session_state.get("sheets_creds"); sid=st.session_state.get("sheets_selected_id","")
-    aba=st.session_state.get("sheets_aba","Prospecção"); modo=st.session_state.get("sheets_modo","substituir")
-    if not creds or not sid: st.warning("Escolha uma planilha em Configurações."); return
-    with st.spinner("Exportando..."): ok,msg=exportar(rows,creds,sid,aba,modo)
+    from modules.google_sheets import exportar
+    creds = st.session_state.get("sheets_creds")
+    sid   = st.session_state.get("sheets_selected_id", "")
+    aba   = st.session_state.get("sheets_aba", "Prospecção")
+    modo  = st.session_state.get("sheets_modo", "substituir")
+    if not creds:
+        st.warning("Conecte sua conta Google em ⚙️ Configurações.", icon="🔗")
+        return
+    if not sid:
+        st.warning("Selecione uma planilha destino em ⚙️ Configurações.", icon="📄")
+        return
+    with st.spinner("Exportando..."):
+        ok, msg = exportar(rows, creds, sid, aba, modo)
     (st.success if ok else st.error)(msg)
 
 # ══════════════════════════════════════════════════════════════
@@ -738,13 +748,65 @@ def pagina_configuracoes():
 
         if "sheets_creds" in st.session_state:
             st.success("✅ Conta Google conectada!", icon="✅")
+
+            # ── Seleção de planilha ─────────────────────────────────────────
+            from modules.google_sheets import listar_planilhas, listar_abas
+            if "sheets_lista" not in st.session_state:
+                with st.spinner("Buscando planilhas no Google Drive..."):
+                    try:
+                        st.session_state["sheets_lista"] = listar_planilhas(st.session_state["sheets_creds"])
+                    except Exception as e:
+                        st.session_state["sheets_lista"] = []
+                        st.warning(f"Erro ao listar planilhas: {e}")
+
+            planilhas = st.session_state.get("sheets_lista", [])
+            if planilhas:
+                nomes = [p["name"] for p in planilhas]
+                ids   = [p["id"]   for p in planilhas]
+                sel_name = st.session_state.get("sheets_selected_name", "")
+                idx = nomes.index(sel_name) if sel_name in nomes else 0
+                escolha = st.selectbox("📄 Planilha destino", nomes, index=idx, key="cfg_sheet_sel")
+                chosen_id = ids[nomes.index(escolha)]
+
+                if chosen_id != st.session_state.get("sheets_selected_id"):
+                    st.session_state["sheets_selected_id"] = chosen_id
+                    st.session_state["sheets_selected_name"] = escolha
+                    st.session_state.pop("sheets_abas", None)
+
+                if "sheets_abas" not in st.session_state:
+                    with st.spinner("Carregando abas..."):
+                        try:
+                            st.session_state["sheets_abas"] = listar_abas(st.session_state["sheets_creds"], chosen_id)
+                        except Exception:
+                            st.session_state["sheets_abas"] = ["Prospecção"]
+
+                abas = st.session_state.get("sheets_abas", ["Prospecção"])
+                aba_atual = st.session_state.get("sheets_aba", "Prospecção")
+                aba_idx = abas.index(aba_atual) if aba_atual in abas else 0
+
+                col_aba, col_modo = st.columns(2)
+                with col_aba:
+                    aba_sel = st.selectbox("📑 Aba destino", abas, index=aba_idx, key="cfg_aba_sel")
+                    st.session_state["sheets_aba"] = aba_sel
+                with col_modo:
+                    modo_opts = ["substituir", "acrescentar"]
+                    modo_idx = modo_opts.index(st.session_state.get("sheets_modo", "substituir"))
+                    modo_sel = st.selectbox("📝 Modo de exportação", modo_opts, index=modo_idx, key="cfg_modo_sel")
+                    st.session_state["sheets_modo"] = modo_sel
+
+                st.info(f"Exportação irá para **{escolha}** → aba **{aba_sel}** ({modo_sel})", icon="📊")
+            else:
+                st.warning("Nenhuma planilha encontrada. Crie uma planilha no Google Drive e recarregue.", icon="⚠️")
+
+            st.markdown("")
             if st.button("🔓 Desconectar conta Google", key="disc_google"):
                 st.session_state.pop("sheets_creds", None)
                 st.session_state.pop("sheets_lista", None)
                 st.session_state.pop("sheets_selected_id", None)
                 st.session_state.pop("sheets_selected_name", None)
                 st.session_state.pop("sheets_abas", None)
-                # Remove also from DB
+                st.session_state.pop("sheets_aba", None)
+                st.session_state.pop("sheets_modo", None)
                 salvar_configuracoes({"google_sheets_creds": None})
                 st.rerun()
         else:
@@ -955,6 +1017,12 @@ def main():
         rt = cm.get(_COOKIE_NAME)
         if rt:
             restaurar_sessao(rt)
+
+    # ── Persiste sheets_creds no Supabase se veio de redirect OAuth ──────────
+    if "user" in st.session_state and st.session_state.pop("_pending_sheets_save", False):
+        if st.session_state.get("sheets_creds"):
+            from modules.database import salvar_configuracoes
+            salvar_configuracoes({"google_sheets_creds": st.session_state["sheets_creds"]})
 
     # ── Escreve cookie após login ─────────────────────────────────────────────
     if st.session_state.get("_pending_rt"):
