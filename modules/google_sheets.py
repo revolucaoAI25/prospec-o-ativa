@@ -95,7 +95,9 @@ def extrair_credenciais_state(state: str) -> tuple[str, str, str]:
     """Decodifica client_id, client_secret e redirect_uri do parâmetro state OAuth."""
     import base64, json
     try:
-        data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
+        # Adiciona padding se necessário (base64 exige múltiplo de 4)
+        padded = state + "=" * (-len(state) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
         return data.get("cid",""), data.get("cs",""), data.get("ru","")
     except Exception:
         return "", "", ""

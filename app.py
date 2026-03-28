@@ -15,37 +15,46 @@ def _s(k, d=""):
 _code  = st.query_params.get("code","")
 _state = st.query_params.get("state","")
 if _code and "sheets_creds" not in st.session_state:
-    # 1) Credenciais vêm do parâmetro `state` (codificadas ao gerar a URL)
-    #    — funciona independentemente de cookie ou sessão.
+    # 1) Credenciais codificadas no parâmetro state (geradas em gerar_url_auth)
     cid, cs, ru = "", "", ""
     if _state:
         from modules.google_sheets import extrair_credenciais_state
         cid, cs, ru = extrair_credenciais_state(_state)
 
-    # 2) Fallback: lê do env (state tem prioridade, não depende de sessão)
+    # 2) Fallback: env vars
     if not (cid and cs):
         cid = cid or _s("GOOGLE_CLIENT_ID")
         cs  = cs  or _s("GOOGLE_CLIENT_SECRET")
         ru  = ru  or _s("APP_URL","http://localhost:8501")
+
+    st.session_state["page"] = "configuracoes"  # sempre redireciona para Configurações
 
     if cid and cs:
         try:
             from modules.google_sheets import trocar_codigo
             creds = trocar_codigo(cid, cs, ru, _code)
             st.session_state["sheets_creds"] = creds
-            # Persiste no Supabase. Se sessão ainda não restaurada, salva depois em main().
             if "user" in st.session_state:
                 from modules.database import salvar_configuracoes
                 salvar_configuracoes({"google_sheets_creds": creds})
             else:
                 st.session_state["_pending_sheets_save"] = True
-            # Redireciona para Configurações para o usuário ver a planilha selecionada
-            st.session_state["page"] = "configuracoes"
         except Exception as e:
-            st.session_state["_oauth_err"] = str(e)
-            st.session_state["page"] = "configuracoes"
+            err = str(e)
+            # Diagnóstico: adiciona contexto útil
+            if "redirect_uri_mismatch" in err:
+                err = (f"redirect_uri_mismatch — a URL '{ru}' não está cadastrada no "
+                       f"Google Cloud Console. Vá em Credenciais → OAuth → URIs de redirecionamento "
+                       f"e adicione exatamente: {ru}")
+            elif "invalid_grant" in err:
+                err = "Código OAuth inválido ou expirado. Tente conectar novamente."
+            st.session_state["_oauth_err"] = err
     else:
-        st.session_state["_oauth_err"] = "Credenciais OAuth não encontradas. Salve Client ID e Secret nas Configurações antes de conectar."
+        # state não decodificou E env vars vazias — mostra o state recebido para debug
+        st.session_state["_oauth_err"] = (
+            "Credenciais OAuth não encontradas. "
+            + (f"State recebido (primeiros 80 chars): `{_state[:80]}`" if _state else "Nenhum state recebido.")
+        )
     st.query_params.clear()
     st.rerun()
 
@@ -749,10 +758,12 @@ def pagina_configuracoes():
 
         st.markdown("---")
 
-        # Exibe erro de OAuth se houver
-        _oerr = st.session_state.pop("_oauth_err", None)
-        if _oerr:
-            st.error(f"Erro ao conectar conta Google: {_oerr}", icon="❌")
+        # Exibe erro de OAuth persistente (não usa pop — sobrevive a reruns)
+        if st.session_state.get("_oauth_err"):
+            st.error(f"Erro ao conectar conta Google:\n\n`{st.session_state['_oauth_err']}`", icon="❌")
+            if st.button("✖ Fechar erro", key="clear_oauth_err"):
+                st.session_state.pop("_oauth_err", None)
+                st.rerun()
 
         if "sheets_creds" in st.session_state:
             st.success("✅ Conta Google vinculada!", icon="✅")
