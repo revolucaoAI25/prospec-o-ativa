@@ -12,14 +12,26 @@ def _s(k, d=""):
     return os.getenv(k,d).strip()
 
 # ── OAuth callback ────────────────────────────────────────────
+# Guarda code/state na sessão na primeira vez que aparecem na URL,
+# evitando que reruns do CookieManager consumam o código duas vezes.
 _code  = st.query_params.get("code","")
 _state = st.query_params.get("state","")
-if _code and "sheets_creds" not in st.session_state:
+if _code and not st.session_state.get("_oauth_code_seen"):
+    st.session_state["_oauth_code_seen"] = _code   # marca como visto
+    st.session_state["_oauth_state_seen"] = _state  # preserva state junto
+    st.query_params.clear()                          # limpa URL imediatamente
+
+if st.session_state.get("_oauth_code_seen") and "sheets_creds" not in st.session_state \
+        and not st.session_state.get("_oauth_exchange_done"):
+    _code_to_use  = st.session_state.pop("_oauth_code_seen")
+    _state_to_use = st.session_state.pop("_oauth_state_seen", "")
+    st.session_state["_oauth_exchange_done"] = True  # impede segundo uso
+
     # 1) Credenciais codificadas no parâmetro state (geradas em gerar_url_auth)
     cid, cs, ru = "", "", ""
-    if _state:
+    if _state_to_use:
         from modules.google_sheets import extrair_credenciais_state
-        cid, cs, ru = extrair_credenciais_state(_state)
+        cid, cs, ru = extrair_credenciais_state(_state_to_use)
 
     # 2) Fallback: env vars
     if not (cid and cs):
@@ -27,13 +39,14 @@ if _code and "sheets_creds" not in st.session_state:
         cs  = cs  or _s("GOOGLE_CLIENT_SECRET")
         ru  = ru  or _s("APP_URL","http://localhost:8501")
 
-    st.session_state["page"] = "configuracoes"  # sempre redireciona para Configurações
+    st.session_state["page"] = "configuracoes"
 
     if cid and cs:
         try:
             from modules.google_sheets import trocar_codigo
-            creds = trocar_codigo(cid, cs, ru, _code)
+            creds = trocar_codigo(cid, cs, ru, _code_to_use)
             st.session_state["sheets_creds"] = creds
+            st.session_state.pop("_oauth_exchange_done", None)  # limpa flag após sucesso
             if "user" in st.session_state:
                 from modules.database import salvar_configuracoes
                 salvar_configuracoes({"google_sheets_creds": creds})
@@ -41,21 +54,15 @@ if _code and "sheets_creds" not in st.session_state:
                 st.session_state["_pending_sheets_save"] = True
         except Exception as e:
             err = str(e)
-            # Diagnóstico: adiciona contexto útil
             if "redirect_uri_mismatch" in err:
-                err = (f"redirect_uri_mismatch — a URL '{ru}' não está cadastrada no "
-                       f"Google Cloud Console. Vá em Credenciais → OAuth → URIs de redirecionamento "
-                       f"e adicione exatamente: {ru}")
-            elif "invalid_grant" in err:
-                err = "Código OAuth inválido ou expirado. Tente conectar novamente."
+                err = (f"redirect_uri_mismatch — adicione exatamente '{ru}' em "
+                       f"Google Cloud Console → Credenciais → OAuth → URIs de redirecionamento autorizados.")
             st.session_state["_oauth_err"] = err
     else:
-        # state não decodificou E env vars vazias — mostra o state recebido para debug
         st.session_state["_oauth_err"] = (
             "Credenciais OAuth não encontradas. "
-            + (f"State recebido (primeiros 80 chars): `{_state[:80]}`" if _state else "Nenhum state recebido.")
+            + (f"State recebido: `{_state_to_use[:80]}`" if _state_to_use else "Nenhum state recebido.")
         )
-    st.query_params.clear()
     st.rerun()
 
 st.set_page_config(page_title="Lead Extractor · Revolução AI", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
