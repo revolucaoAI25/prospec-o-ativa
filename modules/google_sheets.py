@@ -238,16 +238,17 @@ def exportar(
                 body={"values": [cabecalho] + linhas},
             ).execute()
         else:
-            # Modo acrescentar: verifica se a aba tem dados além do cabeçalho
-            existing = service.spreadsheets().values().get(
+            # Modo acrescentar: conta linhas ocupadas pela coluna A para achar a
+            # próxima linha livre. Nunca usa values().append() (ele escreve na
+            # diagonal partindo da última célula preenchida em qualquer coluna).
+            col_a = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=f"'{escaped_aba}'!A1:A2",
+                range=f"'{escaped_aba}'!A:A",
             ).execute()
-            rows_exist = existing.get("values", [])
-            # Considera "vazia" se não tem linhas OU só tem o cabeçalho (sem dados)
-            has_data = len(rows_exist) >= 2
-            if not has_data:
-                # Aba vazia (ou só cabeçalho) — escreve do zero com cabeçalho
+            next_row = len(col_a.get("values", [])) + 1  # 1-indexed
+
+            if next_row == 1:
+                # Aba vazia — escreve com cabeçalho + dados a partir de A1
                 upd_resp = service.spreadsheets().values().update(
                     spreadsheetId=sheet_id,
                     range=f"'{escaped_aba}'!A1",
@@ -255,12 +256,11 @@ def exportar(
                     body={"values": [cabecalho] + linhas},
                 ).execute()
             else:
-                # Tem dados reais — acrescenta linhas ao final
-                upd_resp = service.spreadsheets().values().append(
+                # Há dados — escreve somente as linhas de dados abaixo da última
+                upd_resp = service.spreadsheets().values().update(
                     spreadsheetId=sheet_id,
-                    range=f"'{escaped_aba}'",
+                    range=f"'{escaped_aba}'!A{next_row}",
                     valueInputOption="USER_ENTERED",
-                    insertDataOption="INSERT_ROWS",
                     body={"values": linhas},
                 ).execute()
 
