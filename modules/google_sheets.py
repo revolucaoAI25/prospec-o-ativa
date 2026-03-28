@@ -201,13 +201,16 @@ def exportar(
     except Exception as e:
         return False, f"Erro ao conectar com a planilha: {e}"
 
+    sheet_title = sh.title  # nome real da planilha no Google
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+
     # Não cria aba silenciosamente — retorna erro claro com abas disponíveis
     try:
         ws = sh.worksheet(aba_nome)
     except Exception:
         disponiveis = [w.title for w in sh.worksheets()]
         return False, (
-            f"Aba **'{aba_nome}'** não encontrada. "
+            f"Aba **'{aba_nome}'** não encontrada em **{sheet_title}**. "
             f"Abas disponíveis: {', '.join(disponiveis) or '(nenhuma)'}. "
             "Corrija em ⚙️ Configurações."
         )
@@ -230,13 +233,17 @@ def exportar(
         check = ws.get("A1")
         if not check:
             return False, (
-                f"Escrita falhou silenciosamente — ws.update() não deu erro "
-                f"mas a planilha está vazia. sheet_id={sheet_id[:12]}… aba={aba_nome}"
+                f"Escrita falhou silenciosamente — planilha vazia após update. "
+                f"Planilha: {sheet_title} | Aba: {aba_nome}"
             )
 
-        return True, f"✅ {len(linhas)} registros exportados para **{aba_nome}**"
+        return True, (
+            f"✅ {len(linhas)} registros exportados!\n\n"
+            f"📄 **{sheet_title}** → aba **{aba_nome}**\n\n"
+            f"🔗 {sheet_url}"
+        )
     except Exception as e:
-        return False, f"Erro ao escrever na planilha: {e}"
+        return False, f"Erro ao escrever: {e} | Planilha: {sheet_title} | Aba: {aba_nome}"
 
 
 def extrair_sheet_id(url_ou_id: str) -> Optional[str]:
