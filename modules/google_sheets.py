@@ -141,12 +141,13 @@ def _creds_from_dict(d: dict) -> "Credentials":
         client_secret=d["client_secret"],
         scopes=d.get("scopes"),
     )
-    # Renova token se expirado
-    if creds.expired and creds.refresh_token:
+    # Sempre renova token — o campo expiry não é salvo no nosso dict,
+    # então creds.expired é sempre False mesmo com token vencido (1h).
+    if creds.refresh_token:
         try:
             creds.refresh(Request())
         except Exception:
-            pass
+            pass  # usa token existente; gspread retenta no 401
     return creds
 
 
@@ -224,6 +225,15 @@ def exportar(
                 ws.update([cabecalho] + linhas)
             else:
                 ws.append_rows(linhas)
+
+        # Verificação: lê de volta para confirmar que os dados foram escritos
+        check = ws.get("A1")
+        if not check:
+            return False, (
+                f"Escrita falhou silenciosamente — ws.update() não deu erro "
+                f"mas a planilha está vazia. sheet_id={sheet_id[:12]}… aba={aba_nome}"
+            )
+
         return True, f"✅ {len(linhas)} registros exportados para **{aba_nome}**"
     except Exception as e:
         return False, f"Erro ao escrever na planilha: {e}"
