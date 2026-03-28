@@ -436,12 +436,12 @@ def _export_to_planilha(rows, planilha: dict):
     from modules.google_sheets import exportar
     creds = st.session_state.get("sheets_creds")
     if not creds:
-        st.warning("Conta Google não vinculada.", icon="🔗")
+        st.toast("Conta Google não vinculada. Configure em ⚙️ Configurações.", icon="🔗")
         return
     with st.spinner(f"Exportando para {planilha['nome']}…"):
         ok, msg = exportar(rows, creds, planilha["id"], planilha["aba"],
                            planilha.get("modo", "substituir"))
-    (st.success if ok else st.error)(msg)
+    st.toast(msg, icon="✅" if ok else "❌")
 
 def _dl_buttons(rows, prefix, sheets_auth):
     ts = int(time.time())
@@ -619,7 +619,7 @@ def pagina_busca():
                                 _ok, _msg = exportar(res, st.session_state["sheets_creds"],
                                                      _padrao["id"], _padrao["aba"],
                                                      _padrao.get("modo","substituir"))
-                            (st.success if _ok else st.error)(_msg)
+                            st.toast(_msg, icon="✅" if _ok else "❌")
 
         if st.session_state.get("maps_res"):
             res = st.session_state["maps_res"]
@@ -682,7 +682,7 @@ def pagina_busca():
                             _ok, _msg = exportar(res_rf, st.session_state["sheets_creds"],
                                                  _padrao["id"], _padrao["aba"],
                                                  _padrao.get("modo","substituir"))
-                        (st.success if _ok else st.error)(_msg)
+                        st.toast(_msg, icon="✅" if _ok else "❌")
         if st.session_state.get("rf_res"):
             res=st.session_state["rf_res"]
             st.success(f"✅ **{len(res)}** resultados")
@@ -825,7 +825,7 @@ def pagina_configuracoes():
             from modules.google_sheets import listar_planilhas, listar_abas, extrair_sheet_id
 
             def _salvar_planilhas():
-                salvar_configuracoes({"google_sheets_creds": {
+                return salvar_configuracoes({"google_sheets_creds": {
                     "oauth":       st.session_state["sheets_creds"],
                     "planilhas":   st.session_state.get("sheets_planilhas", []),
                     "auto_export": st.session_state.get("auto_export_enabled", False),
@@ -916,26 +916,46 @@ def pagina_configuracoes():
 
                 # Carrega abas se há ID
                 _abas_add = []
-                _abas_err = None
                 if _new_id:
-                    _cache_key = f"_abas_add_{_new_id}"
+                    _cache_key     = f"_abas_add_{_new_id}"
+                    _cache_err_key = f"_abas_err_{_new_id}"
                     if _cache_key not in st.session_state:
                         with st.spinner("Carregando abas..."):
                             try:
                                 st.session_state[_cache_key] = listar_abas(
                                     st.session_state["sheets_creds"], _new_id)
+                                st.session_state.pop(_cache_err_key, None)
                             except Exception as e:
-                                st.session_state[_cache_key] = []
-                                _abas_err = str(e)
+                                st.session_state[_cache_key]     = []
+                                st.session_state[_cache_err_key] = str(e)
                     _abas_add = st.session_state.get(_cache_key, [])
 
+                _abas_err = st.session_state.get(f"_abas_err_{_new_id}") if _new_id else None
                 if _abas_err:
-                    st.warning(f"Não foi possível carregar abas: {_abas_err}. Digite o nome manualmente.", icon="⚠️")
+                    st.warning(
+                        "**Não foi possível carregar as abas desta planilha.**\n\n"
+                        "A **Google Sheets API** não está habilitada no seu projeto Google Cloud. "
+                        "Para ativar: [Google Cloud Console](https://console.cloud.google.com) → "
+                        "**APIs e Serviços → Biblioteca** → procure *Google Sheets API* → **Ativar**.\n\n"
+                        f"Erro: `{_abas_err}`\n\n"
+                        "Enquanto isso, **digite o nome da aba manualmente** abaixo.",
+                        icon="⚠️",
+                    )
+                    if _new_id and st.button("🔄 Tentar novamente", key=f"retry_abas_{_new_id[:8]}"):
+                        st.session_state.pop(f"_abas_add_{_new_id}", None)
+                        st.session_state.pop(f"_abas_err_{_new_id}", None)
+                        st.rerun()
 
                 if _abas_add:
                     aba_add = st.selectbox("Aba destino", _abas_add, key="add_aba_sel")
                 else:
-                    aba_add = st.text_input("Nome da aba", placeholder="Ex: Leads", key="add_aba_txt")
+                    aba_add = st.text_input(
+                        "Nome da aba *",
+                        value="Planilha1",
+                        placeholder="Ex: Planilha1, Leads, Dados…",
+                        key="add_aba_txt",
+                        help="Digite o nome exato da aba na planilha (sensível a maiúsculas).",
+                    )
 
                 modo_add = st.selectbox("Modo de exportação", ["acrescentar", "substituir"], key="add_modo")
                 padrao_add = st.checkbox("⭐ Definir como planilha padrão (auto-export)", key="add_padrao")
@@ -963,8 +983,12 @@ def pagina_configuracoes():
                         st.session_state["sheets_planilhas"] = lista
                         # Limpa cache de abas temporário
                         st.session_state.pop(f"_abas_add_{_new_id}", None)
-                        _salvar_planilhas()
-                        st.success(f"Planilha **{nova['nome']}** adicionada!")
+                        st.session_state.pop(f"_abas_err_{_new_id}", None)
+                        ok_save, err_save = _salvar_planilhas()
+                        if ok_save:
+                            st.toast(f"✅ Planilha **{nova['nome']}** adicionada!")
+                        else:
+                            st.toast(f"❌ Erro ao salvar: {err_save}", icon="❌")
                         st.rerun()
 
             st.markdown("")
