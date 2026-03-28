@@ -461,7 +461,7 @@ def _dl_buttons(rows, prefix, sheets_auth):
                 for p in planilhas_cfg:
                     badge = " ⭐" if p.get("padrao") else ""
                     lbl = f"{p['nome']}{badge} → {p['aba']} ({p.get('modo','substituir')})"
-                    if st.button(lbl, key=f"exp_{p['id'][:8]}_{prefix}_{ts}", use_container_width=True):
+                    if st.button(lbl, key=f"exp_{p['id'][:8]}_{prefix}", use_container_width=True):
                         _export_to_planilha(rows, p)
         elif sheets_auth:
             st.button("📊 Google Sheets", use_container_width=True, disabled=True,
