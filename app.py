@@ -74,129 +74,153 @@ st.markdown("""<style>
 /* ═══════════════════════════════════════════════════════════
    BASE & RESET
 ═══════════════════════════════════════════════════════════ */
-*, *::before, *::after { box-sizing: border-box; margin: 0; }
+*, *::before, *::after { box-sizing: border-box; }
 html, body, [class*="css"] {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 8px; }
-::-webkit-scrollbar-thumb:hover { background: #00D97E35; }
+::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #334155; }
 
 /* ═══════════════════════════════════════════════════════════
-   LAYOUT
+   APP SHELL — Background + Ambient Glow
 ═══════════════════════════════════════════════════════════ */
 .stApp {
   background: #020617 !important;
-  background-image: radial-gradient(ellipse 80% 50% at 50% -10%, #0d2b1a18, transparent) !important;
 }
-[data-testid="stAppViewContainer"] { background: transparent !important; }
+[data-testid="stAppViewContainer"] {
+  background: transparent !important;
+}
+/* Ambient green glow top-center */
+[data-testid="stAppViewContainer"]::before {
+  content: '';
+  position: fixed; top: -180px; left: 50%; transform: translateX(-50%);
+  width: 700px; height: 400px;
+  background: radial-gradient(ellipse, #00D97E06 0%, transparent 70%);
+  pointer-events: none; z-index: 0;
+}
 .block-container {
-  padding: 2rem 2.75rem 5rem !important;
-  max-width: 1320px !important;
+  padding: 2.25rem 2.75rem 5rem !important;
+  max-width: 1340px !important;
+  position: relative; z-index: 1;
 }
 
 /* ═══════════════════════════════════════════════════════════
    SIDEBAR
 ═══════════════════════════════════════════════════════════ */
 [data-testid="stSidebar"] {
-  background: #040812 !important;
-  border-right: 1px solid #0f172a !important;
+  background: linear-gradient(180deg, #030918 0%, #020510 100%) !important;
+  border-right: 1px solid #0c1425 !important;
+  box-shadow: 4px 0 24px #00000030 !important;
 }
 [data-testid="stSidebarContent"] { padding: 0 !important; }
 [data-testid="stSidebar"] hr {
-  margin: 4px 16px !important;
+  margin: 4px 14px !important;
   border: none !important;
-  border-top: 1px solid #0f172a !important;
+  border-top: 1px solid #0c1425 !important;
 }
 
-/* Nav buttons */
+/* Sidebar nav buttons */
 [data-testid="stSidebar"] [data-testid="stButton"] > button {
   width: 100% !important;
   text-align: left !important;
   justify-content: flex-start !important;
-  padding: 9px 14px 9px 16px !important;
-  border-radius: 8px !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
   font-size: 0.84rem !important;
   font-weight: 500 !important;
-  transition: all 0.15s ease !important;
+  transition: all 0.18s cubic-bezier(.4,0,.2,1) !important;
   margin: 1px 0 !important;
   border: none !important;
-  letter-spacing: 0.003em !important;
+  letter-spacing: 0.005em !important;
 }
 [data-testid="stSidebar"] [data-testid="stButton"] > button[kind="secondary"] {
   background: transparent !important;
   color: #475569 !important;
 }
 [data-testid="stSidebar"] [data-testid="stButton"] > button[kind="secondary"]:hover {
-  background: #0f172a !important;
-  color: #cbd5e1 !important;
+  background: #0a1020 !important;
+  color: #e2e8f0 !important;
+  transform: translateX(2px) !important;
 }
 [data-testid="stSidebar"] [data-testid="stButton"] > button[kind="primary"] {
-  background: linear-gradient(135deg, #052913 0%, #031b0c 100%) !important;
+  background: linear-gradient(135deg, #062215 0%, #041810 100%) !important;
   color: #00D97E !important;
-  border: 1px solid #00D97E20 !important;
-  font-weight: 600 !important;
-  box-shadow: inset 0 1px 0 #00D97E10 !important;
+  border: 1px solid #00D97E18 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 20px #00D97E08 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   INPUTS & CONTROLS
+   TEXT INPUTS
 ═══════════════════════════════════════════════════════════ */
 [data-testid="stTextInput"] input,
-[data-testid="stNumberInput"] input {
-  background: #0a0f1e !important;
-  border: 1px solid #1e293b !important;
-  border-radius: 8px !important;
+[data-testid="stNumberInput"] input,
+[data-testid="stDateInput"] input {
+  background: #070b18 !important;
+  border: 1px solid #131c32 !important;
+  border-radius: 10px !important;
   color: #e2e8f0 !important;
-  padding: 9px 13px !important;
+  padding: 10px 14px !important;
   font-size: 0.875rem !important;
   font-family: 'Plus Jakarta Sans', sans-serif !important;
-  transition: border-color 0.18s, box-shadow 0.18s !important;
+  transition: border-color 0.2s, box-shadow 0.2s !important;
 }
 [data-testid="stTextInput"] input:focus,
-[data-testid="stNumberInput"] input:focus {
-  border-color: #00D97E50 !important;
-  box-shadow: 0 0 0 3px #00D97E0e !important;
+[data-testid="stNumberInput"] input:focus,
+[data-testid="stDateInput"] input:focus {
+  border-color: #00D97E40 !important;
+  box-shadow: 0 0 0 3px #00D97E0a, 0 0 16px #00D97E08 !important;
   outline: none !important;
 }
 [data-testid="stTextInput"] input::placeholder,
-[data-testid="stNumberInput"] input::placeholder { color: #334155 !important; }
+[data-testid="stNumberInput"] input::placeholder { color: #293548 !important; }
 
+/* Selects / Multiselect */
 [data-testid="stSelectbox"] > div > div,
 [data-testid="stMultiSelect"] > div > div {
-  background: #0a0f1e !important;
-  border: 1px solid #1e293b !important;
-  border-radius: 8px !important;
+  background: #070b18 !important;
+  border: 1px solid #131c32 !important;
+  border-radius: 10px !important;
   color: #e2e8f0 !important;
 }
 [data-testid="stSelectbox"] > div > div:focus-within,
 [data-testid="stMultiSelect"] > div > div:focus-within {
-  border-color: #00D97E50 !important;
-  box-shadow: 0 0 0 3px #00D97E0e !important;
+  border-color: #00D97E40 !important;
+  box-shadow: 0 0 0 3px #00D97E0a !important;
 }
 
-/* Dropdown menu */
-[data-testid="stSelectboxVirtualDropdown"],
-.stSelectbox [data-testid="stMarkdownContainer"],
-div[data-baseweb="popover"] ul {
-  background: #0d1424 !important;
-  border: 1px solid #1e293b !important;
-  border-radius: 10px !important;
+/* Multiselect tags */
+[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+  background: #0a1e14 !important;
+  border: 1px solid #00D97E22 !important;
+  border-radius: 6px !important;
+  color: #00D97E !important;
+  font-weight: 600 !important;
+  font-size: 0.78rem !important;
+}
+
+/* Slider track */
+[data-testid="stSlider"] [role="slider"] {
+  background: #00D97E !important;
+  border: 2px solid #020617 !important;
+  box-shadow: 0 0 8px #00D97E40 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
    FORMS
 ═══════════════════════════════════════════════════════════ */
 [data-testid="stForm"] {
-  background: linear-gradient(160deg, #080d1a 0%, #060a14 100%) !important;
-  border: 1px solid #0f1e38 !important;
-  border-radius: 14px !important;
-  padding: 22px 24px !important;
-  box-shadow: 0 4px 24px #00000055, inset 0 1px 0 #ffffff05 !important;
-  backdrop-filter: blur(0px) !important;
+  background: linear-gradient(165deg, #070c1c 0%, #050914 50%, #060b18 100%) !important;
+  border: 1px solid #0e1830 !important;
+  border-radius: 16px !important;
+  padding: 24px 26px !important;
+  box-shadow: 0 4px 32px #00000050, 0 1px 0 #ffffff04 inset !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -204,91 +228,93 @@ div[data-baseweb="popover"] ul {
 ═══════════════════════════════════════════════════════════ */
 [data-testid="stButton"] > button,
 [data-testid="stDownloadButton"] > button {
-  border-radius: 8px !important;
+  border-radius: 10px !important;
   font-weight: 600 !important;
-  font-size: 0.835rem !important;
+  font-size: 0.84rem !important;
   font-family: 'Plus Jakarta Sans', sans-serif !important;
-  transition: all 0.17s cubic-bezier(.4,0,.2,1) !important;
+  transition: all 0.2s cubic-bezier(.4,0,.2,1) !important;
   letter-spacing: 0.01em !important;
-  padding: 7px 16px !important;
+  padding: 8px 18px !important;
   min-height: unset !important;
   height: auto !important;
 }
 
-/* Primary */
+/* Primary button — gradient with glow */
 [data-testid="stButton"] > button[kind="primary"],
 button[kind="primaryFormSubmit"] {
-  background: linear-gradient(135deg, #00bf6a 0%, #00a558 100%) !important;
-  color: #021408 !important;
+  background: linear-gradient(135deg, #00D97E 0%, #00b366 100%) !important;
+  color: #012010 !important;
   border: none !important;
-  font-weight: 700 !important;
-  box-shadow: 0 1px 2px #00000030, 0 2px 12px #00bf6a28 !important;
-  padding: 8px 20px !important;
+  font-weight: 800 !important;
+  box-shadow: 0 0 0 1px #00D97E20, 0 2px 8px #00000030, 0 4px 20px #00D97E20 !important;
+  padding: 10px 22px !important;
+  letter-spacing: 0.02em !important;
 }
 [data-testid="stButton"] > button[kind="primary"]:hover,
 button[kind="primaryFormSubmit"]:hover {
-  background: linear-gradient(135deg, #00d47a 0%, #00b862 100%) !important;
-  box-shadow: 0 2px 4px #00000030, 0 6px 24px #00D97E38 !important;
+  background: linear-gradient(135deg, #00f08e 0%, #00c874 100%) !important;
+  box-shadow: 0 0 0 1px #00D97E30, 0 4px 12px #00000030, 0 8px 32px #00D97E30 !important;
   transform: translateY(-1px) !important;
 }
 [data-testid="stButton"] > button[kind="primary"]:active,
 button[kind="primaryFormSubmit"]:active {
-  transform: translateY(0) !important;
-  box-shadow: 0 1px 4px #00000030 !important;
+  transform: translateY(0px) scale(0.98) !important;
+  box-shadow: 0 0 0 1px #00D97E20, 0 1px 4px #00000030 !important;
 }
 
-/* Secondary */
+/* Secondary button */
 [data-testid="stButton"] > button[kind="secondary"] {
-  background: #0a0f1e !important;
-  border: 1px solid #1e293b !important;
+  background: #070b18 !important;
+  border: 1px solid #131c32 !important;
   color: #64748b !important;
 }
 [data-testid="stButton"] > button[kind="secondary"]:hover {
-  background: #0d1424 !important;
-  border-color: #2d3f5e !important;
-  color: #cbd5e1 !important;
+  background: #0a1020 !important;
+  border-color: #1e293b !important;
+  color: #e2e8f0 !important;
 }
 
 /* Download */
 [data-testid="stDownloadButton"] > button {
-  background: #0a0f1e !important;
-  border: 1px solid #1e293b !important;
+  background: #070b18 !important;
+  border: 1px solid #131c32 !important;
   color: #64748b !important;
 }
 [data-testid="stDownloadButton"] > button:hover {
-  background: #071610 !important;
-  border-color: #1a3d28 !important;
-  color: #00C472 !important;
+  background: #081510 !important;
+  border-color: #143828 !important;
+  color: #00D97E !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
    TABS
 ═══════════════════════════════════════════════════════════ */
 [data-testid="stTabs"] [role="tablist"] {
-  background: #060a14 !important;
-  border-radius: 10px !important;
-  padding: 4px !important;
-  border: 1px solid #0f172a !important;
-  gap: 2px !important;
+  background: #040810 !important;
+  border-radius: 12px !important;
+  padding: 5px !important;
+  border: 1px solid #0c1425 !important;
+  gap: 3px !important;
 }
 [data-testid="stTabs"] [role="tab"] {
-  border-radius: 7px !important;
-  color: #475569 !important;
-  font-weight: 500 !important;
-  font-size: 0.855rem !important;
-  padding: 8px 20px !important;
-  transition: all 0.18s !important;
+  border-radius: 9px !important;
+  color: #3e4c66 !important;
+  font-weight: 600 !important;
+  font-size: 0.845rem !important;
+  padding: 9px 22px !important;
+  transition: all 0.2s cubic-bezier(.4,0,.2,1) !important;
   border: none !important;
   letter-spacing: 0.005em !important;
 }
 [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-  background: linear-gradient(135deg, #082318 0%, #051410 100%) !important;
+  background: linear-gradient(135deg, #071e14 0%, #041410 100%) !important;
   color: #00D97E !important;
   font-weight: 700 !important;
-  box-shadow: 0 1px 8px #00000035, inset 0 1px 0 #00D97E18 !important;
+  box-shadow: 0 2px 12px #00000040, 0 0 20px #00D97E08 !important;
+  border: 1px solid #00D97E15 !important;
 }
 [data-testid="stTabs"] [role="tab"]:hover:not([aria-selected="true"]) {
-  background: #0d1424 !important;
+  background: #080e1c !important;
   color: #94a3b8 !important;
 }
 
@@ -296,247 +322,356 @@ button[kind="primaryFormSubmit"]:active {
    EXPANDERS
 ═══════════════════════════════════════════════════════════ */
 [data-testid="stExpander"] {
-  background: #060a14 !important;
-  border: 1px solid #0f172a !important;
-  border-radius: 12px !important;
-  margin-bottom: 8px !important;
+  background: #040810 !important;
+  border: 1px solid #0c1425 !important;
+  border-radius: 14px !important;
+  margin-bottom: 10px !important;
   overflow: hidden !important;
   transition: border-color 0.2s, box-shadow 0.2s !important;
 }
 [data-testid="stExpander"]:hover {
-  border-color: #1e293b !important;
-  box-shadow: 0 2px 16px #00000025 !important;
+  border-color: #162040 !important;
+  box-shadow: 0 4px 20px #00000020 !important;
 }
 [data-testid="stExpander"] summary {
-  padding: 13px 18px !important;
+  padding: 14px 20px !important;
   color: #94a3b8 !important;
   font-weight: 600 !important;
-  font-size: 0.875rem !important;
-  letter-spacing: 0.005em !important;
+  font-size: 0.88rem !important;
+  transition: all 0.15s !important;
 }
 [data-testid="stExpander"] summary:hover {
-  background: #0a0f1e !important;
+  background: #080e1c !important;
   color: #e2e8f0 !important;
 }
-[data-testid="stExpander"] > div > div { padding: 0 18px 16px !important; }
+[data-testid="stExpander"] > div > div { padding: 0 20px 18px !important; }
 
 /* ═══════════════════════════════════════════════════════════
-   ALERTS
+   ALERTS — Each with left accent bar
 ═══════════════════════════════════════════════════════════ */
 [data-testid="stAlert"] {
-  border-radius: 10px !important;
-  border-width: 1px !important;
-  font-size: 0.875rem !important;
+  border-radius: 12px !important;
+  border-width: 0 0 0 3px !important;
+  font-size: 0.87rem !important;
 }
 .stSuccess {
-  background: linear-gradient(135deg, #04130b 0%, #030e08 100%) !important;
-  border-color: #00D97E28 !important;
+  background: linear-gradient(135deg, #03110a 0%, #020c07 100%) !important;
+  border-color: #00D97E !important;
 }
 .stInfo {
-  background: linear-gradient(135deg, #030b1c 0%, #020814 100%) !important;
-  border-color: #3b82f628 !important;
+  background: linear-gradient(135deg, #020a1c 0%, #020714 100%) !important;
+  border-color: #3b82f6 !important;
 }
 .stWarning {
-  background: linear-gradient(135deg, #110e02 0%, #0d0a01 100%) !important;
-  border-color: #f59e0b28 !important;
+  background: linear-gradient(135deg, #110d02 0%, #0c0901 100%) !important;
+  border-color: #f59e0b !important;
 }
 .stError {
-  background: linear-gradient(135deg, #130404 0%, #0f0303 100%) !important;
-  border-color: #ef444428 !important;
+  background: linear-gradient(135deg, #120303 0%, #0e0202 100%) !important;
+  border-color: #ef4444 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
    PROGRESS BAR
 ═══════════════════════════════════════════════════════════ */
-[data-testid="stProgress"] { margin: 10px 0 !important; }
+[data-testid="stProgress"] { margin: 12px 0 !important; }
 [data-testid="stProgress"] > div {
-  background: #0f172a !important;
+  background: #0c1425 !important;
   border-radius: 99px !important;
-  height: 5px !important;
+  height: 6px !important;
 }
 [data-testid="stProgress"] > div > div {
-  background: linear-gradient(90deg, #00bf6a, #00f090) !important;
+  background: linear-gradient(90deg, #00a85e, #00D97E, #00f090) !important;
   border-radius: 99px !important;
-  box-shadow: 0 0 8px #00D97E55 !important;
+  box-shadow: 0 0 12px #00D97E50, 0 0 4px #00D97E80 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   DATAFRAME
+   DATAFRAME — Dark styled table
 ═══════════════════════════════════════════════════════════ */
-.stDataFrame { border-radius: 12px !important; overflow: hidden !important; }
+.stDataFrame { border-radius: 14px !important; overflow: hidden !important; }
 .stDataFrame [data-testid="stDataFrameResizable"] {
-  border: 1px solid #0f172a !important;
-  border-radius: 12px !important;
+  border: 1px solid #0c1425 !important;
+  border-radius: 14px !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
    LABELS & CAPTIONS
 ═══════════════════════════════════════════════════════════ */
-[data-testid="stCaptionContainer"] { color: #334155 !important; font-size: 0.78rem !important; }
+[data-testid="stCaptionContainer"] { color: #334155 !important; font-size: 0.76rem !important; }
 [data-testid="stWidgetLabel"] {
-  color: #475569 !important;
-  font-size: 0.8rem !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.02em !important;
+  color: #64748b !important;
+  font-size: 0.76rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
   text-transform: uppercase !important;
 }
 [data-testid="stToggle"] { background: transparent !important; padding: 6px 0 !important; }
 
-/* ═══════════════════════════════════════════════════════════
-   CUSTOM COMPONENTS
-═══════════════════════════════════════════════════════════ */
+/* Radio buttons styling */
+[data-testid="stRadio"] > div > label {
+  font-size: 0.85rem !important;
+  color: #94a3b8 !important;
+}
 
-/* ── Sidebar Brand ─────────────────────────────────────────── */
+/* Popover styling */
+[data-testid="stPopover"] > div {
+  background: #070b18 !important;
+  border: 1px solid #131c32 !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 40px #00000060 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SIDEBAR BRAND
+═══════════════════════════════════════════════════════════ */
 .brand-header {
-  padding: 20px 16px 16px;
-  background: linear-gradient(180deg, #060d1a 0%, #030710 100%);
-  border-bottom: 1px solid #0f172a;
+  padding: 22px 18px 18px;
+  background: linear-gradient(170deg, #071220 0%, #030918 100%);
+  border-bottom: 1px solid #0c1425;
+  position: relative;
+}
+.brand-header::after {
+  content: '';
+  position: absolute; bottom: -1px; left: 18px; right: 18px;
+  height: 1px;
+  background: linear-gradient(90deg, #00D97E20, transparent 50%);
 }
 .brand-dot {
-  width: 34px; height: 34px;
+  width: 36px; height: 36px;
   background: linear-gradient(135deg, #00D97E 0%, #009955 100%);
-  border-radius: 9px;
+  border-radius: 10px;
   display: inline-flex; align-items: center; justify-content: center;
   font-weight: 800; color: #020e06; font-size: 15px;
-  box-shadow: 0 2px 10px #00D97E40, 0 0 0 1px #00D97E20;
+  box-shadow: 0 2px 12px #00D97E45, 0 0 0 2px #00D97E18;
   vertical-align: middle; margin-right: 10px; flex-shrink: 0;
 }
 .brand-title {
-  font-size: 0.9rem; font-weight: 700; color: #e2e8f0;
-  line-height: 1.2; letter-spacing: -0.02em;
+  font-size: 0.95rem; font-weight: 800; color: #f1f5f9;
+  line-height: 1.2; letter-spacing: -0.025em;
 }
 .brand-sub {
-  font-size: 0.6rem; color: #00D97E; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.16em; margin-top: 2px;
-  opacity: 0.85;
+  font-size: 0.58rem; font-weight: 700;
+  background: linear-gradient(90deg, #00D97E, #34d399);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  text-transform: uppercase; letter-spacing: 0.18em; margin-top: 3px;
 }
 
-/* ── User Card ─────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   USER CARD
+═══════════════════════════════════════════════════════════ */
 .user-card {
-  margin: 8px 10px 4px;
-  background: #060a14;
-  border: 1px solid #0f172a;
-  border-radius: 10px; padding: 10px 13px;
+  margin: 10px 12px 6px;
+  background: linear-gradient(160deg, #070c1c 0%, #050914 100%);
+  border: 1px solid #0e1830;
+  border-radius: 12px; padding: 12px 14px;
+  position: relative;
 }
-.user-email { font-size: 0.76rem; color: #475569; font-weight: 500; word-break: break-all; }
+.user-avatar {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: #64748b;
+  border: 1px solid #1e293b; flex-shrink: 0;
+}
+.user-info { flex: 1; min-width: 0; }
+.user-email {
+  font-size: 0.78rem; color: #94a3b8; font-weight: 600;
+  word-break: break-all; line-height: 1.3;
+}
 .user-role-badge {
-  display: inline-block; margin-top: 5px; padding: 2px 8px;
-  border-radius: 99px; font-size: 0.63rem; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 6px; padding: 2px 10px;
+  border-radius: 99px; font-size: 0.6rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.12em;
 }
-.role-admin { background: #041b0e; color: #00D97E; border: 1px solid #00D97E22; }
-.role-user  { background: #070b18; color: #60a5fa; border: 1px solid #3b82f622; }
+.role-admin {
+  background: linear-gradient(135deg, #052e18 0%, #031f10 100%);
+  color: #00D97E;
+  border: 1px solid #00D97E22;
+  box-shadow: 0 0 8px #00D97E10;
+}
+.role-user {
+  background: linear-gradient(135deg, #0a1230 0%, #070c20 100%);
+  color: #60a5fa;
+  border: 1px solid #3b82f622;
+}
 
-/* ── Page Header ───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   PAGE HEADER
+═══════════════════════════════════════════════════════════ */
 .page-header {
-  margin-bottom: 2rem; padding-bottom: 1.5rem;
-  border-bottom: 1px solid #0f172a;
-  display: flex; align-items: flex-start; gap: 14px;
+  margin-bottom: 2rem; padding-bottom: 1.75rem;
+  border-bottom: 1px solid #0c1425;
+  display: flex; align-items: center; gap: 16px;
+  position: relative;
+}
+.page-header::after {
+  content: '';
+  position: absolute; bottom: -1px; left: 0; width: 120px; height: 1px;
+  background: linear-gradient(90deg, #00D97E30, transparent);
 }
 .page-header-icon {
-  width: 44px; height: 44px; border-radius: 11px; flex-shrink: 0;
+  width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 20px;
-  background: linear-gradient(135deg, #0a1628 0%, #07101e 100%);
-  border: 1px solid #1e293b;
-  box-shadow: inset 0 1px 0 #ffffff06;
+  background: linear-gradient(145deg, #0a1628 0%, #060e1e 100%);
+  border: 1px solid #131c32;
+  box-shadow: 0 2px 12px #00000030, inset 0 1px 0 #ffffff05;
 }
+.page-header-icon svg { width: 22px; height: 22px; }
 .page-title {
-  font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em;
-  line-height: 1.1;
-  background: linear-gradient(135deg, #f1f5f9 30%, #64748b 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text; margin-bottom: 0.3rem;
+  font-size: 1.65rem; font-weight: 800; letter-spacing: -0.035em;
+  line-height: 1.1; color: #f1f5f9; margin-bottom: 0.25rem;
 }
 .page-sub {
-  font-size: 0.845rem; color: #334155; font-weight: 400; line-height: 1.5;
+  font-size: 0.84rem; color: #475569; font-weight: 400; line-height: 1.5;
 }
 
-/* ── Stat Cards ────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   STAT CARDS — Individual accent colors
+═══════════════════════════════════════════════════════════ */
 .stats-row {
   display: grid; grid-template-columns: repeat(4,1fr);
-  gap: 12px; margin: 1.25rem 0;
+  gap: 14px; margin: 1.5rem 0;
 }
 .stat-card {
-  background: #060a14;
-  border: 1px solid #0f172a;
-  border-radius: 14px; padding: 18px 20px;
+  background: linear-gradient(165deg, #070c1c 0%, #050914 100%);
+  border: 1px solid #0e1830;
+  border-radius: 16px; padding: 20px 22px;
   position: relative; overflow: hidden;
-  transition: border-color 0.22s, transform 0.22s, box-shadow 0.22s;
+  transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s;
 }
 .stat-card:hover {
-  border-color: #00D97E22;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 28px #00000045;
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px #00000040;
 }
+/* Top accent line — color set by inline style */
 .stat-card::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg, #00D97E50, transparent 60%);
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent);
+  opacity: 0.5;
 }
+/* Corner glow */
 .stat-card::after {
   content: ''; position: absolute;
-  top: -30px; right: -30px;
-  width: 80px; height: 80px;
-  background: radial-gradient(circle, #00D97E08, transparent 70%);
+  top: -20px; right: -20px;
+  width: 70px; height: 70px;
+  background: radial-gradient(circle, var(--accent-glow, #00D97E08), transparent 70%);
   border-radius: 50%;
 }
+.stat-card:hover { border-color: var(--accent-border, #00D97E18); }
+.stat-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 14px;
+  background: var(--icon-bg, #041a0e);
+  border: 1px solid var(--icon-border, #00D97E18);
+}
+.stat-icon svg { width: 20px; height: 20px; stroke-width: 2; fill: none; }
 .stat-num {
-  font-size: 2.2rem; font-weight: 800; color: #00D97E;
-  line-height: 1; letter-spacing: -0.04em;
+  font-size: 2rem; font-weight: 800; line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--accent-text, #00D97E);
 }
 .stat-lbl {
-  font-size: 0.68rem; color: #334155; margin-top: 7px;
-  text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;
+  font-size: 0.68rem; color: #475569; margin-top: 6px;
+  text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700;
 }
 
-/* ── Section Label ─────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   SECTION LABEL
+═══════════════════════════════════════════════════════════ */
 .sec {
   font-size: 0.65rem; font-weight: 700; color: #00D97E;
-  text-transform: uppercase; letter-spacing: 0.14em;
-  margin: 1rem 0 0.4rem;
-  display: flex; align-items: center; gap: 8px;
-  opacity: 0.85;
+  text-transform: uppercase; letter-spacing: 0.15em;
+  margin: 1.1rem 0 0.45rem;
+  display: flex; align-items: center; gap: 10px;
 }
 .sec::after {
   content: ''; flex: 1; height: 1px;
-  background: linear-gradient(90deg, #00D97E18, transparent);
+  background: linear-gradient(90deg, #00D97E15, transparent);
 }
 
-/* ── Info Box ──────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   INFO BOX
+═══════════════════════════════════════════════════════════ */
 .info-box {
-  background: #060a14;
-  border: 1px solid #0f172a;
-  border-left: 2px solid #00D97E60;
-  border-radius: 8px; padding: 12px 16px;
-  font-size: 0.84rem; color: #475569; line-height: 1.65;
+  background: linear-gradient(135deg, #060c18 0%, #040810 100%);
+  border: 1px solid #0e1830;
+  border-left: 3px solid #00D97E50;
+  border-radius: 10px; padding: 14px 18px;
+  font-size: 0.84rem; color: #64748b; line-height: 1.7;
   margin-bottom: 1.25rem;
 }
-.info-box strong { color: #64748b; font-weight: 600; }
+.info-box strong { color: #94a3b8; font-weight: 700; }
 
-/* ── Divider ───────────────────────────────────────────────── */
-.hr { border: none; border-top: 1px solid #0f172a; margin: 1rem 0; }
+/* ═══════════════════════════════════════════════════════════
+   DIVIDER
+═══════════════════════════════════════════════════════════ */
+.hr { border: none; border-top: 1px solid #0c1425; margin: 1rem 0; }
 
-/* ── Badges ────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   BADGES
+═══════════════════════════════════════════════════════════ */
 .badge {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 10px; border-radius: 99px;
   font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
 }
-.b-ok   { background: #041b0e; color: #00D97E; border: 1px solid #00D97E22; }
-.b-warn { background: #120d01; color: #f59e0b; border: 1px solid #f59e0b22; }
+.b-ok   { background: #041a0e; color: #00D97E; border: 1px solid #00D97E22; }
+.b-warn { background: #120d02; color: #f59e0b; border: 1px solid #f59e0b22; }
 .b-err  { background: #130304; color: #f87171; border: 1px solid #ef444422; }
 
-/* ── Login Form ────────────────────────────────────────────── */
-[data-testid="stForm"] { padding: 26px 28px 22px !important; }
-.login-head { text-align: center; padding: 0 0 20px; }
+/* ═══════════════════════════════════════════════════════════
+   LOGIN PAGE — Premium centered card
+═══════════════════════════════════════════════════════════ */
+.login-wrapper {
+  position: relative;
+  max-width: 400px; margin: 0 auto;
+}
+/* Ambient glow behind login card */
+.login-wrapper::before {
+  content: '';
+  position: absolute; top: -60px; left: 50%; transform: translateX(-50%);
+  width: 300px; height: 200px;
+  background: radial-gradient(ellipse, #00D97E12, transparent 70%);
+  pointer-events: none;
+}
+[data-testid="stForm"] { padding: 32px 30px 26px !important; }
+.login-head { text-align: center; padding: 0 0 24px; }
 .login-title {
-  font-size: 1.25rem; font-weight: 800; color: #e2e8f0;
-  letter-spacing: -0.025em; margin-top: 14px; line-height: 1.2;
+  font-size: 1.35rem; font-weight: 800; color: #f1f5f9;
+  letter-spacing: -0.03em; margin-top: 16px; line-height: 1.2;
 }
 .login-sub {
-  font-size: 0.62rem; color: #00C472; font-weight: 700;
-  letter-spacing: 0.16em; text-transform: uppercase; margin-top: 4px;
-  opacity: 0.75;
+  font-size: 0.6rem; font-weight: 700;
+  background: linear-gradient(90deg, #00D97E, #34d399);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  letter-spacing: 0.18em; text-transform: uppercase; margin-top: 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   NAV ICONS — SVG inline in sidebar buttons
+═══════════════════════════════════════════════════════════ */
+.nav-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-right: 10px; flex-shrink: 0;
+  vertical-align: middle;
+}
+.nav-icon svg {
+  width: 18px; height: 18px;
+  stroke-width: 1.8; fill: none; stroke: currentColor;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE — Stat cards 2 cols on narrow screens
+═══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .stats-row { grid-template-columns: repeat(2,1fr) !important; }
+  .block-container { padding: 1.5rem 1.25rem 4rem !important; }
+  .page-title { font-size: 1.3rem !important; }
+  .page-header-icon { width: 40px; height: 40px; border-radius: 12px; }
+  .page-header-icon svg { width: 18px; height: 18px; }
 }
 
 </style>""", unsafe_allow_html=True)
@@ -557,9 +692,11 @@ def _logo_html(size: int = 40) -> str:
                 f'object-fit:cover;display:inline-block" />')
     r2 = size // 4
     fs = int(size * 0.38)
-    return (f'<div style="width:{size}px;height:{size}px;background:#00C472;'
+    return (f'<div style="width:{size}px;height:{size}px;'
+            f'background:linear-gradient(135deg,#00D97E,#009955);'
             f'border-radius:{r2}px;display:inline-flex;align-items:center;'
-            f'justify-content:center;font-size:{fs}px;font-weight:800;color:#030E06">R</div>')
+            f'justify-content:center;font-size:{fs}px;font-weight:800;color:#012010;'
+            f'box-shadow:0 2px 12px #00D97E40,0 0 0 2px #00D97E18">R</div>')
 _EXTRA=[("telefone_internacional","Telefone Intl."),("status_funcionamento","Status"),
         ("porte","Porte"),("data_abertura","Data Abertura")]
 ALL_COLS = COLUNAS_EXPORT + [c for c in _EXTRA if c not in COLUNAS_EXPORT]
@@ -598,10 +735,29 @@ def _stats(rows):
     tel  = sum(1 for r in rows if r.get("telefone") or r.get("telefone2"))
     site = sum(1 for r in rows if r.get("site"))
     em   = sum(1 for r in rows if r.get("email"))
-    cards = "".join(
-        f'<div class="stat-card"><div class="stat-num">{n}</div><div class="stat-lbl">{l}</div></div>'
-        for n, l in [(tot,"Total leads"),(tel,"Com telefone"),(site,"Com site"),(em,"Com e-mail")]
-    )
+    _stat_cfg = [
+        (tot, "Total leads",
+         "#00D97E", "#041a0e", "#00D97E18", "#00D97E08", "#00D97E18",
+         '<svg viewBox="0 0 24 24" stroke="#00D97E"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'),
+        (tel, "Com telefone",
+         "#3b82f6", "#071530", "#3b82f618", "#3b82f608", "#3b82f618",
+         '<svg viewBox="0 0 24 24" stroke="#3b82f6"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>'),
+        (site, "Com site",
+         "#a855f7", "#120730", "#a855f718", "#a855f708", "#a855f718",
+         '<svg viewBox="0 0 24 24" stroke="#a855f7"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'),
+        (em, "Com e-mail",
+         "#f59e0b", "#1a1005", "#f59e0b18", "#f59e0b08", "#f59e0b18",
+         '<svg viewBox="0 0 24 24" stroke="#f59e0b"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>'),
+    ]
+    cards = ""
+    for n, l, accent, icon_bg, icon_border, glow, border_h, svg in _stat_cfg:
+        cards += (
+            f'<div class="stat-card" style="--accent:{accent};--accent-glow:{glow};--accent-border:{border_h};--accent-text:{accent};--icon-bg:{icon_bg};--icon-border:{icon_border}">'
+            f'<div class="stat-icon">{svg}</div>'
+            f'<div class="stat-num">{n}</div>'
+            f'<div class="stat-lbl">{l}</div>'
+            f'</div>'
+        )
     st.markdown(f'<div class="stats-row">{cards}</div>', unsafe_allow_html=True)
 
 def _tabela(rows):
@@ -668,14 +824,15 @@ def _dl_buttons(rows, prefix, sheets_auth):
 # ══════════════════════════════════════════════════════════════
 
 def pagina_login():
-    # Centralização vertical: espaçador + colunas
-    st.markdown("<div style='height:12vh'></div>", unsafe_allow_html=True)
-    _, col, _ = st.columns([1, 2, 1])
+    # Centralização vertical
+    st.markdown("<div style='height:14vh'></div>", unsafe_allow_html=True)
+    _, col, _ = st.columns([1.2, 1.6, 1.2])
     with col:
+        st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
         with st.form("login"):
             st.markdown(
                 f'<div class="login-head">'
-                f'{_logo_html(52)}'
+                f'{_logo_html(56)}'
                 f'<div class="login-title">Lead Extractor</div>'
                 f'<div class="login-sub">Revolução AI</div>'
                 f'</div>',
@@ -683,7 +840,9 @@ def pagina_login():
             )
             email = st.text_input("E-mail", placeholder="seu@email.com")
             senha = st.text_input("Senha", type="password", placeholder="••••••••")
+            st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
             btn   = st.form_submit_button("Entrar", use_container_width=True, type="primary")
+        st.markdown('</div>', unsafe_allow_html=True)
         if btn:
             if not email or not senha:
                 st.error("Preencha e-mail e senha.")
@@ -706,9 +865,9 @@ def pagina_busca():
 
     st.markdown(
         '<div class="page-header">'
-        '<div class="page-header-icon">🔍</div>'
+        '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#00D97E" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>'
         '<div><div class="page-title">Nova Busca</div>'
-        '<div class="page-sub">Busque leads por nicho e localidade usando Google Maps ou Receita Federal</div></div>'
+        '<div class="page-sub">Busque leads por nicho e localidade usando Google Maps ou Casa dos Dados</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -1046,7 +1205,7 @@ def pagina_historico():
 
     st.markdown(
         '<div class="page-header">'
-        '<div class="page-header-icon">📁</div>'
+        '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#3b82f6" fill="none" stroke-width="1.8"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg></div>'
         '<div><div class="page-title">Histórico</div>'
         '<div class="page-sub">Todas as suas extrações anteriores com leads salvos</div></div>'
         '</div>',
@@ -1120,7 +1279,7 @@ def pagina_configuracoes():
 
     st.markdown(
         '<div class="page-header">'
-        '<div class="page-header-icon">⚙️</div>'
+        '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#a855f7" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>'
         '<div><div class="page-title">Configurações</div>'
         '<div class="page-sub">Gerencie suas credenciais e integrações</div></div>'
         '</div>',
@@ -1376,7 +1535,7 @@ def pagina_admin():
 
     st.markdown(
         '<div class="page-header">'
-        '<div class="page-header-icon">👑</div>'
+        '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#f59e0b" fill="none" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>'
         '<div><div class="page-title">Painel Admin</div>'
         '<div class="page-sub">Gerencie os usuários da plataforma</div></div>'
         '</div>',
@@ -1460,6 +1619,14 @@ def pagina_admin():
 
 # ── Sidebar & roteamento principal ────────────────────────────────────────────
 
+_NAV_ICONS = {
+    "busca":         '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    "historico":     '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>',
+    "configuracoes": '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    "admin":         '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+    "logout":        '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
+}
+
 def _sidebar():
     from modules.auth import logout, eh_admin
 
@@ -1467,7 +1634,7 @@ def _sidebar():
         # ── Brand ──────────────────────────────────────────────
         user = st.session_state.get("user", {})
         role = user.get("role", "user")
-        logo = _logo_html(30)
+        logo = _logo_html(32)
         st.markdown(
             f'<div class="brand-header">'
             f'<div style="display:flex;align-items:center;gap:10px">'
@@ -1478,20 +1645,25 @@ def _sidebar():
             unsafe_allow_html=True,
         )
 
-        # ── User card ───────────────────────────────────────────
+        # ── User card with avatar ──────────────────────────────
+        email = user.get("email", "")
+        initial = email[0].upper() if email else "U"
         role_cls   = "role-admin" if role == "admin" else "role-user"
         role_label = "Admin" if role == "admin" else "Usuário"
         st.markdown(
             f'<div class="user-card">'
-            f'<div class="user-email">{user.get("email","")}</div>'
+            f'<div style="display:flex;align-items:center;gap:10px">'
+            f'<div class="user-avatar">{initial}</div>'
+            f'<div class="user-info">'
+            f'<div class="user-email">{email}</div>'
             f'<span class="user-role-badge {role_cls}">{role_label}</span>'
-            f'</div>',
+            f'</div></div></div>',
             unsafe_allow_html=True,
         )
 
-        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
 
-        # ── Nav — sem emojis, texto limpo ────────────────────────
+        # ── Nav with SVG icons ────────────────────────────────
         page = st.session_state.get("page", "busca")
         nav_items = [
             ("busca",         "Busca"),
@@ -1503,7 +1675,8 @@ def _sidebar():
 
         st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
         for key, label in nav_items:
-            if st.button(label, use_container_width=True, key=f"nav_{key}",
+            icon_html = f'<span class="nav-icon">{_NAV_ICONS.get(key,"")}</span>'
+            if st.button(f"{label}", use_container_width=True, key=f"nav_{key}",
                          type="primary" if page == key else "secondary"):
                 st.session_state["page"] = key
                 st.rerun()
@@ -1511,7 +1684,7 @@ def _sidebar():
 
         # ── Logout ──────────────────────────────────────────────
         st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
-        st.markdown('<hr style="border-color:#141828;margin:0 8px 12px">', unsafe_allow_html=True)
+        st.markdown('<hr style="border:none;border-top:1px solid #0c1425;margin:0 14px 12px">', unsafe_allow_html=True)
         st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
         if st.button("Sair", use_container_width=True, key="nav_logout", type="secondary"):
             logout()
