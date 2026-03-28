@@ -238,13 +238,16 @@ def exportar(
                 body={"values": [cabecalho] + linhas},
             ).execute()
         else:
-            # Modo acrescentar: verifica se já tem dados
+            # Modo acrescentar: verifica se a aba tem dados além do cabeçalho
             existing = service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=f"'{escaped_aba}'!A1:A1",
+                range=f"'{escaped_aba}'!A1:A2",
             ).execute()
-            if not existing.get("values"):
-                # Aba vazia — escreve com cabeçalho
+            rows_exist = existing.get("values", [])
+            # Considera "vazia" se não tem linhas OU só tem o cabeçalho (sem dados)
+            has_data = len(rows_exist) >= 2
+            if not has_data:
+                # Aba vazia (ou só cabeçalho) — escreve do zero com cabeçalho
                 upd_resp = service.spreadsheets().values().update(
                     spreadsheetId=sheet_id,
                     range=f"'{escaped_aba}'!A1",
@@ -252,7 +255,7 @@ def exportar(
                     body={"values": [cabecalho] + linhas},
                 ).execute()
             else:
-                # Acrescenta linhas ao final
+                # Tem dados reais — acrescenta linhas ao final
                 upd_resp = service.spreadsheets().values().append(
                     spreadsheetId=sheet_id,
                     range=f"'{escaped_aba}'",
@@ -261,12 +264,30 @@ def exportar(
                     body={"values": linhas},
                 ).execute()
 
-        # Células escritas segundo a resposta da API
-        updated_cells = upd_resp.get("updatedCells") if upd_resp else None
+        # updatedCells: values.update() responde na raiz; values.append() responde em .updates
+        if upd_resp:
+            updated_cells = (
+                upd_resp.get("updatedCells")
+                or (upd_resp.get("updates") or {}).get("updatedCells")
+            )
+            updated_range = (
+                upd_resp.get("updatedRange")
+                or (upd_resp.get("updates") or {}).get("updatedRange")
+                or "?"
+            )
+        else:
+            updated_cells, updated_range = None, "?"
+
+        if not updated_cells:
+            return False, (
+                f"A API aceitou a requisição mas não escreveu células.  \n"
+                f"Planilha: **{sheet_title}** | Aba: **{aba_nome}**  \n"
+                f"Resposta API: `{upd_resp}`"
+            )
 
         return True, (
             f"✅ {len(linhas)} registros exportados para **{sheet_title}** → aba **{aba_nome}**  \n"
-            f"Células escritas (API): **{updated_cells}**  \n"
+            f"Células escritas: **{updated_cells}** | Intervalo: `{updated_range}`  \n"
             f"🔗 {sheet_url}"
         )
     except Exception as e:
