@@ -985,10 +985,9 @@ def pagina_configuracoes():
                 else:
                     aba_add = st.text_input(
                         "Nome da aba *",
-                        value="Planilha1",
                         placeholder="Ex: Planilha1, Leads, Dados…",
                         key="add_aba_txt",
-                        help="Digite o nome exato da aba na planilha (sensível a maiúsculas).",
+                        help="Digite o nome exato da aba (verifique no rodapé da planilha no Google Sheets).",
                     )
 
                 modo_add = st.selectbox("Modo de exportação", ["acrescentar", "substituir"], key="add_modo")

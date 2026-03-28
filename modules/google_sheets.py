@@ -168,7 +168,7 @@ def listar_planilhas(creds_dict: dict) -> list[dict]:
 def listar_abas(creds_dict: dict, sheet_id: str) -> list[str]:
     """Retorna nomes das abas de uma planilha."""
     creds = _creds_from_dict(creds_dict)
-    gc = gspread.authorize(creds)
+    gc = gspread.Client(auth=creds)
     sh = gc.open_by_key(sheet_id)
     return [ws.title for ws in sh.worksheets()]
 
@@ -177,7 +177,7 @@ def exportar(
     resultados: list[dict],
     creds_dict: dict,
     sheet_id: str,
-    aba_nome: str = "Prospecção",
+    aba_nome: str = "Planilha1",
     modo: str = "substituir",
 ) -> tuple[bool, str]:
     """
@@ -195,15 +195,21 @@ def exportar(
 
     try:
         creds = _creds_from_dict(creds_dict)
-        gc = gspread.authorize(creds)
+        gc = gspread.Client(auth=creds)
         sh = gc.open_by_key(sheet_id)
     except Exception as e:
         return False, f"Erro ao conectar com a planilha: {e}"
 
+    # Não cria aba silenciosamente — retorna erro claro se não encontrar
     try:
         ws = sh.worksheet(aba_nome)
     except Exception:
-        ws = sh.add_worksheet(title=aba_nome, rows=len(resultados) + 20, cols=len(COLUNAS_EXPORT) + 2)
+        abas_disponiveis = [w.title for w in sh.worksheets()]
+        return False, (
+            f"Aba **{aba_nome}** não encontrada. "
+            f"Abas disponíveis: {', '.join(abas_disponiveis) or '(nenhuma)'}. "
+            "Atualize a planilha em ⚙️ Configurações."
+        )
 
     cabecalho = [lbl for _, lbl in COLUNAS_EXPORT]
     linhas = [[str(r.get(col, "") or "") for col, _ in COLUNAS_EXPORT] for r in resultados]
@@ -211,7 +217,7 @@ def exportar(
     try:
         if modo == "substituir":
             ws.clear()
-            ws.update([cabecalho] + linhas)
+            ws.update(range_name="A1", values=[cabecalho] + linhas)
             try:
                 ws.format("1:1", {"textFormat": {"bold": True}, "backgroundColor": {"red": 0, "green": 0.85, "blue": 0.49}})
             except Exception:
@@ -219,7 +225,7 @@ def exportar(
         else:
             existentes = ws.get_all_values()
             if not existentes:
-                ws.update([cabecalho] + linhas)
+                ws.update(range_name="A1", values=[cabecalho] + linhas)
             else:
                 ws.append_rows(linhas)
 
