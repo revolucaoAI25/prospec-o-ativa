@@ -83,6 +83,21 @@ def limpar_cookie():
     st.session_state.pop("_cookie_set", None)
 
 
+def _carregar_sheets_state(raw):
+    """Carrega sheets_creds, sheets_planilhas e auto_export_enabled do campo JSONB."""
+    if not raw:
+        return
+    if isinstance(raw, dict) and "oauth" in raw:
+        st.session_state["sheets_creds"]        = raw["oauth"]
+        st.session_state["sheets_planilhas"]    = raw.get("planilhas", [])
+        st.session_state["auto_export_enabled"] = raw.get("auto_export", False)
+    else:
+        # Formato antigo (só dict OAuth)
+        st.session_state["sheets_creds"]        = raw
+        st.session_state["sheets_planilhas"]    = []
+        st.session_state["auto_export_enabled"] = False
+
+
 def restaurar_sessao(refresh_token: str) -> bool:
     """
     Restaura sessão a partir do refresh token fornecido pelo CookieManager.
@@ -114,9 +129,7 @@ def restaurar_sessao(refresh_token: str) -> bool:
         }
         if dados.get("google_maps_api_key"):
             st.session_state["user_gmaps_key"] = dados["google_maps_api_key"]
-        if dados.get("google_sheets_creds"):
-            st.session_state["sheets_creds"] = dados["google_sheets_creds"]
-        # Renova cookie com novo token (write via CookieManager no próximo render)
+        _carregar_sheets_state(dados.get("google_sheets_creds"))
         salvar_sessao_cookie(sess.refresh_token)
         return True
     except Exception:
@@ -151,9 +164,7 @@ def login(email: str, senha: str) -> tuple[bool, str]:
         }
         if dados.get("google_maps_api_key"):
             st.session_state["user_gmaps_key"] = dados["google_maps_api_key"]
-        if dados.get("google_sheets_creds"):
-            st.session_state["sheets_creds"] = dados["google_sheets_creds"]
-
+        _carregar_sheets_state(dados.get("google_sheets_creds"))
         salvar_sessao_cookie(sess.refresh_token)
         return True, "Login realizado com sucesso."
 
@@ -169,8 +180,8 @@ def login(email: str, senha: str) -> tuple[bool, str]:
 def logout():
     """Remove sessão do state e apaga o cookie."""
     limpar_cookie()
-    for k in ["user", "user_gmaps_key", "sheets_creds", "sheets_lista",
-              "sheets_selected_id", "sheets_selected_name", "sheets_abas",
+    for k in ["user", "user_gmaps_key", "sheets_creds", "sheets_planilhas",
+              "auto_export_enabled", "sheets_lista",
               "maps_res", "rf_res", "page", "_cfg_cache", "_cookie_set",
               "_pesquisas_cache", "_sb_client", "_cm_init_done"]:
         st.session_state.pop(k, None)

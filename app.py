@@ -431,31 +431,44 @@ def _tabela(rows):
     cols=[c for c in vis if c in df.columns]
     st.dataframe(df[cols].rename(columns=lm).fillna("").astype(str).replace("nan",""), use_container_width=True, height=380)
 
-def _dl_buttons(rows, prefix, sheets_auth):
-    ts=int(time.time()); c1,c2,c3=st.columns(3)
-    with c1: st.download_button("⬇️ Excel",_xlsx(rows),f"{prefix}_{ts}.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",use_container_width=True)
-    with c2: st.download_button("⬇️ CSV",_csv(rows),f"{prefix}_{ts}.csv","text/csv",use_container_width=True)
-    with c3:
-        if sheets_auth:
-            if st.button("📊 Google Sheets",use_container_width=True): _export_sheets(rows)
-        else:
-            st.button("📊 Google Sheets",use_container_width=True,disabled=True,help="Conecte sua conta Google em Configurações.")
-
-def _export_sheets(rows):
+def _export_to_planilha(rows, planilha: dict):
+    """Exporta rows para uma planilha configurada."""
     from modules.google_sheets import exportar
     creds = st.session_state.get("sheets_creds")
-    sid   = st.session_state.get("sheets_selected_id", "")
-    aba   = st.session_state.get("sheets_aba", "Prospecção")
-    modo  = st.session_state.get("sheets_modo", "substituir")
     if not creds:
-        st.warning("Conecte sua conta Google em ⚙️ Configurações.", icon="🔗")
+        st.warning("Conta Google não vinculada.", icon="🔗")
         return
-    if not sid:
-        st.warning("Selecione uma planilha destino em ⚙️ Configurações.", icon="📄")
-        return
-    with st.spinner("Exportando..."):
-        ok, msg = exportar(rows, creds, sid, aba, modo)
+    with st.spinner(f"Exportando para {planilha['nome']}…"):
+        ok, msg = exportar(rows, creds, planilha["id"], planilha["aba"],
+                           planilha.get("modo", "substituir"))
     (st.success if ok else st.error)(msg)
+
+def _dl_buttons(rows, prefix, sheets_auth):
+    ts = int(time.time())
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.download_button("⬇️ Excel", _xlsx(rows), f"{prefix}_{ts}.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           use_container_width=True)
+    with c2:
+        st.download_button("⬇️ CSV", _csv(rows), f"{prefix}_{ts}.csv",
+                           "text/csv", use_container_width=True)
+    with c3:
+        planilhas_cfg = st.session_state.get("sheets_planilhas", [])
+        if sheets_auth and planilhas_cfg:
+            with st.popover("📊 Google Sheets", use_container_width=True):
+                st.markdown("**Exportar para:**")
+                for p in planilhas_cfg:
+                    badge = " ⭐" if p.get("padrao") else ""
+                    lbl = f"{p['nome']}{badge} → {p['aba']} ({p.get('modo','substituir')})"
+                    if st.button(lbl, key=f"exp_{p['id'][:8]}_{prefix}_{ts}", use_container_width=True):
+                        _export_to_planilha(rows, p)
+        elif sheets_auth:
+            st.button("📊 Google Sheets", use_container_width=True, disabled=True,
+                      help="Adicione uma planilha em ⚙️ Configurações.")
+        else:
+            st.button("📊 Google Sheets", use_container_width=True, disabled=True,
+                      help="Conecte sua conta Google em ⚙️ Configurações.")
 
 # ══════════════════════════════════════════════════════════════
 # PÁGINAS
@@ -590,18 +603,28 @@ def pagina_busca():
                 except Exception as e:
                     prog.empty(); st.error(f"Erro: {e}"); st.session_state["maps_res"] = []
                 else:
-                    # Salva no banco em background — não bloqueia exibição de resultados
                     try:
                         from modules.database import salvar_pesquisa, salvar_leads
                         sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade, "maps", len(res))
                         if sid: salvar_leads(sid, res)
                     except Exception:
-                        pass  # falha no banco não apaga os resultados
+                        pass
+                    # Auto-export para planilha padrão
+                    if st.session_state.get("auto_export_enabled") and res:
+                        _planilhas = st.session_state.get("sheets_planilhas", [])
+                        _padrao = next((p for p in _planilhas if p.get("padrao")), None)
+                        if _padrao and st.session_state.get("sheets_creds"):
+                            from modules.google_sheets import exportar
+                            with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
+                                _ok, _msg = exportar(res, st.session_state["sheets_creds"],
+                                                     _padrao["id"], _padrao["aba"],
+                                                     _padrao.get("modo","substituir"))
+                            (st.success if _ok else st.error)(_msg)
 
         if st.session_state.get("maps_res"):
             res = st.session_state["maps_res"]
             st.success(f"✅ **{len(res)}** resultados")
-            _stats(res); _dl_buttons(res, st.session_state.get("maps_prefix","prospecao"), "sheets_creds" in st.session_state)
+            _stats(res); _dl_buttons(res, st.session_state.get("maps_prefix","prospecao"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
 
     with aba_rf:
@@ -649,10 +672,21 @@ def pagina_busca():
                     if sid: salvar_leads(sid, res_rf)
                 except Exception:
                     pass
+                # Auto-export para planilha padrão
+                if st.session_state.get("auto_export_enabled") and res_rf:
+                    _planilhas = st.session_state.get("sheets_planilhas", [])
+                    _padrao = next((p for p in _planilhas if p.get("padrao")), None)
+                    if _padrao and st.session_state.get("sheets_creds"):
+                        from modules.google_sheets import exportar
+                        with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
+                            _ok, _msg = exportar(res_rf, st.session_state["sheets_creds"],
+                                                 _padrao["id"], _padrao["aba"],
+                                                 _padrao.get("modo","substituir"))
+                        (st.success if _ok else st.error)(_msg)
         if st.session_state.get("rf_res"):
             res=st.session_state["rf_res"]
             st.success(f"✅ **{len(res)}** resultados")
-            _stats(res); _dl_buttons(res,st.session_state.get("rf_prefix","prospecao_rf"),"sheets_creds" in st.session_state)
+            _stats(res); _dl_buttons(res,st.session_state.get("rf_prefix","prospecao_rf"),"sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
 
 
@@ -695,9 +729,22 @@ def pagina_historico():
 
             ts = int(time.time())
             slug = f"{nicho[:12]}_{loc[:12]}".lower().replace(" ","_").replace(",","")
-            c1,c2 = st.columns(2)
+            _planilhas_h = st.session_state.get("sheets_planilhas", [])
+            c1, c2, c3 = st.columns(3)
             with c1: st.download_button("⬇️ Excel",_xlsx(leads),f"{slug}_{ts}.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",use_container_width=True,key=f"xl_{p['id']}")
             with c2: st.download_button("⬇️ CSV",_csv(leads),f"{slug}_{ts}.csv","text/csv",use_container_width=True,key=f"csv_{p['id']}")
+            with c3:
+                if "sheets_creds" in st.session_state and _planilhas_h:
+                    with st.popover("📊 Google Sheets", use_container_width=True):
+                        st.markdown("**Exportar para:**")
+                        for _ph in _planilhas_h:
+                            _badge = " ⭐" if _ph.get("padrao") else ""
+                            _lbl = f"{_ph['nome']}{_badge} → {_ph['aba']} ({_ph.get('modo','substituir')})"
+                            if st.button(_lbl, key=f"hexp_{_ph['id'][:8]}_{p['id'][:8]}", use_container_width=True):
+                                _export_to_planilha(leads, _ph)
+                else:
+                    sheets_tip = "Conecte sua conta Google em ⚙️ Configurações." if "sheets_creds" not in st.session_state else "Adicione uma planilha em ⚙️ Configurações."
+                    st.button("📊 Google Sheets", disabled=True, use_container_width=True, help=sheets_tip, key=f"hgs_{p['id']}")
 
             import pandas as pd
             vis=["nome","telefone","email","municipio","uf","site","avaliacao","cnpj"]
@@ -775,87 +822,154 @@ def pagina_configuracoes():
         if "sheets_creds" in st.session_state:
             st.success("✅ Conta Google vinculada!", icon="✅")
 
-            # ── Seleção de planilha ─────────────────────────────────────────
             from modules.google_sheets import listar_planilhas, listar_abas, extrair_sheet_id
 
-            _lista_err = None
-            if "sheets_lista" not in st.session_state:
-                with st.spinner("Buscando planilhas no Google Drive..."):
-                    try:
-                        st.session_state["sheets_lista"] = listar_planilhas(st.session_state["sheets_creds"])
-                    except Exception as e:
-                        st.session_state["sheets_lista"] = []
-                        _lista_err = str(e)
+            def _salvar_planilhas():
+                salvar_configuracoes({"google_sheets_creds": {
+                    "oauth":       st.session_state["sheets_creds"],
+                    "planilhas":   st.session_state.get("sheets_planilhas", []),
+                    "auto_export": st.session_state.get("auto_export_enabled", False),
+                }})
 
-            planilhas = st.session_state.get("sheets_lista", [])
+            # ── Auto-export toggle ──────────────────────────────────────────
+            auto_val = st.session_state.get("auto_export_enabled", False)
+            auto_new = st.toggle(
+                "🔄 Exportar automaticamente após cada busca (planilha padrão ⭐)",
+                value=auto_val, key="cfg_auto_export",
+            )
+            if auto_new != auto_val:
+                st.session_state["auto_export_enabled"] = auto_new
+                _salvar_planilhas()
 
-            if _lista_err:
-                st.error(
-                    f"Não foi possível listar planilhas: {_lista_err}\n\n"
-                    "Verifique se a **Google Drive API** está habilitada no Google Cloud Console "
-                    "(além da Sheets API). Você ainda pode usar a URL da planilha abaixo.",
-                    icon="❌",
-                )
+            st.markdown("---")
+            st.markdown("**📋 Planilhas configuradas**")
 
-            if planilhas:
-                nomes = [p["name"] for p in planilhas]
-                ids   = [p["id"]   for p in planilhas]
-                sel_name = st.session_state.get("sheets_selected_name", "")
-                idx = nomes.index(sel_name) if sel_name in nomes else 0
-                escolha = st.selectbox("📄 Planilha destino", nomes, index=idx, key="cfg_sheet_sel")
-                chosen_id = ids[nomes.index(escolha)]
-
-                if chosen_id != st.session_state.get("sheets_selected_id"):
-                    st.session_state["sheets_selected_id"] = chosen_id
-                    st.session_state["sheets_selected_name"] = escolha
-                    st.session_state.pop("sheets_abas", None)
+            # ── Lista de planilhas cadastradas ──────────────────────────────
+            planilhas_cfg = st.session_state.get("sheets_planilhas", [])
+            if not planilhas_cfg:
+                st.caption("Nenhuma planilha adicionada ainda.")
             else:
-                # Fallback: colar URL ou ID da planilha manualmente
-                st.markdown("**Cole a URL ou ID da planilha destino:**")
-                url_input = st.text_input(
-                    "URL da planilha",
-                    value="",
-                    placeholder="https://docs.google.com/spreadsheets/d/... ou só o ID",
-                    key="cfg_sheet_url",
-                    label_visibility="collapsed",
-                )
-                if url_input.strip():
-                    sid_manual = extrair_sheet_id(url_input.strip()) or url_input.strip()
-                    if sid_manual != st.session_state.get("sheets_selected_id"):
-                        st.session_state["sheets_selected_id"] = sid_manual
-                        st.session_state["sheets_selected_name"] = sid_manual[:40]
-                        st.session_state.pop("sheets_abas", None)
-                chosen_id = st.session_state.get("sheets_selected_id", "")
+                for i, p in enumerate(planilhas_cfg):
+                    badge = " ⭐" if p.get("padrao") else ""
+                    c_info, c_pad, c_del = st.columns([6, 2, 1])
+                    with c_info:
+                        st.markdown(f"**{p['nome']}{badge}** · `{p['aba']}` · {p.get('modo','substituir')}")
+                    with c_pad:
+                        if not p.get("padrao"):
+                            if st.button("⭐ Padrão", key=f"pad_{i}", use_container_width=True):
+                                for j in range(len(planilhas_cfg)):
+                                    planilhas_cfg[j]["padrao"] = (j == i)
+                                st.session_state["sheets_planilhas"] = planilhas_cfg
+                                _salvar_planilhas()
+                                st.rerun()
+                    with c_del:
+                        if st.button("🗑️", key=f"del_p_{i}", use_container_width=True):
+                            planilhas_cfg.pop(i)
+                            st.session_state["sheets_planilhas"] = planilhas_cfg
+                            _salvar_planilhas()
+                            st.rerun()
 
-            if chosen_id := st.session_state.get("sheets_selected_id", ""):
-                if "sheets_abas" not in st.session_state:
-                    with st.spinner("Carregando abas..."):
+            # ── Formulário: adicionar planilha ──────────────────────────────
+            st.markdown("")
+            with st.expander("➕ Adicionar planilha", expanded=False):
+                # Carrega lista do Drive (uma vez por sessão)
+                _lista_err = None
+                if "sheets_lista" not in st.session_state:
+                    with st.spinner("Buscando planilhas no Google Drive..."):
                         try:
-                            st.session_state["sheets_abas"] = listar_abas(st.session_state["sheets_creds"], chosen_id)
-                        except Exception:
-                            st.session_state["sheets_abas"] = ["Prospecção"]
+                            st.session_state["sheets_lista"] = listar_planilhas(st.session_state["sheets_creds"])
+                        except Exception as e:
+                            st.session_state["sheets_lista"] = []
+                            _lista_err = str(e)
 
-                abas = st.session_state.get("sheets_abas", ["Prospecção"])
-                aba_atual = st.session_state.get("sheets_aba", abas[0] if abas else "Prospecção")
-                aba_idx = abas.index(aba_atual) if aba_atual in abas else 0
+                drive_lista = st.session_state.get("sheets_lista", [])
 
-                col_aba, col_modo = st.columns(2)
-                with col_aba:
-                    aba_sel = st.selectbox("📑 Aba destino", abas, index=aba_idx, key="cfg_aba_sel")
-                    st.session_state["sheets_aba"] = aba_sel
-                with col_modo:
-                    modo_opts = ["substituir", "acrescentar"]
-                    modo_idx = modo_opts.index(st.session_state.get("sheets_modo", "substituir"))
-                    modo_sel = st.selectbox("📝 Modo de exportação", modo_opts, index=modo_idx, key="cfg_modo_sel")
-                    st.session_state["sheets_modo"] = modo_sel
+                if _lista_err:
+                    st.warning(
+                        f"Não foi possível listar planilhas do Drive: {_lista_err}\n\n"
+                        "Habilite a **Google Drive API** no Cloud Console ou cole a URL abaixo.",
+                        icon="⚠️",
+                    )
 
-                nome_planilha = st.session_state.get("sheets_selected_name", chosen_id[:30])
-                st.info(f"Exportação irá para **{nome_planilha}** → aba **{aba_sel}** ({modo_sel})", icon="📊")
+                # Seleção: Drive ou URL manual
+                _new_id, _new_nome_drive = "", ""
+                if drive_lista:
+                    nomes_drive = ["— cole URL manualmente —"] + [p["name"] for p in drive_lista]
+                    ids_drive   = [""] + [p["id"] for p in drive_lista]
+                    escolha_drive = st.selectbox("Escolher do Google Drive", nomes_drive, key="add_drive_sel")
+                    idx_d = nomes_drive.index(escolha_drive)
+                    _new_id = ids_drive[idx_d]
+                    _new_nome_drive = escolha_drive if _new_id else ""
+
+                url_add = st.text_input(
+                    "URL ou ID da planilha" if not drive_lista else "Ou cole a URL manualmente",
+                    placeholder="https://docs.google.com/spreadsheets/d/...",
+                    key="add_sheet_url",
+                )
+                if url_add.strip():
+                    _new_id = extrair_sheet_id(url_add.strip()) or url_add.strip()
+                    _new_nome_drive = ""
+
+                # Nome de exibição
+                nome_add = st.text_input("Nome de exibição", value=_new_nome_drive,
+                                         placeholder="Ex: Advocacia SP", key="add_nome")
+
+                # Carrega abas se há ID
+                _abas_add = []
+                _abas_err = None
+                if _new_id:
+                    _cache_key = f"_abas_add_{_new_id}"
+                    if _cache_key not in st.session_state:
+                        with st.spinner("Carregando abas..."):
+                            try:
+                                st.session_state[_cache_key] = listar_abas(
+                                    st.session_state["sheets_creds"], _new_id)
+                            except Exception as e:
+                                st.session_state[_cache_key] = []
+                                _abas_err = str(e)
+                    _abas_add = st.session_state.get(_cache_key, [])
+
+                if _abas_err:
+                    st.warning(f"Não foi possível carregar abas: {_abas_err}. Digite o nome manualmente.", icon="⚠️")
+
+                if _abas_add:
+                    aba_add = st.selectbox("Aba destino", _abas_add, key="add_aba_sel")
+                else:
+                    aba_add = st.text_input("Nome da aba", placeholder="Ex: Leads", key="add_aba_txt")
+
+                modo_add = st.selectbox("Modo de exportação", ["acrescentar", "substituir"], key="add_modo")
+                padrao_add = st.checkbox("⭐ Definir como planilha padrão (auto-export)", key="add_padrao")
+
+                if st.button("💾 Adicionar planilha", type="primary", use_container_width=True, key="btn_add_planilha"):
+                    if not _new_id:
+                        st.error("Selecione uma planilha ou cole a URL.")
+                    elif not nome_add.strip():
+                        st.error("Informe um nome de exibição.")
+                    elif not aba_add.strip():
+                        st.error("Informe o nome da aba.")
+                    else:
+                        nova = {
+                            "id":    _new_id,
+                            "nome":  nome_add.strip(),
+                            "aba":   aba_add.strip(),
+                            "modo":  modo_add,
+                            "padrao": padrao_add,
+                        }
+                        lista = st.session_state.get("sheets_planilhas", [])
+                        if padrao_add:
+                            for existing in lista:
+                                existing["padrao"] = False
+                        lista.append(nova)
+                        st.session_state["sheets_planilhas"] = lista
+                        # Limpa cache de abas temporário
+                        st.session_state.pop(f"_abas_add_{_new_id}", None)
+                        _salvar_planilhas()
+                        st.success(f"Planilha **{nova['nome']}** adicionada!")
+                        st.rerun()
 
             st.markdown("")
             if st.button("🔓 Desconectar conta Google", key="disc_google"):
-                for k in ["sheets_creds", "sheets_lista", "sheets_selected_id",
-                          "sheets_selected_name", "sheets_abas", "sheets_aba", "sheets_modo"]:
+                for k in ["sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista"]:
                     st.session_state.pop(k, None)
                 salvar_configuracoes({"google_sheets_creds": None})
                 st.rerun()
@@ -1072,7 +1186,11 @@ def main():
     if "user" in st.session_state and st.session_state.pop("_pending_sheets_save", False):
         if st.session_state.get("sheets_creds"):
             from modules.database import salvar_configuracoes
-            salvar_configuracoes({"google_sheets_creds": st.session_state["sheets_creds"]})
+            salvar_configuracoes({"google_sheets_creds": {
+                "oauth":      st.session_state["sheets_creds"],
+                "planilhas":  st.session_state.get("sheets_planilhas", []),
+                "auto_export": st.session_state.get("auto_export_enabled", False),
+            }})
 
     # ── Escreve cookie após login ─────────────────────────────────────────────
     if st.session_state.get("_pending_rt"):
