@@ -71,22 +71,6 @@ st.set_page_config(page_title="Lead Extractor · Revolução AI", page_icon="⚡
 st.markdown("""<style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800&display=swap');
 
-/* ── Ocultar header, footer e botão deploy do Streamlit ── */
-#MainMenu { visibility: hidden !important; }
-/* Zera a altura do header mas mantém o botão de toggle da sidebar funcional */
-header[data-testid="stHeader"] {
-    height: 0 !important;
-    min-height: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
-    background: transparent !important;
-}
-[data-testid="stToolbar"] { display: none !important; }
-[data-testid="stDecoration"] { display: none !important; }
-footer { display: none !important; }
-[data-testid="stDeployButton"] { display: none !important; }
-div[class*="viewerBadge"] { display: none !important; }
-iframe[title="streamlit_analytics"] { display: none !important; }
 
 /* ═══════════════════════════════════════════════════════════
    DESIGN TOKENS
