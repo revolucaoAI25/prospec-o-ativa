@@ -201,25 +201,41 @@ def deletar_pesquisa(search_id: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-# ── Créditos CDD ─────────────────────────────────────────────────────────────
+# ── Créditos ─────────────────────────────────────────────────────────────────
+
+_CREDIT_FIELDS = (
+    "cdd_credits, maps_credits, maps_credits_enabled, "
+    "maps_api_key_admin, monthly_cdd_credits, monthly_maps_credits, credits_renewed_at"
+)
+
+
+def obter_perfil_creditos() -> dict:
+    """Retorna todos os campos de crédito do usuário logado."""
+    sb = _client_autenticado()
+    if not sb:
+        return {}
+    user_id = st.session_state.get("user", {}).get("id")
+    if not user_id:
+        return {}
+    try:
+        resp = sb.table("profiles").select(_CREDIT_FIELDS).eq("id", user_id).single().execute()
+        return resp.data or {}
+    except Exception:
+        return {}
+
 
 def obter_creditos() -> int:
     """Retorna o saldo de créditos CDD do usuário logado."""
-    sb = _client_autenticado()
-    if not sb:
-        return 0
-    user_id = st.session_state.get("user", {}).get("id")
-    if not user_id:
-        return 0
-    try:
-        resp = sb.table("profiles").select("cdd_credits").eq("id", user_id).single().execute()
-        return int((resp.data or {}).get("cdd_credits", 0))
-    except Exception:
-        return 0
+    return int(obter_perfil_creditos().get("cdd_credits", 0))
+
+
+def obter_creditos_maps() -> int:
+    """Retorna o saldo de créditos Maps do usuário logado."""
+    return int(obter_perfil_creditos().get("maps_credits", 0))
 
 
 def debitar_creditos(quantidade: int) -> bool:
-    """Debita créditos CDD do usuário logado. Retorna True se OK."""
+    """Debita créditos CDD do usuário logado."""
     if quantidade <= 0:
         return True
     sb = _client_autenticado()
@@ -229,12 +245,70 @@ def debitar_creditos(quantidade: int) -> bool:
     if not user_id:
         return False
     try:
-        saldo_atual = obter_creditos()
-        novo_saldo = max(0, saldo_atual - quantidade)
-        sb.table("profiles").update({"cdd_credits": novo_saldo}).eq("id", user_id).execute()
+        novo = max(0, obter_creditos() - quantidade)
+        sb.table("profiles").update({"cdd_credits": novo}).eq("id", user_id).execute()
         return True
     except Exception:
         return False
+
+
+def debitar_creditos_maps(quantidade: int) -> bool:
+    """Debita créditos Maps do usuário logado."""
+    if quantidade <= 0:
+        return True
+    sb = _client_autenticado()
+    if not sb:
+        return False
+    user_id = st.session_state.get("user", {}).get("id")
+    if not user_id:
+        return False
+    try:
+        novo = max(0, obter_creditos_maps() - quantidade)
+        sb.table("profiles").update({"maps_credits": novo}).eq("id", user_id).execute()
+        return True
+    except Exception:
+        return False
+
+
+def renovar_creditos_se_necessario() -> None:
+    """
+    Verifica se o mês mudou desde a última renovação e, se sim, adiciona
+    os créditos mensais configurados. Chamada uma vez por sessão após login.
+    """
+    from datetime import date
+    sb = _client_autenticado()
+    if not sb:
+        return
+    user_id = st.session_state.get("user", {}).get("id")
+    if not user_id:
+        return
+    try:
+        perfil = obter_perfil_creditos()
+        ultimo = perfil.get("credits_renewed_at")
+        hoje = date.today()
+        inicio_mes = hoje.replace(day=1)
+
+        # Renova se nunca renovou ou se a última renovação foi antes deste mês
+        precisa_renovar = (
+            not ultimo or
+            date.fromisoformat(str(ultimo)[:10]) < inicio_mes
+        )
+        if not precisa_renovar:
+            return
+
+        monthly_cdd  = int(perfil.get("monthly_cdd_credits", 0))
+        monthly_maps = int(perfil.get("monthly_maps_credits", 0))
+        maps_enabled = bool(perfil.get("maps_credits_enabled", False))
+
+        updates: dict = {"credits_renewed_at": hoje.isoformat()}
+        if monthly_cdd > 0:
+            updates["cdd_credits"] = int(perfil.get("cdd_credits", 0)) + monthly_cdd
+        if maps_enabled and monthly_maps > 0:
+            updates["maps_credits"] = int(perfil.get("maps_credits", 0)) + monthly_maps
+
+        sb.table("profiles").update(updates).eq("id", user_id).execute()
+    except Exception:
+        pass
 
 
 # ── Configurações do usuário ──────────────────────────────────────────────────

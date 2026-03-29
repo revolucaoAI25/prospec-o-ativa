@@ -120,10 +120,16 @@ CREATE TRIGGER profiles_updated_at
     BEFORE UPDATE ON profiles
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- ── Créditos CDD por usuário ──────────────────────────────────
--- Execute esta migration se o banco já existia antes desta versão:
--- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS cdd_credits INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS cdd_credits INTEGER NOT NULL DEFAULT 0;
+-- ── Créditos por usuário ──────────────────────────────────────
+-- Execute este bloco no SQL Editor do Supabase (Database → SQL Editor)
+-- se o banco já existia antes desta versão:
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS cdd_credits          INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS maps_credits         INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS maps_credits_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS maps_api_key_admin   TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS monthly_cdd_credits  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS monthly_maps_credits INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS credits_renewed_at   DATE;
 
 -- ── View auxiliar para o admin ver usuários com stats ─────────
 CREATE OR REPLACE VIEW user_stats AS
@@ -132,6 +138,12 @@ SELECT
     p.email,
     p.role,
     p.cdd_credits,
+    p.maps_credits,
+    p.maps_credits_enabled,
+    p.maps_api_key_admin,
+    p.monthly_cdd_credits,
+    p.monthly_maps_credits,
+    p.credits_renewed_at,
     p.created_at,
     COUNT(DISTINCT s.id)  AS total_searches,
     COUNT(DISTINCT l.id)  AS total_leads,
@@ -139,7 +151,10 @@ SELECT
 FROM profiles p
 LEFT JOIN searches s ON s.user_id = p.id
 LEFT JOIN leads    l ON l.user_id = p.id
-GROUP BY p.id, p.email, p.role, p.cdd_credits, p.created_at;
+GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
+         p.maps_credits_enabled, p.maps_api_key_admin,
+         p.monthly_cdd_credits, p.monthly_maps_credits,
+         p.credits_renewed_at, p.created_at;
 
 -- Permissão da view para admins
 -- (a RLS da tabela profiles já cobre o acesso)

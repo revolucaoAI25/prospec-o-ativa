@@ -117,7 +117,8 @@ def restaurar_sessao(refresh_token: str) -> bool:
         user = resp.user
         sess = resp.session
         perfil = sb.table("profiles").select(
-            "role, google_maps_api_key, google_sheets_creds"
+            "role, google_maps_api_key, google_sheets_creds, "
+            "maps_credits_enabled, maps_api_key_admin"
         ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
         st.session_state["user"] = {
@@ -127,7 +128,12 @@ def restaurar_sessao(refresh_token: str) -> bool:
             "access_token":  sess.access_token,
             "refresh_token": sess.refresh_token,
         }
-        if dados.get("google_maps_api_key"):
+        maps_enabled = bool(dados.get("maps_credits_enabled", False))
+        st.session_state["maps_credits_enabled"] = maps_enabled
+        st.session_state["maps_api_key_admin"]   = dados.get("maps_api_key_admin") or ""
+        if maps_enabled:
+            st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
+        elif dados.get("google_maps_api_key"):
             st.session_state["user_gmaps_key"] = dados["google_maps_api_key"]
         _carregar_sheets_state(dados.get("google_sheets_creds"))
         salvar_sessao_cookie(sess.refresh_token)
@@ -152,7 +158,10 @@ def login(email: str, senha: str) -> tuple[bool, str]:
         sess = resp.session
 
         # Busca perfil (role)
-        perfil = sb.table("profiles").select("role, google_maps_api_key, google_client_id, google_client_secret, google_sheets_creds, app_url").eq("id", user.id).single().execute()
+        perfil = sb.table("profiles").select(
+            "role, google_maps_api_key, google_client_id, google_client_secret, "
+            "google_sheets_creds, app_url, maps_credits_enabled, maps_api_key_admin"
+        ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
 
         st.session_state["user"] = {
@@ -162,7 +171,12 @@ def login(email: str, senha: str) -> tuple[bool, str]:
             "access_token":  sess.access_token,
             "refresh_token": sess.refresh_token,
         }
-        if dados.get("google_maps_api_key"):
+        maps_enabled = bool(dados.get("maps_credits_enabled", False))
+        st.session_state["maps_credits_enabled"] = maps_enabled
+        st.session_state["maps_api_key_admin"]   = dados.get("maps_api_key_admin") or ""
+        if maps_enabled:
+            st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
+        elif dados.get("google_maps_api_key"):
             st.session_state["user_gmaps_key"] = dados["google_maps_api_key"]
         _carregar_sheets_state(dados.get("google_sheets_creds"))
         salvar_sessao_cookie(sess.refresh_token)
@@ -180,10 +194,10 @@ def login(email: str, senha: str) -> tuple[bool, str]:
 def logout():
     """Remove sessão do state e apaga o cookie."""
     limpar_cookie()
-    for k in ["user", "user_gmaps_key", "sheets_creds", "sheets_planilhas",
-              "auto_export_enabled", "sheets_lista",
+    for k in ["user", "user_gmaps_key", "maps_credits_enabled", "maps_api_key_admin",
+              "sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista",
               "maps_res", "rf_res", "page", "_cfg_cache", "_cookie_set",
-              "_pesquisas_cache", "_sb_client", "_cm_init_done"]:
+              "_pesquisas_cache", "_sb_client", "_cm_init_done", "_credits_renewed"]:
         st.session_state.pop(k, None)
 
 
@@ -261,19 +275,36 @@ def alterar_role(user_id: str, novo_role: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def ajustar_creditos_admin(user_id: str, delta: int) -> tuple[bool, str]:
+def configurar_creditos_admin(user_id: str, **campos) -> tuple[bool, str]:
     """
-    Adiciona (delta > 0) ou subtrai (delta < 0) créditos CDD de um usuário.
-    Usa service role para poder editar perfis de outros usuários.
+    Atualiza campos de crédito de um usuário (service role).
+    Campos aceitos: maps_credits_enabled, maps_api_key_admin,
+                    monthly_cdd_credits, monthly_maps_credits.
     """
     sb = _admin_client()
     if not sb:
         return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."
     try:
-        resp = sb.table("profiles").select("cdd_credits").eq("id", user_id).single().execute()
-        saldo_atual = int((resp.data or {}).get("cdd_credits", 0))
+        sb.table("profiles").update(campos).eq("id", user_id).execute()
+        return True, "Configuração salva."
+    except Exception as e:
+        return False, str(e)
+
+
+def ajustar_creditos_admin(user_id: str, delta: int, tipo: str = "cdd") -> tuple[bool, str]:
+    """
+    Adiciona (delta > 0) ou subtrai (delta < 0) créditos de um usuário.
+    tipo: 'cdd' ou 'maps'
+    """
+    campo = "cdd_credits" if tipo == "cdd" else "maps_credits"
+    sb = _admin_client()
+    if not sb:
+        return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."
+    try:
+        resp = sb.table("profiles").select(campo).eq("id", user_id).single().execute()
+        saldo_atual = int((resp.data or {}).get(campo, 0))
         novo_saldo = max(0, saldo_atual + delta)
-        sb.table("profiles").update({"cdd_credits": novo_saldo}).eq("id", user_id).execute()
+        sb.table("profiles").update({campo: novo_saldo}).eq("id", user_id).execute()
         return True, f"Créditos atualizados: {saldo_atual} → {novo_saldo}"
     except Exception as e:
         return False, str(e)

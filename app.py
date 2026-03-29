@@ -945,17 +945,24 @@ def pagina_busca():
         unsafe_allow_html=True,
     )
 
-    # Chave do Google Maps vem EXCLUSIVAMENTE das configurações do usuário (Supabase)
+    # Chave do Google Maps — usa chave admin se maps_credits_enabled
     from modules.database import carregar_configuracoes
     _cfg_busca = carregar_configuracoes()
-    gmaps_key = _cfg_busca.get("google_maps_api_key", "") or st.session_state.get("user_gmaps_key", "")
+    _maps_credits_enabled = st.session_state.get("maps_credits_enabled", False)
+    if _maps_credits_enabled:
+        gmaps_key = st.session_state.get("maps_api_key_admin", "")
+    else:
+        gmaps_key = _cfg_busca.get("google_maps_api_key", "") or st.session_state.get("user_gmaps_key", "")
     gmaps_ok  = bool(gmaps_key)
 
     aba_maps, aba_rf = st.tabs(["🗺️  Google Maps  ·  com telefone", "🏢  CNPJ + filtros avançados"])
 
     with aba_maps:
         if not gmaps_ok:
-            st.warning("Chave do Google Maps não configurada. Acesse **Configurações → Google Maps API** para adicionar.", icon="⚠️")
+            if _maps_credits_enabled:
+                st.warning("Chave do Google Maps não configurada pelo administrador.", icon="⚠️")
+            else:
+                st.warning("Chave do Google Maps não configurada. Acesse **Configurações → Google Maps API** para adicionar.", icon="⚠️")
         st.markdown('<div class="info-box">Melhor fonte para <strong>telefones</strong>. Até ~500 resultados com múltiplas buscas automáticas.</div>', unsafe_allow_html=True)
 
         col_n, col_s = st.columns(2)
@@ -996,8 +1003,22 @@ def pagina_busca():
 
         if buscar_btn:
             cv, ev = cidade.strip(), estado.strip()
-            if not cv and not ev: st.error("Informe ao menos a cidade ou o estado.")
-            elif is_custom and not query_custom.strip(): st.error("Informe o termo personalizado.")
+            _maps_err = None
+            if not cv and not ev:
+                _maps_err = "Informe ao menos a cidade ou o estado."
+            elif is_custom and not query_custom.strip():
+                _maps_err = "Informe o termo personalizado."
+            elif _maps_credits_enabled:
+                from modules.database import obter_creditos_maps
+                _saldo_maps = obter_creditos_maps()
+                if _saldo_maps < lim:
+                    _maps_err = (
+                        f"Créditos Maps insuficientes. Você tem **{_saldo_maps}** créditos "
+                        f"e a busca requer **{lim}**. Solicite mais créditos ao administrador."
+                    )
+
+            if _maps_err:
+                st.error(_maps_err)
             else:
                 from modules.google_maps import buscar as maps_buscar
                 qbase = query_custom.strip() if is_custom else nicho_data["query"]
@@ -1005,7 +1026,6 @@ def pagina_busca():
                 sub_final = "" if (is_custom or subnicho_sel=="Todos (sem filtro)") else (sub_custom.strip() if subnicho_sel=="✏️ Personalizado..." else subnicho_sel)
                 localidade = f"{cv}, {ESTADOS.get(ev,ev)}" if cv and ev else cv or ESTADOS.get(ev,ev)
                 slug = f"{nicho_lbl[:15]}_{localidade[:15]}".lower().replace(" ","_").replace(",","")
-                # Carrega identificadores já salvos antes de iniciar a busca
                 excl_tels_maps = set()
                 if apenas_novos_maps:
                     from modules.database import buscar_identificadores_existentes
@@ -1029,12 +1049,13 @@ def pagina_busca():
                     prog.empty(); st.error(f"Erro: {e}"); st.session_state["maps_res"] = []
                 else:
                     try:
-                        from modules.database import salvar_pesquisa, salvar_leads
+                        from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos_maps
                         sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade, "maps", len(res))
                         if sid: salvar_leads(sid, res)
+                        if _maps_credits_enabled:
+                            debitar_creditos_maps(len(res))
                     except Exception:
                         pass
-                    # Seta flag — auto-export roda fora do bloco else/tab abaixo
                     if st.session_state.get("auto_export_enabled"):
                         st.session_state["_auto_exp_maps"] = True
 
@@ -1373,19 +1394,22 @@ def pagina_configuracoes():
 
     # ── Google Maps ─────────────────────────────────────────────────────────────
     with st.expander("🗺️ Google Maps API", expanded=True):
-        st.markdown("Insira sua chave de API do Google Maps (Places API).")
-        gmk = st.text_input(
-            "Chave de API",
-            value=cfg.get("google_maps_api_key",""),
-            type="password",
-            placeholder="AIzaSy...",
-            key="cfg_gmaps",
-        )
-        if st.button("💾 Salvar chave Maps", key="save_gmaps"):
-            ok, msg = salvar_configuracoes({"google_maps_api_key": gmk})
-            (st.success if ok else st.error)(msg)
-            if ok:
-                st.session_state["user_gmaps_key"] = gmk
+        if st.session_state.get("maps_credits_enabled"):
+            st.info("A chave do Google Maps é gerenciada pelo administrador nesta conta.", icon="ℹ️")
+        else:
+            st.markdown("Insira sua chave de API do Google Maps (Places API).")
+            gmk = st.text_input(
+                "Chave de API",
+                value=cfg.get("google_maps_api_key",""),
+                type="password",
+                placeholder="AIzaSy...",
+                key="cfg_gmaps",
+            )
+            if st.button("💾 Salvar chave Maps", key="save_gmaps"):
+                ok, msg = salvar_configuracoes({"google_maps_api_key": gmk})
+                (st.success if ok else st.error)(msg)
+                if ok:
+                    st.session_state["user_gmaps_key"] = gmk
 
     # ── Google Sheets OAuth ─────────────────────────────────────────────────────
     with st.expander("📊 Google Sheets (OAuth)", expanded=True):
@@ -1613,7 +1637,7 @@ def pagina_configuracoes():
 def pagina_admin():
     from modules.auth import (
         listar_usuarios, criar_usuario, deletar_usuario,
-        alterar_role, redefinir_senha, ajustar_creditos_admin,
+        alterar_role, redefinir_senha, ajustar_creditos_admin, configurar_creditos_admin,
     )
 
     st.markdown(
@@ -1655,35 +1679,35 @@ def pagina_admin():
     st.markdown(f"**{len(usuarios)} usuário(s) cadastrado(s)**")
 
     for u in usuarios:
-        uid       = u.get("id","")
-        email     = u.get("email","—")
-        role      = u.get("role","user")
-        credits   = u.get("cdd_credits", 0) or 0
-        created   = (u.get("created_at","") or "")[:10]
-        searches  = u.get("total_searches", 0) or 0
-        leads_tot = u.get("total_leads", 0) or 0
-        last_s    = (u.get("last_search_at","") or "")[:10] or "nunca"
-        me        = st.session_state.get("user",{}).get("id","") == uid
+        uid          = u.get("id","")
+        email        = u.get("email","—")
+        role         = u.get("role","user")
+        cdd_bal      = int(u.get("cdd_credits", 0) or 0)
+        maps_bal     = int(u.get("maps_credits", 0) or 0)
+        maps_en      = bool(u.get("maps_credits_enabled", False))
+        maps_adm_key = u.get("maps_api_key_admin") or ""
+        monthly_cdd  = int(u.get("monthly_cdd_credits", 0) or 0)
+        monthly_maps = int(u.get("monthly_maps_credits", 0) or 0)
+        created      = (u.get("created_at","") or "")[:10]
+        searches     = u.get("total_searches", 0) or 0
+        leads_tot    = u.get("total_leads", 0) or 0
+        last_s       = (u.get("last_search_at","") or "")[:10] or "nunca"
+        me           = st.session_state.get("user",{}).get("id","") == uid
 
         badge = "🟢 admin" if role == "admin" else "⚪ user"
-        label = f"{badge}  **{email}**  ·  🪙 {credits} créditos" + ("  *(você)*" if me else "")
+        maps_tag = "  ·  🗺️ Maps ativo" if maps_en else ""
+        label = f"{badge}  **{email}**  ·  🪙 CNPJ: {cdd_bal}{maps_tag}" + ("  *(você)*" if me else "")
 
         with st.expander(label):
             st.caption(f"ID: `{uid}`  ·  Criado em {created}  ·  {searches} pesquisas  ·  {leads_tot} leads  ·  Última busca: {last_s}")
 
             col_r, col_p, col_d = st.columns(3)
-
             with col_r:
-                novo_role = st.selectbox(
-                    "Papel", ["user","admin"],
-                    index=0 if role == "user" else 1,
-                    key=f"role_{uid}",
-                )
+                novo_role = st.selectbox("Papel", ["user","admin"], index=0 if role=="user" else 1, key=f"role_{uid}")
                 if st.button("🔄 Alterar papel", key=f"btn_role_{uid}", disabled=me):
                     ok2, msg2 = alterar_role(uid, novo_role)
                     (st.success if ok2 else st.error)(msg2)
                     if ok2: time.sleep(0.3); st.rerun()
-
             with col_p:
                 nova_senha = st.text_input("Nova senha", type="password", key=f"pw_{uid}", placeholder="Mín. 6 caracteres")
                 if st.button("🔑 Redefinir senha", key=f"btn_pw_{uid}"):
@@ -1692,7 +1716,6 @@ def pagina_admin():
                     else:
                         ok3, msg3 = redefinir_senha(uid, nova_senha)
                         (st.success if ok3 else st.error)(msg3)
-
             with col_d:
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🗑️ Remover usuário", key=f"del_u_{uid}", disabled=me, type="secondary"):
@@ -1700,24 +1723,65 @@ def pagina_admin():
                     (st.success if ok4 else st.error)(msg4)
                     if ok4: time.sleep(0.3); st.rerun()
 
-            st.markdown("**🪙 Créditos CNPJ**")
-            cc1, cc2, cc3 = st.columns([2, 1, 1])
-            with cc1:
-                delta_credits = st.number_input(
-                    "Quantidade", min_value=1, value=100, step=50,
-                    key=f"cred_delta_{uid}",
-                    label_visibility="collapsed",
-                )
-            with cc2:
-                if st.button("➕ Adicionar", key=f"cred_add_{uid}", use_container_width=True):
-                    ok5, msg5 = ajustar_creditos_admin(uid, int(delta_credits))
+            st.markdown("---")
+
+            # ── Créditos CNPJ ──────────────────────────────────────
+            st.markdown(f"**🪙 Créditos CNPJ** — saldo atual: **{cdd_bal}**  ·  Mensal: **{monthly_cdd}**/mês")
+            ca1, ca2, ca3, ca4 = st.columns([2,1,1,2])
+            with ca1:
+                delta_cdd = st.number_input("Qtd CNPJ", min_value=1, value=100, step=50, key=f"cdd_delta_{uid}", label_visibility="collapsed")
+            with ca2:
+                if st.button("➕", key=f"cdd_add_{uid}", use_container_width=True, help="Adicionar créditos CNPJ"):
+                    ok5, msg5 = ajustar_creditos_admin(uid, int(delta_cdd), "cdd")
                     (st.success if ok5 else st.error)(msg5)
                     if ok5: time.sleep(0.3); st.rerun()
-            with cc3:
-                if st.button("➖ Subtrair", key=f"cred_sub_{uid}", use_container_width=True):
-                    ok6, msg6 = ajustar_creditos_admin(uid, -int(delta_credits))
+            with ca3:
+                if st.button("➖", key=f"cdd_sub_{uid}", use_container_width=True, help="Subtrair créditos CNPJ"):
+                    ok6, msg6 = ajustar_creditos_admin(uid, -int(delta_cdd), "cdd")
                     (st.success if ok6 else st.error)(msg6)
                     if ok6: time.sleep(0.3); st.rerun()
+            with ca4:
+                new_monthly_cdd = st.number_input("Mensal CNPJ", min_value=0, value=monthly_cdd, step=50, key=f"cdd_mon_{uid}", label_visibility="collapsed")
+                if st.button("💾 Salvar mensal CNPJ", key=f"cdd_mon_save_{uid}", use_container_width=True):
+                    ok7, msg7 = configurar_creditos_admin(uid, monthly_cdd_credits=int(new_monthly_cdd))
+                    (st.success if ok7 else st.error)(msg7)
+                    if ok7: time.sleep(0.3); st.rerun()
+
+            # ── Créditos Maps ───────────────────────────────────────
+            st.markdown("**🗺️ Créditos Maps**")
+            maps_toggle = st.toggle("Habilitar créditos Maps (oculta chave própria do usuário)", value=maps_en, key=f"maps_en_{uid}")
+            if maps_toggle != maps_en:
+                ok8, msg8 = configurar_creditos_admin(uid, maps_credits_enabled=maps_toggle)
+                (st.success if ok8 else st.error)(msg8)
+                if ok8: time.sleep(0.3); st.rerun()
+
+            if maps_toggle:
+                new_maps_key = st.text_input("Chave Maps (admin)", value=maps_adm_key, type="password", key=f"maps_key_{uid}", placeholder="AIzaSy...")
+                if st.button("💾 Salvar chave Maps", key=f"maps_key_save_{uid}"):
+                    ok9, msg9 = configurar_creditos_admin(uid, maps_api_key_admin=new_maps_key)
+                    (st.success if ok9 else st.error)(msg9)
+                    if ok9: time.sleep(0.3); st.rerun()
+
+                st.markdown(f"Saldo Maps atual: **{maps_bal}**  ·  Mensal: **{monthly_maps}**/mês")
+                cm1, cm2, cm3, cm4 = st.columns([2,1,1,2])
+                with cm1:
+                    delta_maps = st.number_input("Qtd Maps", min_value=1, value=100, step=50, key=f"maps_delta_{uid}", label_visibility="collapsed")
+                with cm2:
+                    if st.button("➕", key=f"maps_add_{uid}", use_container_width=True, help="Adicionar créditos Maps"):
+                        ok10, msg10 = ajustar_creditos_admin(uid, int(delta_maps), "maps")
+                        (st.success if ok10 else st.error)(msg10)
+                        if ok10: time.sleep(0.3); st.rerun()
+                with cm3:
+                    if st.button("➖", key=f"maps_sub_{uid}", use_container_width=True, help="Subtrair créditos Maps"):
+                        ok11, msg11 = ajustar_creditos_admin(uid, -int(delta_maps), "maps")
+                        (st.success if ok11 else st.error)(msg11)
+                        if ok11: time.sleep(0.3); st.rerun()
+                with cm4:
+                    new_monthly_maps = st.number_input("Mensal Maps", min_value=0, value=monthly_maps, step=50, key=f"maps_mon_{uid}", label_visibility="collapsed")
+                    if st.button("💾 Salvar mensal Maps", key=f"maps_mon_save_{uid}", use_container_width=True):
+                        ok12, msg12 = configurar_creditos_admin(uid, monthly_maps_credits=int(new_monthly_maps))
+                        (st.success if ok12 else st.error)(msg12)
+                        if ok12: time.sleep(0.3); st.rerun()
 
 
 # ── Sidebar & roteamento principal ────────────────────────────────────────────
@@ -1764,17 +1828,22 @@ def _sidebar():
             unsafe_allow_html=True,
         )
 
-        # ── Créditos CDD ──────────────────────────────────────
+        # ── Créditos ──────────────────────────────────────────
         if role != "admin":
-            from modules.database import obter_creditos
-            saldo_sidebar = obter_creditos()
-            cor = "#00D97E" if saldo_sidebar > 50 else "#f59e0b" if saldo_sidebar > 0 else "#ef4444"
+            from modules.database import obter_perfil_creditos
+            _pc = obter_perfil_creditos()
+            _cdd_bal  = int(_pc.get("cdd_credits", 0))
+            _maps_bal = int(_pc.get("maps_credits", 0))
+            _maps_en  = bool(_pc.get("maps_credits_enabled", False))
+            def _cor(v): return "#00D97E" if v > 50 else "#f59e0b" if v > 0 else "#ef4444"
+            _lines = f'CNPJ: <span style="color:{_cor(_cdd_bal)};font-weight:700">{_cdd_bal}</span>'
+            if _maps_en:
+                _lines += f' &nbsp;|&nbsp; Maps: <span style="color:{_cor(_maps_bal)};font-weight:700">{_maps_bal}</span>'
             st.markdown(
                 f'<div style="margin:6px 4px 10px;padding:8px 12px;'
                 f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);'
                 f'border-radius:8px;font-size:12px;color:#94a3b8">'
-                f'Créditos CNPJ: <span style="color:{cor};font-weight:700">{saldo_sidebar}</span>'
-                f'</div>',
+                f'Créditos — {_lines}</div>',
                 unsafe_allow_html=True,
             )
         else:
@@ -1868,6 +1937,12 @@ def main():
     if not user:
         pagina_login()
         return
+
+    # Renovação mensal de créditos — roda uma vez por sessão
+    if not st.session_state.get("_credits_renewed"):
+        st.session_state["_credits_renewed"] = True
+        from modules.database import renovar_creditos_se_necessario
+        renovar_creditos_se_necessario()
 
     _sidebar()
 
