@@ -73,7 +73,16 @@ st.markdown("""<style>
 
 /* ── Ocultar header, footer e botão deploy do Streamlit ── */
 #MainMenu { visibility: hidden !important; }
-header[data-testid="stHeader"] { display: none !important; }
+/* Zera a altura do header mas mantém o botão de toggle da sidebar funcional */
+header[data-testid="stHeader"] {
+    height: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+}
+[data-testid="stToolbar"] { display: none !important; }
+[data-testid="stDecoration"] { display: none !important; }
 footer { display: none !important; }
 [data-testid="stDeployButton"] { display: none !important; }
 div[class*="viewerBadge"] { display: none !important; }
