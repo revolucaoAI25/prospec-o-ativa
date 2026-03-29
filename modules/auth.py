@@ -278,14 +278,24 @@ def alterar_role(user_id: str, novo_role: str) -> tuple[bool, str]:
 def configurar_creditos_admin(user_id: str, **campos) -> tuple[bool, str]:
     """
     Atualiza campos de crédito de um usuário (service role).
-    Campos aceitos: maps_credits_enabled, maps_api_key_admin,
-                    monthly_cdd_credits, monthly_maps_credits.
+    Quando monthly_cdd_credits ou monthly_maps_credits são definidos,
+    o saldo atual é imediatamente sobreposto pelo novo valor mensal
+    e o timer de 30 dias começa a contar agora.
     """
+    from datetime import date
     sb = _admin_client()
     if not sb:
         return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."
     try:
-        sb.table("profiles").update(campos).eq("id", user_id).execute()
+        updates = dict(campos)
+        # Ao definir créditos mensais: sobrepõe saldo atual e inicia o timer
+        if "monthly_cdd_credits" in updates:
+            updates["cdd_credits"] = int(updates["monthly_cdd_credits"])
+            updates["credits_renewed_at"] = date.today().isoformat()
+        if "monthly_maps_credits" in updates:
+            updates["maps_credits"] = int(updates["monthly_maps_credits"])
+            updates["credits_renewed_at"] = date.today().isoformat()
+        sb.table("profiles").update(updates).eq("id", user_id).execute()
         return True, "Configuração salva."
     except Exception as e:
         return False, str(e)
