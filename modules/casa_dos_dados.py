@@ -270,15 +270,28 @@ def _mapear_lead(item: dict) -> dict:
     ]
     endereco = " ".join(p for p in partes_end if p).strip(", ")
 
-    # Telefones — a API pode retornar lista ou campo único
-    telefones = item.get("telefone") or item.get("telefones") or []
+    # Telefones — a API v5 pode retornar em vários formatos:
+    #   - item["telefone"] -> list de dicts {ddd, numero} ou list de strings
+    #   - item["contato"]["telefone"] -> mesma estrutura
+    #   - item["telefones"] -> alternativa de nome
+    contato = item.get("contato") or {}
+    telefones = (
+        item.get("telefone")
+        or item.get("telefones")
+        or contato.get("telefone")
+        or contato.get("telefones")
+        or []
+    )
     if isinstance(telefones, str):
+        telefones = [telefones]
+    elif isinstance(telefones, dict):
+        # resposta como objeto único em vez de lista
         telefones = [telefones]
     tel1 = _fmt_telefone(telefones[0]) if len(telefones) > 0 else ""
     tel2 = _fmt_telefone(telefones[1]) if len(telefones) > 1 else ""
 
-    # E-mail
-    email = item.get("email") or ""
+    # E-mail — pode estar em item["email"] ou item["contato"]["email"]
+    email = item.get("email") or contato.get("email") or ""
     if isinstance(email, list):
         email = email[0] if email else ""
 
@@ -314,14 +327,28 @@ def _mapear_lead(item: dict) -> dict:
 
 
 def _fmt_telefone(t) -> str:
-    """Formata telefone para exibição."""
+    """Formata telefone para exibição.
+
+    Trata todos os formatos que a API CDD v5 pode retornar:
+      - dict com chaves ddd/codigo_ddd + numero/telefone/number
+      - string já formatada ou só dígitos
+    """
     if not t:
         return ""
     if isinstance(t, dict):
-        ddd = t.get("ddd", "") or t.get("codigo_ddd", "")
-        num = t.get("numero", "") or t.get("telefone", "")
-        return f"({ddd}) {num}".strip() if ddd else str(num)
-    return str(t).strip()
+        ddd = str(
+            t.get("ddd") or t.get("codigo_ddd") or t.get("ddd_numero") or ""
+        ).strip()
+        num = str(
+            t.get("numero") or t.get("telefone") or t.get("number") or t.get("fone") or ""
+        ).strip()
+        if not ddd and not num:
+            return ""
+        if ddd and num:
+            return f"({ddd}) {num}"
+        return ddd or num
+    s = str(t).strip()
+    return s
 
 
 def _apenas_digitos(s: str) -> str:
