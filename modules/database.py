@@ -201,6 +201,42 @@ def deletar_pesquisa(search_id: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+# ── Créditos CDD ─────────────────────────────────────────────────────────────
+
+def obter_creditos() -> int:
+    """Retorna o saldo de créditos CDD do usuário logado."""
+    sb = _client_autenticado()
+    if not sb:
+        return 0
+    user_id = st.session_state.get("user", {}).get("id")
+    if not user_id:
+        return 0
+    try:
+        resp = sb.table("profiles").select("cdd_credits").eq("id", user_id).single().execute()
+        return int((resp.data or {}).get("cdd_credits", 0))
+    except Exception:
+        return 0
+
+
+def debitar_creditos(quantidade: int) -> bool:
+    """Debita créditos CDD do usuário logado. Retorna True se OK."""
+    if quantidade <= 0:
+        return True
+    sb = _client_autenticado()
+    if not sb:
+        return False
+    user_id = st.session_state.get("user", {}).get("id")
+    if not user_id:
+        return False
+    try:
+        saldo_atual = obter_creditos()
+        novo_saldo = max(0, saldo_atual - quantidade)
+        sb.table("profiles").update({"cdd_credits": novo_saldo}).eq("id", user_id).execute()
+        return True
+    except Exception:
+        return False
+
+
 # ── Configurações do usuário ──────────────────────────────────────────────────
 
 def carregar_configuracoes() -> dict:

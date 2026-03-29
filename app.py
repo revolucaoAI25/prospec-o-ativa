@@ -1164,90 +1164,100 @@ def pagina_busca():
                 if not cnaes_codigos:
                     st.error("Selecione ao menos um CNAE para buscar.")
                 else:
-                    # Porte
-                    porte_codigos = [op.split(" — ")[0].strip() for op in portes_sel] or None
-
-                    # Matriz/filial
-                    mf_map = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
-                    mf_val = mf_map.get(matriz_fil, "")
-
-                    # Simples
-                    simples_optante = True if simples_op == "Apenas optantes" else None
-                    excluir_simples = simples_op == "Excluir optantes"
-
-                    # MEI
-                    mei_optante = True if mei_op == "Apenas MEI" else None
-                    excluir_mei = mei_op == "Excluir MEI"
-
-                    # Tipo de telefone
-                    so_cel = tipo_tel == "Somente celular"
-                    so_fix = tipo_tel == "Somente fixo"
-
-                    # Datas
-                    dt_ini_str = dt_ini.strftime("%Y-%m-%d") if dt_ini else ""
-                    dt_fim_str = dt_fim.strftime("%Y-%m-%d") if dt_fim else ""
-
-                    # Capital
-                    cap_min_v = int(cap_min) if cap_min else None
-                    cap_max_v = int(cap_max) if cap_max else None
-
-                    # Deduplicação
-                    excl_tels_cdd, excl_cnpjs_cdd = set(), set()
-                    if apenas_novos_cdd:
-                        from modules.database import buscar_identificadores_existentes
-                        excl_tels_cdd, excl_cnpjs_cdd = buscar_identificadores_existentes()
-
-                    local_cdd = mun_cdd.strip() or uf_cdd
-                    nicho_label = CODIGO_PARA_DESC.get(cnaes_codigos[0], cnaes_codigos[0]) if cnaes_codigos else "CDD"
-
-                    bar_cdd = st.progress(0, text="Buscando…")
-                    def _cb_cdd(a, t, m):
-                        v = min(a / max(t, 1), 1.0)
-                        bar_cdd.progress(v, text=str(m)[:120])
-
-                    try:
-                        res_cdd = cdd_buscar(
-                            api_key=cdd_key,
-                            cnaes=cnaes_codigos,
-                            uf=uf_cdd,
-                            municipio=mun_cdd.strip(),
-                            porte=porte_codigos,
-                            matriz_filial=mf_val,
-                            simples_optante=simples_optante,
-                            excluir_simples=excluir_simples,
-                            mei_optante=mei_optante,
-                            excluir_mei=excluir_mei,
-                            com_telefone=com_tel,
-                            com_email=com_email_cdd,
-                            somente_celular=so_cel,
-                            somente_fixo=so_fix,
-                            excluir_email_contab=excl_contab,
-                            data_abertura_inicio=dt_ini_str,
-                            data_abertura_fim=dt_fim_str,
-                            capital_min=cap_min_v,
-                            capital_max=cap_max_v,
-                            limite=lim_cdd,
-                            exclude_phones=excl_tels_cdd if apenas_novos_cdd else None,
-                            exclude_cnpjs=excl_cnpjs_cdd if apenas_novos_cdd else None,
-                            callback=_cb_cdd,
+                    from modules.database import obter_creditos
+                    _saldo_cdd = obter_creditos()
+                    if _saldo_cdd < lim_cdd:
+                        st.error(
+                            f"Créditos insuficientes. Você tem **{_saldo_cdd}** créditos "
+                            f"e a busca requer **{lim_cdd}**. "
+                            f"Reduza o limite de resultados ou solicite mais créditos ao administrador."
                         )
-                        bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
-                        bar_cdd.empty()
-                        st.session_state["rf_res"] = res_cdd
-                        st.session_state["rf_prefix"] = f"cdd_{local_cdd.lower().replace(' ','_')}"
-                    except Exception as e:
-                        bar_cdd.empty()
-                        st.error(f"Erro: {e}")
-                        st.session_state["rf_res"] = []
                     else:
+                        # Porte
+                        porte_codigos = [op.split(" — ")[0].strip() for op in portes_sel] or None
+
+                        # Matriz/filial
+                        mf_map = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
+                        mf_val = mf_map.get(matriz_fil, "")
+
+                        # Simples
+                        simples_optante = True if simples_op == "Apenas optantes" else None
+                        excluir_simples = simples_op == "Excluir optantes"
+
+                        # MEI
+                        mei_optante = True if mei_op == "Apenas MEI" else None
+                        excluir_mei = mei_op == "Excluir MEI"
+
+                        # Tipo de telefone
+                        so_cel = tipo_tel == "Somente celular"
+                        so_fix = tipo_tel == "Somente fixo"
+
+                        # Datas
+                        dt_ini_str = dt_ini.strftime("%Y-%m-%d") if dt_ini else ""
+                        dt_fim_str = dt_fim.strftime("%Y-%m-%d") if dt_fim else ""
+
+                        # Capital
+                        cap_min_v = int(cap_min) if cap_min else None
+                        cap_max_v = int(cap_max) if cap_max else None
+
+                        # Deduplicação
+                        excl_tels_cdd, excl_cnpjs_cdd = set(), set()
+                        if apenas_novos_cdd:
+                            from modules.database import buscar_identificadores_existentes
+                            excl_tels_cdd, excl_cnpjs_cdd = buscar_identificadores_existentes()
+
+                        local_cdd = mun_cdd.strip() or uf_cdd
+                        nicho_label = CODIGO_PARA_DESC.get(cnaes_codigos[0], cnaes_codigos[0]) if cnaes_codigos else "CDD"
+
+                        bar_cdd = st.progress(0, text="Buscando…")
+                        def _cb_cdd(a, t, m):
+                            v = min(a / max(t, 1), 1.0)
+                            bar_cdd.progress(v, text=str(m)[:120])
+
                         try:
-                            from modules.database import salvar_pesquisa, salvar_leads
-                            sid = salvar_pesquisa(nicho_label, ", ".join(cnaes_codigos), mun_cdd.strip(), uf_cdd, local_cdd, "receita_federal", len(res_cdd))
-                            if sid: salvar_leads(sid, res_cdd)
-                        except Exception:
-                            pass
-                        if st.session_state.get("auto_export_enabled"):
-                            st.session_state["_auto_exp_rf"] = True
+                            res_cdd = cdd_buscar(
+                                api_key=cdd_key,
+                                cnaes=cnaes_codigos,
+                                uf=uf_cdd,
+                                municipio=mun_cdd.strip(),
+                                porte=porte_codigos,
+                                matriz_filial=mf_val,
+                                simples_optante=simples_optante,
+                                excluir_simples=excluir_simples,
+                                mei_optante=mei_optante,
+                                excluir_mei=excluir_mei,
+                                com_telefone=com_tel,
+                                com_email=com_email_cdd,
+                                somente_celular=so_cel,
+                                somente_fixo=so_fix,
+                                excluir_email_contab=excl_contab,
+                                data_abertura_inicio=dt_ini_str,
+                                data_abertura_fim=dt_fim_str,
+                                capital_min=cap_min_v,
+                                capital_max=cap_max_v,
+                                limite=lim_cdd,
+                                exclude_phones=excl_tels_cdd if apenas_novos_cdd else None,
+                                exclude_cnpjs=excl_cnpjs_cdd if apenas_novos_cdd else None,
+                                callback=_cb_cdd,
+                            )
+                            bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
+                            bar_cdd.empty()
+                            st.session_state["rf_res"] = res_cdd
+                            st.session_state["rf_prefix"] = f"cdd_{local_cdd.lower().replace(' ','_')}"
+                        except Exception as e:
+                            bar_cdd.empty()
+                            st.error(f"Erro: {e}")
+                            st.session_state["rf_res"] = []
+                        else:
+                            try:
+                                from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos
+                                sid = salvar_pesquisa(nicho_label, ", ".join(cnaes_codigos), mun_cdd.strip(), uf_cdd, local_cdd, "receita_federal", len(res_cdd))
+                                if sid: salvar_leads(sid, res_cdd)
+                                debitar_creditos(len(res_cdd))
+                            except Exception:
+                                pass
+                            if st.session_state.get("auto_export_enabled"):
+                                st.session_state["_auto_exp_rf"] = True
 
         if st.session_state.get("rf_res"):
             res = st.session_state["rf_res"]
@@ -1603,7 +1613,7 @@ def pagina_configuracoes():
 def pagina_admin():
     from modules.auth import (
         listar_usuarios, criar_usuario, deletar_usuario,
-        alterar_role, redefinir_senha,
+        alterar_role, redefinir_senha, ajustar_creditos_admin,
     )
 
     st.markdown(
@@ -1648,6 +1658,7 @@ def pagina_admin():
         uid       = u.get("id","")
         email     = u.get("email","—")
         role      = u.get("role","user")
+        credits   = u.get("cdd_credits", 0) or 0
         created   = (u.get("created_at","") or "")[:10]
         searches  = u.get("total_searches", 0) or 0
         leads_tot = u.get("total_leads", 0) or 0
@@ -1655,7 +1666,7 @@ def pagina_admin():
         me        = st.session_state.get("user",{}).get("id","") == uid
 
         badge = "🟢 admin" if role == "admin" else "⚪ user"
-        label = f"{badge}  **{email}**" + ("  *(você)*" if me else "")
+        label = f"{badge}  **{email}**  ·  🪙 {credits} créditos" + ("  *(você)*" if me else "")
 
         with st.expander(label):
             st.caption(f"ID: `{uid}`  ·  Criado em {created}  ·  {searches} pesquisas  ·  {leads_tot} leads  ·  Última busca: {last_s}")
@@ -1688,6 +1699,25 @@ def pagina_admin():
                     ok4, msg4 = deletar_usuario(uid)
                     (st.success if ok4 else st.error)(msg4)
                     if ok4: time.sleep(0.3); st.rerun()
+
+            st.markdown("**🪙 Créditos CNPJ**")
+            cc1, cc2, cc3 = st.columns([2, 1, 1])
+            with cc1:
+                delta_credits = st.number_input(
+                    "Quantidade", min_value=1, value=100, step=50,
+                    key=f"cred_delta_{uid}",
+                    label_visibility="collapsed",
+                )
+            with cc2:
+                if st.button("➕ Adicionar", key=f"cred_add_{uid}", use_container_width=True):
+                    ok5, msg5 = ajustar_creditos_admin(uid, int(delta_credits))
+                    (st.success if ok5 else st.error)(msg5)
+                    if ok5: time.sleep(0.3); st.rerun()
+            with cc3:
+                if st.button("➖ Subtrair", key=f"cred_sub_{uid}", use_container_width=True):
+                    ok6, msg6 = ajustar_creditos_admin(uid, -int(delta_credits))
+                    (st.success if ok6 else st.error)(msg6)
+                    if ok6: time.sleep(0.3); st.rerun()
 
 
 # ── Sidebar & roteamento principal ────────────────────────────────────────────
@@ -1734,7 +1764,21 @@ def _sidebar():
             unsafe_allow_html=True,
         )
 
-        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+        # ── Créditos CDD ──────────────────────────────────────
+        if role != "admin":
+            from modules.database import obter_creditos
+            saldo_sidebar = obter_creditos()
+            cor = "#00D97E" if saldo_sidebar > 50 else "#f59e0b" if saldo_sidebar > 0 else "#ef4444"
+            st.markdown(
+                f'<div style="margin:6px 4px 10px;padding:8px 12px;'
+                f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);'
+                f'border-radius:8px;font-size:12px;color:#94a3b8">'
+                f'Créditos CNPJ: <span style="color:{cor};font-weight:700">{saldo_sidebar}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
 
         # ── Nav with SVG icons ────────────────────────────────
         page = st.session_state.get("page", "busca")

@@ -261,6 +261,24 @@ def alterar_role(user_id: str, novo_role: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+def ajustar_creditos_admin(user_id: str, delta: int) -> tuple[bool, str]:
+    """
+    Adiciona (delta > 0) ou subtrai (delta < 0) créditos CDD de um usuário.
+    Usa service role para poder editar perfis de outros usuários.
+    """
+    sb = _admin_client()
+    if not sb:
+        return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."
+    try:
+        resp = sb.table("profiles").select("cdd_credits").eq("id", user_id).single().execute()
+        saldo_atual = int((resp.data or {}).get("cdd_credits", 0))
+        novo_saldo = max(0, saldo_atual + delta)
+        sb.table("profiles").update({"cdd_credits": novo_saldo}).eq("id", user_id).execute()
+        return True, f"Créditos atualizados: {saldo_atual} → {novo_saldo}"
+    except Exception as e:
+        return False, str(e)
+
+
 def redefinir_senha(user_id: str, nova_senha: str) -> tuple[bool, str]:
     sb = _admin_client()
     if not sb:
