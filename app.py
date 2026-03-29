@@ -1241,7 +1241,7 @@ def pagina_busca():
                     else:
                         try:
                             from modules.database import salvar_pesquisa, salvar_leads
-                            sid = salvar_pesquisa(nicho_label, ", ".join(cnaes_codigos), mun_cdd.strip(), uf_cdd, local_cdd, "casa_dos_dados", len(res_cdd))
+                            sid = salvar_pesquisa(nicho_label, ", ".join(cnaes_codigos), mun_cdd.strip(), uf_cdd, local_cdd, "receita_federal", len(res_cdd))
                             if sid: salvar_leads(sid, res_cdd)
                         except Exception:
                             pass
