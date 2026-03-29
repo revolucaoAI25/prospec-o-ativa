@@ -284,29 +284,56 @@ def _mapear_lead(item: dict) -> dict:
     if isinstance(ativ, list):
         ativ = ativ[0] if ativ else {}
     nicho = ativ.get("descricao", "") if isinstance(ativ, dict) else ""
+    cnae_codigo = ativ.get("codigo", "") if isinstance(ativ, dict) else ""
 
     porte_obj = item.get("porte_empresa") or {}
     porte_desc = porte_obj.get("descricao", "") if isinstance(porte_obj, dict) else ""
 
+    # Data de abertura — remove a parte de horário
+    data_abertura_raw = item.get("data_abertura") or ""
+    data_abertura = str(data_abertura_raw)[:10] if data_abertura_raw else ""
+
+    # Sócio principal
+    qsa = item.get("quadro_societario") or []
+    socio_principal = qsa[0].get("nome", "") if qsa else ""
+
+    # Tipo do primeiro telefone
+    tipo_telefone = tels[0].get("tipo", "") if tels else ""
+
+    # Simples / MEI
+    simples_obj = item.get("simples") or {}
+    mei_obj = item.get("mei") or {}
+    simples_optante = "Sim" if simples_obj.get("optante") else "Não"
+    mei_optante = "Sim" if mei_obj.get("optante") else "Não"
+
     return {
-        "nome":           nome,
-        "cnpj":           item.get("cnpj", ""),
-        "telefone":       tel1,
-        "telefone2":      tel2,
-        "email":          email,
-        "endereco":       endereco,
-        "municipio":      end.get("municipio", ""),
-        "uf":             end.get("uf", "").upper(),
-        "cep":            end.get("cep", ""),
-        "site":           "",
-        "maps_url":       "",
-        "avaliacao":      "",
+        "nome":             nome,
+        "cnpj":             item.get("cnpj", ""),
+        "telefone":         tel1,
+        "telefone2":        tel2,
+        "tipo_telefone":    tipo_telefone,
+        "email":            email,
+        "endereco":         endereco,
+        "municipio":        end.get("municipio", ""),
+        "uf":               end.get("uf", "").upper(),
+        "cep":              end.get("cep", ""),
+        "site":             "",
+        "maps_url":         "",
+        "avaliacao":        "",
         "total_avaliacoes": "",
-        "nicho_busca":    nicho,
-        "subnicho_busca": porte_desc,
-        "cidade_busca":   end.get("municipio", ""),
-        "estado_busca":   end.get("uf", "").upper(),
-        "fonte":          "Casa dos Dados",
+        "nicho_busca":      nicho,
+        "cnae_codigo":      cnae_codigo,
+        "subnicho_busca":   porte_desc,
+        "matriz_filial":    item.get("matriz_filial", ""),
+        "natureza_juridica": item.get("descricao_natureza_juridica", ""),
+        "data_abertura":    data_abertura,
+        "capital_social":   str(item.get("capital_social", "") or ""),
+        "simples_optante":  simples_optante,
+        "mei_optante":      mei_optante,
+        "socio_principal":  socio_principal,
+        "cidade_busca":     end.get("municipio", ""),
+        "estado_busca":     end.get("uf", "").upper(),
+        "fonte":            "Casa dos Dados",
     }
 
 

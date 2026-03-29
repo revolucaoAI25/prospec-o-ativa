@@ -763,8 +763,7 @@ def _logo_html(size: int = 40) -> str:
             f'border-radius:{r2}px;display:inline-flex;align-items:center;'
             f'justify-content:center;font-size:{fs}px;font-weight:800;color:#012010;'
             f'box-shadow:0 2px 12px #00D97E40,0 0 0 2px #00D97E18">R</div>')
-_EXTRA=[("telefone_internacional","Telefone Intl."),("status_funcionamento","Status"),
-        ("porte","Porte"),("data_abertura","Data Abertura")]
+_EXTRA=[("telefone_internacional","Telefone Intl."),("status_funcionamento","Status"),("porte","Porte")]
 ALL_COLS = COLUNAS_EXPORT + [c for c in _EXTRA if c not in COLUNAS_EXPORT]
 
 def _csv(rows):
@@ -828,7 +827,14 @@ def _stats(rows):
 
 def _tabela(rows):
     import pandas as pd
-    vis=["nome","telefone","email","municipio","uf","endereco","site","avaliacao","cnpj","nicho_busca","subnicho_busca","fonte"]
+    vis=[
+        "nome","telefone","telefone2","tipo_telefone","email",
+        "municipio","uf","endereco","cep",
+        "cnpj","nicho_busca","cnae_codigo","subnicho_busca","matriz_filial",
+        "natureza_juridica","data_abertura","capital_social",
+        "simples_optante","mei_optante","socio_principal",
+        "site","avaliacao","total_avaliacoes","maps_url","fonte",
+    ]
     lm={c:l for c,l in ALL_COLS}; df=pd.DataFrame(rows)
     cols=[c for c in vis if c in df.columns]
     st.dataframe(df[cols].rename(columns=lm).fillna("").astype(str).replace("nan",""), use_container_width=True, height=380)
@@ -1090,7 +1096,7 @@ def pagina_busca():
                 with c2:
                     mun_cdd = st.text_input("Município (opcional)", placeholder="Ex: São Paulo", key="cdd_mun")
 
-                lim_cdd = st.slider("Máx. resultados", 50, 2000, 300, 50, key="cdd_lim")
+                lim_cdd = st.slider("Máx. resultados", 1, 2000, 300, 50, key="cdd_lim")
 
                 # ── Filtros da empresa ─────────────────────────────────────────
                 with st.expander("📊 Filtros da empresa"):
