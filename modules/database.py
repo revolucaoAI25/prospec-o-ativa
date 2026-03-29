@@ -272,10 +272,11 @@ def debitar_creditos_maps(quantidade: int) -> bool:
 
 def renovar_creditos_se_necessario() -> None:
     """
-    Verifica se o mês mudou desde a última renovação e, se sim, adiciona
-    os créditos mensais configurados. Chamada uma vez por sessão após login.
+    Verifica se passaram 30 dias desde a última renovação e, se sim, RESETA
+    os créditos para o valor mensal configurado (não acumulativo).
+    Chamada uma vez por sessão após login.
     """
-    from datetime import date
+    from datetime import date, timedelta
     sb = _client_autenticado()
     if not sb:
         return
@@ -286,12 +287,11 @@ def renovar_creditos_se_necessario() -> None:
         perfil = obter_perfil_creditos()
         ultimo = perfil.get("credits_renewed_at")
         hoje = date.today()
-        inicio_mes = hoje.replace(day=1)
 
-        # Renova se nunca renovou ou se a última renovação foi antes deste mês
+        # Renova se nunca renovou ou se passaram 30 dias desde a última renovação
         precisa_renovar = (
             not ultimo or
-            date.fromisoformat(str(ultimo)[:10]) < inicio_mes
+            hoje >= date.fromisoformat(str(ultimo)[:10]) + timedelta(days=30)
         )
         if not precisa_renovar:
             return
@@ -300,11 +300,12 @@ def renovar_creditos_se_necessario() -> None:
         monthly_maps = int(perfil.get("monthly_maps_credits", 0))
         maps_enabled = bool(perfil.get("maps_credits_enabled", False))
 
+        # RESET (não acumula): substitui o saldo pelo valor mensal
         updates: dict = {"credits_renewed_at": hoje.isoformat()}
         if monthly_cdd > 0:
-            updates["cdd_credits"] = int(perfil.get("cdd_credits", 0)) + monthly_cdd
+            updates["cdd_credits"] = monthly_cdd
         if maps_enabled and monthly_maps > 0:
-            updates["maps_credits"] = int(perfil.get("maps_credits", 0)) + monthly_maps
+            updates["maps_credits"] = monthly_maps
 
         sb.table("profiles").update(updates).eq("id", user_id).execute()
     except Exception:

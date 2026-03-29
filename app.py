@@ -1829,25 +1829,22 @@ def _sidebar():
         )
 
         # ── Créditos ──────────────────────────────────────────
-        if role != "admin":
-            from modules.database import obter_perfil_creditos
-            _pc = obter_perfil_creditos()
-            _cdd_bal  = int(_pc.get("cdd_credits", 0))
-            _maps_bal = int(_pc.get("maps_credits", 0))
-            _maps_en  = bool(_pc.get("maps_credits_enabled", False))
-            def _cor(v): return "#00D97E" if v > 50 else "#f59e0b" if v > 0 else "#ef4444"
-            _lines = f'CNPJ: <span style="color:{_cor(_cdd_bal)};font-weight:700">{_cdd_bal}</span>'
-            if _maps_en:
-                _lines += f' &nbsp;|&nbsp; Maps: <span style="color:{_cor(_maps_bal)};font-weight:700">{_maps_bal}</span>'
-            st.markdown(
-                f'<div style="margin:6px 4px 10px;padding:8px 12px;'
-                f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);'
-                f'border-radius:8px;font-size:12px;color:#94a3b8">'
-                f'Créditos — {_lines}</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+        from modules.database import obter_perfil_creditos
+        _pc = obter_perfil_creditos()
+        _cdd_bal  = int(_pc.get("cdd_credits", 0))
+        _maps_bal = int(_pc.get("maps_credits", 0))
+        _maps_en  = bool(_pc.get("maps_credits_enabled", False))
+        def _cor(v): return "#00D97E" if v > 50 else "#f59e0b" if v > 0 else "#ef4444"
+        _lines = f'CNPJ: <span style="color:{_cor(_cdd_bal)};font-weight:700">{_cdd_bal}</span>'
+        if _maps_en:
+            _lines += f' &nbsp;&nbsp; Maps: <span style="color:{_cor(_maps_bal)};font-weight:700">{_maps_bal}</span>'
+        st.markdown(
+            f'<div style="margin:6px 4px 10px;padding:8px 12px;'
+            f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);'
+            f'border-radius:8px;font-size:12px;color:#94a3b8">'
+            f'Créditos — {_lines}</div>',
+            unsafe_allow_html=True,
+        )
 
         # ── Nav with SVG icons ────────────────────────────────
         page = st.session_state.get("page", "busca")
