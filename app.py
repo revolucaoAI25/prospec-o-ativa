@@ -983,28 +983,30 @@ def pagina_busca():
             sub_custom = st.text_input("Especialidade personalizada", key="m_subcustom")
 
         st.markdown('<hr class="hr">', unsafe_allow_html=True)
+
+        # País — FORA do form para ser reativo (muda sem precisar submeter)
+        _pais_opts = [
+            "Brasil", "Estados Unidos", "Portugal", "Argentina", "México",
+            "Colômbia", "Chile", "Peru", "Espanha", "Reino Unido",
+            "França", "Alemanha", "Itália", "Canadá", "Austrália",
+            "Japão", "Outro…",
+        ]
+        _pc0, _pc1, _pc2 = st.columns([2, 5, 3])
+        with _pc0:
+            pais_sel = st.selectbox("País", _pais_opts, index=0, label_visibility="collapsed", key="maps_pais")
+        is_brasil = pais_sel == "Brasil"
+
         with st.form("form_maps"):
             st.markdown('<div class="sec">Localidade</div>', unsafe_allow_html=True)
 
-            # País — fora do form não é possível dentro do st.form, então
-            # usamos session_state para reatividade via key
-            _pais_opts = [
-                "Brasil", "Estados Unidos", "Portugal", "Argentina", "México",
-                "Colômbia", "Chile", "Peru", "Espanha", "Reino Unido",
-                "França", "Alemanha", "Itália", "Canadá", "Austrália",
-                "Japão", "Outro…",
-            ]
-            cc0, cc, ce, cl = st.columns([2, 3, 1, 2])
-            with cc0:
-                pais_sel = st.selectbox("País", _pais_opts, index=0, label_visibility="collapsed", key="maps_pais")
-            is_brasil = pais_sel == "Brasil"
+            cc, ce, cl = st.columns([3, 1, 2])
             with cc:
                 if pais_sel == "Outro…":
                     cidade = st.text_input("País / Cidade", placeholder="Ex: Dubai, Singapura…", label_visibility="collapsed")
                 elif is_brasil:
                     cidade = st.text_input("Cidade", placeholder="Ex: São Paulo", label_visibility="collapsed")
                 else:
-                    cidade = st.text_input("Cidade / Região (opcional)", placeholder=f"Ex: Miami, Los Angeles…", label_visibility="collapsed")
+                    cidade = st.text_input("Cidade / Região (opcional)", placeholder="Ex: Miami, Los Angeles…", label_visibility="collapsed")
             with ce:
                 if is_brasil:
                     eopts = ["—"] + SIGLAS_ESTADOS
@@ -1013,7 +1015,6 @@ def pagina_busca():
                     estado = "" if est_raw == "—" else est_raw
                 else:
                     estado = ""
-                    st.markdown("")  # placeholder para manter layout
             with cl:
                 lim = st.slider("Resultados", 20, 500, 60, 20, label_visibility="collapsed")
                 st.caption(f"Máx. **{lim}** resultados")
