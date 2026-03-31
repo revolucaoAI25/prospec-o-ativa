@@ -741,6 +741,16 @@ button[kind="primaryFormSubmit"]:active {
   .page-header-icon svg { width: 20px; height: 20px; }
 }
 
+/* ═══════════════════════════════════════════════════════════
+   OCULTAR BRANDING STREAMLIT
+   Esconde apenas o menu (⋮) e o footer, sem remover o header
+   para não quebrar o botão de reabrir a sidebar.
+═══════════════════════════════════════════════════════════ */
+#MainMenu { display: none !important; }
+[data-testid="stToolbar"] { display: none !important; }
+footer { visibility: hidden !important; height: 0 !important; }
+[data-testid="stDecoration"] { display: none !important; }
+
 </style>""", unsafe_allow_html=True)
 
 from modules.google_sheets import COLUNAS_EXPORT
