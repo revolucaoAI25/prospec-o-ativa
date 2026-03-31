@@ -748,8 +748,6 @@ button[kind="primaryFormSubmit"]:active {
 ═══════════════════════════════════════════════════════════ */
 #MainMenu { display: none !important; }
 [data-testid="stStatusWidget"] { display: none !important; }
-[data-testid="stToolbar"] { visibility: hidden !important; }
-[data-testid="collapsedControl"] { visibility: visible !important; }
 footer { visibility: hidden !important; height: 0 !important; }
 [data-testid="stDecoration"] { display: none !important; }
 
