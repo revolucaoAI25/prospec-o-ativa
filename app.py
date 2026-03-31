@@ -984,13 +984,36 @@ def pagina_busca():
 
         st.markdown('<hr class="hr">', unsafe_allow_html=True)
         with st.form("form_maps"):
-            st.markdown('<div class="sec">Localidade — cidade e/ou estado</div>', unsafe_allow_html=True)
-            cc, ce, cl = st.columns([3,1,2])
-            with cc: cidade = st.text_input("Cidade", placeholder="Ex: São Paulo", label_visibility="collapsed")
+            st.markdown('<div class="sec">Localidade</div>', unsafe_allow_html=True)
+
+            # País — fora do form não é possível dentro do st.form, então
+            # usamos session_state para reatividade via key
+            _pais_opts = [
+                "Brasil", "Estados Unidos", "Portugal", "Argentina", "México",
+                "Colômbia", "Chile", "Peru", "Espanha", "Reino Unido",
+                "França", "Alemanha", "Itália", "Canadá", "Austrália",
+                "Japão", "Outro…",
+            ]
+            cc0, cc, ce, cl = st.columns([2, 3, 1, 2])
+            with cc0:
+                pais_sel = st.selectbox("País", _pais_opts, index=0, label_visibility="collapsed", key="maps_pais")
+            is_brasil = pais_sel == "Brasil"
+            with cc:
+                if pais_sel == "Outro…":
+                    cidade = st.text_input("País / Cidade", placeholder="Ex: Dubai, Singapura…", label_visibility="collapsed")
+                elif is_brasil:
+                    cidade = st.text_input("Cidade", placeholder="Ex: São Paulo", label_visibility="collapsed")
+                else:
+                    cidade = st.text_input("Cidade / Região (opcional)", placeholder=f"Ex: Miami, Los Angeles…", label_visibility="collapsed")
             with ce:
-                eopts = ["—"]+SIGLAS_ESTADOS; edef = eopts.index("SP") if "SP" in eopts else 0
-                est_raw = st.selectbox("Estado", eopts, index=edef, label_visibility="collapsed")
-                estado = "" if est_raw == "—" else est_raw
+                if is_brasil:
+                    eopts = ["—"] + SIGLAS_ESTADOS
+                    edef = eopts.index("SP") if "SP" in eopts else 0
+                    est_raw = st.selectbox("Estado", eopts, index=edef, label_visibility="collapsed")
+                    estado = "" if est_raw == "—" else est_raw
+                else:
+                    estado = ""
+                    st.markdown("")  # placeholder para manter layout
             with cl:
                 lim = st.slider("Resultados", 20, 500, 60, 20, label_visibility="collapsed")
                 st.caption(f"Máx. **{lim}** resultados")
@@ -1003,9 +1026,12 @@ def pagina_busca():
 
         if buscar_btn:
             cv, ev = cidade.strip(), estado.strip()
+            pais_final = "" if pais_sel in ("Brasil", "Outro…") else pais_sel
             _maps_err = None
-            if not cv and not ev:
+            if is_brasil and not cv and not ev:
                 _maps_err = "Informe ao menos a cidade ou o estado."
+            elif not is_brasil and not cv:
+                _maps_err = "Informe o país ou cidade."
             elif is_custom and not query_custom.strip():
                 _maps_err = "Informe o termo personalizado."
             elif _maps_credits_enabled:
@@ -1024,7 +1050,10 @@ def pagina_busca():
                 qbase = query_custom.strip() if is_custom else nicho_data["query"]
                 nicho_lbl = qbase if is_custom else nicho_sel
                 sub_final = "" if (is_custom or subnicho_sel=="Todos (sem filtro)") else (sub_custom.strip() if subnicho_sel=="✏️ Personalizado..." else subnicho_sel)
-                localidade = f"{cv}, {ESTADOS.get(ev,ev)}" if cv and ev else cv or ESTADOS.get(ev,ev)
+                if is_brasil:
+                    localidade = f"{cv}, {ESTADOS.get(ev,ev)}" if cv and ev else cv or ESTADOS.get(ev, ev)
+                else:
+                    localidade = f"{cv}, {pais_final}" if cv and pais_final else cv or pais_final
                 slug = f"{nicho_lbl[:15]}_{localidade[:15]}".lower().replace(" ","_").replace(",","")
                 excl_tels_maps = set()
                 if apenas_novos_maps:
