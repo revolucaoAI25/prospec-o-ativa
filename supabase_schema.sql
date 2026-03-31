@@ -158,3 +158,26 @@ GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
 
 -- Permissão da view para admins
 -- (a RLS da tabela profiles já cobre o acesso)
+
+-- ── Função RPC: débito atômico de créditos ────────────────────
+-- Garante que o decremento ocorra sem race condition.
+-- Executar no SQL Editor do Supabase.
+CREATE OR REPLACE FUNCTION decrement_credits(
+    p_user_id UUID,
+    p_campo   TEXT,
+    p_delta   INTEGER
+) RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF p_campo NOT IN ('cdd_credits', 'maps_credits') THEN
+        RAISE EXCEPTION 'Campo inválido: %', p_campo;
+    END IF;
+    IF p_delta <= 0 THEN
+        RETURN;
+    END IF;
+    EXECUTE format(
+        'UPDATE profiles SET %I = GREATEST(0, %I - $1) WHERE id = $2',
+        p_campo, p_campo
+    ) USING p_delta, p_user_id;
+END;
+$$;

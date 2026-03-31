@@ -6,8 +6,11 @@ Supabase cuida do hash de senhas, tokens JWT e refresh automático.
 """
 
 import os
+import logging
 import streamlit as st
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     from supabase import create_client, Client
@@ -214,6 +217,8 @@ def eh_admin() -> bool:
 
 def listar_usuarios() -> tuple[bool, list, str]:
     """Retorna (sucesso, lista_usuarios, erro)."""
+    if not eh_admin():
+        return False, [], "Acesso não autorizado."
     sb = _admin_client()
     if not sb:
         return False, [], "SUPABASE_SERVICE_ROLE_KEY não configurado."
@@ -221,11 +226,16 @@ def listar_usuarios() -> tuple[bool, list, str]:
         resp = sb.table("user_stats").select("*").order("created_at", desc=True).execute()
         return True, resp.data or [], ""
     except Exception as e:
-        return False, [], str(e)
+        logger.error("listar_usuarios: %s", e)
+        return False, [], "Erro ao carregar usuários."
 
 
 def criar_usuario(email: str, senha: str, role: str = "user") -> tuple[bool, str]:
     """Cria novo usuário. Retorna (sucesso, mensagem)."""
+    if not eh_admin():
+        return False, "Acesso não autorizado."
+    if role not in ("admin", "user"):
+        return False, "Role inválido."
     sb = _admin_client()
     if not sb:
         return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."
@@ -248,11 +258,14 @@ def criar_usuario(email: str, senha: str, role: str = "user") -> tuple[bool, str
         msg = str(e)
         if "already been registered" in msg or "already exists" in msg:
             return False, "Este e-mail já está cadastrado."
-        return False, f"Erro ao criar usuário: {msg}"
+        logger.error("criar_usuario: %s", e)
+        return False, "Erro ao criar usuário."
 
 
 def deletar_usuario(user_id: str) -> tuple[bool, str]:
     """Remove usuário e todos os seus dados."""
+    if not eh_admin():
+        return False, "Acesso não autorizado."
     sb = _admin_client()
     if not sb:
         return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."
@@ -260,11 +273,16 @@ def deletar_usuario(user_id: str) -> tuple[bool, str]:
         sb.auth.admin.delete_user(user_id)
         return True, "Usuário removido com sucesso."
     except Exception as e:
-        return False, f"Erro ao remover usuário: {e}"
+        logger.error("deletar_usuario: %s", e)
+        return False, "Erro ao remover usuário."
 
 
 def alterar_role(user_id: str, novo_role: str) -> tuple[bool, str]:
     """Altera o papel (role) de um usuário."""
+    if not eh_admin():
+        return False, "Acesso não autorizado."
+    if novo_role not in ("admin", "user"):
+        return False, "Role inválido."
     sb = _admin_client()
     if not sb:
         return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."
@@ -272,7 +290,8 @@ def alterar_role(user_id: str, novo_role: str) -> tuple[bool, str]:
         sb.table("profiles").update({"role": novo_role}).eq("id", user_id).execute()
         return True, "Papel atualizado."
     except Exception as e:
-        return False, str(e)
+        logger.error("alterar_role: %s", e)
+        return False, "Erro ao atualizar papel."
 
 
 def configurar_creditos_admin(user_id: str, **campos) -> tuple[bool, str]:
@@ -282,6 +301,8 @@ def configurar_creditos_admin(user_id: str, **campos) -> tuple[bool, str]:
     o saldo atual é imediatamente sobreposto pelo novo valor mensal
     e o timer de 30 dias começa a contar agora.
     """
+    if not eh_admin():
+        return False, "Acesso não autorizado."
     from datetime import date
     sb = _admin_client()
     if not sb:
@@ -298,7 +319,8 @@ def configurar_creditos_admin(user_id: str, **campos) -> tuple[bool, str]:
         sb.table("profiles").update(updates).eq("id", user_id).execute()
         return True, "Configuração salva."
     except Exception as e:
-        return False, str(e)
+        logger.error("configurar_creditos_admin: %s", e)
+        return False, "Erro ao salvar configuração."
 
 
 def ajustar_creditos_admin(user_id: str, delta: int, tipo: str = "cdd") -> tuple[bool, str]:
@@ -306,6 +328,8 @@ def ajustar_creditos_admin(user_id: str, delta: int, tipo: str = "cdd") -> tuple
     Adiciona (delta > 0) ou subtrai (delta < 0) créditos de um usuário.
     tipo: 'cdd' ou 'maps'
     """
+    if not eh_admin():
+        return False, "Acesso não autorizado."
     campo = "cdd_credits" if tipo == "cdd" else "maps_credits"
     sb = _admin_client()
     if not sb:
@@ -317,10 +341,13 @@ def ajustar_creditos_admin(user_id: str, delta: int, tipo: str = "cdd") -> tuple
         sb.table("profiles").update({campo: novo_saldo}).eq("id", user_id).execute()
         return True, f"Créditos atualizados: {saldo_atual} → {novo_saldo}"
     except Exception as e:
-        return False, str(e)
+        logger.error("ajustar_creditos_admin: %s", e)
+        return False, "Erro ao ajustar créditos."
 
 
 def redefinir_senha(user_id: str, nova_senha: str) -> tuple[bool, str]:
+    if not eh_admin():
+        return False, "Acesso não autorizado."
     sb = _admin_client()
     if not sb:
         return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."
@@ -328,4 +355,5 @@ def redefinir_senha(user_id: str, nova_senha: str) -> tuple[bool, str]:
         sb.auth.admin.update_user_by_id(user_id, {"password": nova_senha})
         return True, "Senha redefinida com sucesso."
     except Exception as e:
-        return False, str(e)
+        logger.error("redefinir_senha: %s", e)
+        return False, "Erro ao redefinir senha."

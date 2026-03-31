@@ -234,10 +234,9 @@ def obter_creditos_maps() -> int:
     return int(obter_perfil_creditos().get("maps_credits", 0))
 
 
-def debitar_creditos(quantidade: int) -> bool:
-    """Debita créditos CDD do usuário logado."""
-    if quantidade <= 0:
-        return True
+def _debitar_atomico(campo: str, quantidade: int) -> bool:
+    """Debita créditos atomicamente via RPC (sem race condition).
+    Se o RPC não existir no Supabase, cai no método de fallback."""
     sb = _client_autenticado()
     if not sb:
         return False
@@ -245,29 +244,40 @@ def debitar_creditos(quantidade: int) -> bool:
     if not user_id:
         return False
     try:
-        novo = max(0, obter_creditos() - quantidade)
-        sb.table("profiles").update({"cdd_credits": novo}).eq("id", user_id).execute()
+        sb.rpc("decrement_credits", {
+            "p_user_id": user_id,
+            "p_campo":   campo,
+            "p_delta":   quantidade,
+        }).execute()
         return True
     except Exception:
-        return False
+        # Fallback: método não-atômico caso a função RPC ainda não exista
+        try:
+            atual = int((sb.table("profiles")
+                           .select(campo)
+                           .eq("id", user_id)
+                           .single()
+                           .execute()
+                           .data or {}).get(campo, 0))
+            novo = max(0, atual - quantidade)
+            sb.table("profiles").update({campo: novo}).eq("id", user_id).execute()
+            return True
+        except Exception:
+            return False
+
+
+def debitar_creditos(quantidade: int) -> bool:
+    """Debita créditos CDD do usuário logado."""
+    if quantidade <= 0:
+        return True
+    return _debitar_atomico("cdd_credits", quantidade)
 
 
 def debitar_creditos_maps(quantidade: int) -> bool:
     """Debita créditos Maps do usuário logado."""
     if quantidade <= 0:
         return True
-    sb = _client_autenticado()
-    if not sb:
-        return False
-    user_id = st.session_state.get("user", {}).get("id")
-    if not user_id:
-        return False
-    try:
-        novo = max(0, obter_creditos_maps() - quantidade)
-        sb.table("profiles").update({"maps_credits": novo}).eq("id", user_id).execute()
-        return True
-    except Exception:
-        return False
+    return _debitar_atomico("maps_credits", quantidade)
 
 
 def renovar_creditos_se_necessario() -> None:
