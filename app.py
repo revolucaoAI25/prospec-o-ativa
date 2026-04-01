@@ -1415,6 +1415,341 @@ def pagina_historico():
             st.dataframe(df[[c for c in vis if c in df.columns]].rename(columns=lm).fillna("").astype(str).replace("nan",""), use_container_width=True, height=280)
 
 
+# ── Automações ─────────────────────────────────────────────────────────────────
+
+_DIAS_PT  = {0: "Dom", 1: "Seg", 2: "Ter", 3: "Qua", 4: "Qui", 5: "Sex", 6: "Sáb"}
+_DIAS_OPT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]  # índice == valor
+
+def _card_automacao(auto: dict) -> None:
+    from modules.automation_db import atualizar_automacao, deletar_automacao, obter_ultimas_execucoes
+    from modules.scheduler import calcular_proxima_execucao, formatar_proxima_execucao, formatar_dias
+
+    aid  = auto["id"]
+    nome = auto.get("nome", "Sem nome")
+    tipo = auto.get("tipo", "maps")
+    ativa = bool(auto.get("ativa", True))
+    dias  = auto.get("dias_semana") or [1,2,3,4,5]
+    hora  = (auto.get("horario") or "08:00")[:5]
+    prox  = auto.get("proxima_execucao")
+
+    tipo_badge = ("🗺️ Maps" if tipo == "maps" else "🏢 CNPJ")
+    status_cor  = "#00D97E" if ativa else "#4b5a72"
+    status_txt  = "Ativa" if ativa else "Pausada"
+
+    with st.container():
+        st.markdown(
+            f'<div style="background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.07);'
+            f'border-radius:14px;padding:16px 20px;margin-bottom:12px">'
+            f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+            f'<span style="font-weight:700;font-size:15px;color:#f1f5f9">{nome}</span>'
+            f'<span style="background:rgba(0,217,126,0.12);color:#00D97E;font-size:11px;'
+            f'padding:2px 8px;border-radius:99px;font-weight:600">{tipo_badge}</span>'
+            f'<span style="background:rgba(255,255,255,0.06);color:{status_cor};font-size:11px;'
+            f'padding:2px 8px;border-radius:99px">{status_txt}</span>'
+            f'</div>'
+            f'<div style="margin-top:8px;font-size:12px;color:#94a3b8;display:flex;gap:20px;flex-wrap:wrap">'
+            f'<span>🗓️ {formatar_dias(dias)} às {hora}</span>'
+            f'<span>⏭️ {formatar_proxima_execucao(prox)}</span>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        col_tog, col_del, col_exp = st.columns([2, 2, 3])
+        with col_tog:
+            label_tog = "⏸️ Pausar" if ativa else "▶️ Ativar"
+            if st.button(label_tog, key=f"tog_{aid}", use_container_width=True):
+                nova_ativa = not ativa
+                atualizar_automacao(aid, ativa=nova_ativa)
+                if nova_ativa:
+                    nova_prox = calcular_proxima_execucao(dias, hora)
+                    if nova_prox:
+                        atualizar_automacao(aid, proxima_execucao=nova_prox)
+                st.rerun()
+        with col_del:
+            if st.button("🗑️ Excluir", key=f"del_{aid}", use_container_width=True):
+                st.session_state[f"_conf_del_{aid}"] = True
+                st.rerun()
+        with col_exp:
+            if st.button("📋 Ver execuções", key=f"exp_{aid}", use_container_width=True):
+                chave = f"_runs_aberto_{aid}"
+                st.session_state[chave] = not st.session_state.get(chave, False)
+                st.rerun()
+
+        # Confirmação de exclusão
+        if st.session_state.get(f"_conf_del_{aid}"):
+            st.warning(f"Tem certeza que deseja excluir **{nome}**? Esta ação não pode ser desfeita.")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✅ Sim, excluir", key=f"conf_del_ok_{aid}", type="primary"):
+                    deletar_automacao(aid)
+                    st.session_state.pop(f"_conf_del_{aid}", None)
+                    st.rerun()
+            with c2:
+                if st.button("Cancelar", key=f"conf_del_no_{aid}"):
+                    st.session_state.pop(f"_conf_del_{aid}", None)
+                    st.rerun()
+
+        # Histórico de execuções
+        if st.session_state.get(f"_runs_aberto_{aid}"):
+            runs = obter_ultimas_execucoes(aid, limit=5)
+            if not runs:
+                st.info("Nenhuma execução registrada ainda.")
+            else:
+                STATUS_ICON = {
+                    "success":      "✅ Sucesso",
+                    "error":        "❌ Erro",
+                    "sem_creditos": "💳 Sem créditos",
+                    "sem_sheets":   "📊 Sem Sheets",
+                    "running":      "⏳ Rodando",
+                }
+                for r in runs:
+                    s = r.get("status", "—")
+                    lbl = STATUS_ICON.get(s, s)
+                    leads = r.get("leads_encontrados", 0)
+                    ts = (r.get("concluida_em") or r.get("iniciada_em") or "")[:16].replace("T", " ")
+                    erro = r.get("erro") or ""
+                    st.markdown(
+                        f'<div style="font-size:12px;padding:6px 12px;margin-bottom:4px;'
+                        f'background:rgba(255,255,255,0.03);border-radius:8px;color:#94a3b8">'
+                        f'{ts} &nbsp;·&nbsp; {lbl} &nbsp;·&nbsp; {leads} leads'
+                        + (f' &nbsp;·&nbsp; <span style="color:#ef4444">{erro[:80]}</span>' if erro else "")
+                        + "</div>",
+                        unsafe_allow_html=True,
+                    )
+
+
+def pagina_automacoes():
+    from modules.automation_db import listar_automacoes_usuario, criar_automacao
+    from modules.scheduler import calcular_proxima_execucao, ensure_started
+    from modules.nichos import NICHOS, ESTADOS, NOMES_NICHOS, SIGLAS_ESTADOS
+
+    user_id = st.session_state.get("user", {}).get("id")
+
+    # Garante que o scheduler está rodando
+    ensure_started()
+
+    st.markdown(
+        '<div class="page-header">'
+        '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#f59e0b" fill="none" stroke-width="1.8">'
+        '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>'
+        '<div><div class="page-title">Automações</div>'
+        '<div class="page-sub">Buscas programadas que rodam automaticamente e exportam para o Google Sheets</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    autos = listar_automacoes_usuario(user_id)
+
+    col_info, col_btn = st.columns([3, 1])
+    with col_info:
+        ativas = sum(1 for a in autos if a.get("ativa"))
+        if autos:
+            st.markdown(
+                f'<div style="font-size:13px;color:#94a3b8;margin-top:4px">'
+                f'{len(autos)} automação(ões) · {ativas} ativa(s)</div>',
+                unsafe_allow_html=True,
+            )
+    with col_btn:
+        if st.button("+ Nova Automação", type="primary", use_container_width=True, key="btn_nova_auto"):
+            st.session_state["_auto_form_aberto"] = not st.session_state.get("_auto_form_aberto", False)
+            st.rerun()
+
+    # ── Formulário de criação ─────────────────────────────────────────────────
+    if st.session_state.get("_auto_form_aberto"):
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+        with st.container():
+            st.markdown(
+                '<div style="background:rgba(0,217,126,0.05);border:1px solid rgba(0,217,126,0.2);'
+                'border-radius:16px;padding:20px 24px">',
+                unsafe_allow_html=True,
+            )
+            st.markdown("#### Nova Automação")
+
+            # Tipo — FORA do form para ser reativo
+            tipo_sel = st.radio(
+                "Tipo de busca",
+                ["Google Maps", "CNPJ / Receita Federal"],
+                horizontal=True,
+                key="_new_auto_tipo",
+            )
+            tipo_val = "maps" if tipo_sel == "Google Maps" else "cnpj"
+
+            planilhas_cfg = st.session_state.get("sheets_planilhas", [])
+            sheets_ok = bool(st.session_state.get("sheets_creds") and planilhas_cfg)
+
+            with st.form("form_nova_automacao", clear_on_submit=True):
+                # ── Nome ──────────────────────────────────────────────────────
+                nome_auto = st.text_input("Nome da automação *", placeholder="Ex: Advogados SP — diário")
+
+                # ── Filtros condicionais por tipo ─────────────────────────────
+                if tipo_val == "maps":
+                    st.markdown("**Busca Google Maps**")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        nicho_auto = st.selectbox("Nicho *", NOMES_NICHOS, key="an_nicho")
+                    nicho_d = NICHOS[nicho_auto]; is_custom_a = nicho_auto == "Outro / Personalizado"
+                    with c2:
+                        if is_custom_a:
+                            query_auto = st.text_input("Termo personalizado *", key="an_qcustom")
+                            sub_auto   = ""
+                        else:
+                            sub_opts_a = ["Todos (sem filtro)"] + nicho_d["subnichos"]
+                            sub_auto   = st.selectbox("Subnicho", sub_opts_a, key="an_sub")
+                            query_auto = nicho_d["query"]
+                            if sub_auto == "Todos (sem filtro)":
+                                sub_auto = ""
+
+                    ca, cb, cc = st.columns([3, 2, 2])
+                    with ca:
+                        cidade_auto = st.text_input("Cidade", placeholder="Ex: São Paulo", key="an_cidade")
+                    with cb:
+                        estado_auto = st.selectbox("Estado (BR)", ["—"] + SIGLAS_ESTADOS, key="an_estado")
+                        estado_auto = "" if estado_auto == "—" else estado_auto
+                    with cc:
+                        lim_auto_m = st.number_input("Máx. resultados", 10, 500, 50, 10, key="an_lim_m")
+
+                    # Montar localidade
+                    _est_nome = ESTADOS.get(estado_auto, estado_auto) if estado_auto else ""
+                    localidade_auto = (
+                        f"{cidade_auto}, {_est_nome}" if cidade_auto and _est_nome
+                        else cidade_auto or _est_nome
+                    )
+                    filtros_auto: dict = {
+                        "query_base": query_auto,
+                        "localidade": localidade_auto,
+                        "nicho":      nicho_auto if not is_custom_a else query_auto,
+                        "subnicho":   sub_auto,
+                        "cidade":     cidade_auto,
+                        "estado":     estado_auto,
+                        "pais":       "Brasil",
+                        "limite":     int(lim_auto_m),
+                    }
+
+                else:  # cnpj
+                    st.markdown("**Busca por CNPJ**")
+                    from modules.cnaes import OPCOES_MULTISELECT
+                    cnaes_a = st.multiselect(
+                        "CNAE(s) *", OPCOES_MULTISELECT,
+                        placeholder="Digite para buscar…", key="an_cnaes",
+                    )
+                    cnae_manual_a = st.text_input(
+                        "Ou adicione código manualmente (separado por vírgula)",
+                        placeholder="6911701, 6912500", key="an_cnae_manual",
+                    )
+                    ca, cb, cc = st.columns([2, 2, 2])
+                    with ca:
+                        uf_a = st.selectbox("Estado *", SIGLAS_ESTADOS, index=SIGLAS_ESTADOS.index("SP"), key="an_uf")
+                    with cb:
+                        mun_a = st.text_input("Município (opcional)", key="an_mun")
+                    with cc:
+                        lim_auto_c = st.number_input("Máx. resultados", 1, 2000, 100, 50, key="an_lim_c")
+
+                    simples_a = st.radio(
+                        "Simples Nacional",
+                        ["Indiferente", "Apenas optantes", "Excluir optantes"],
+                        horizontal=True, key="an_simples",
+                    )
+                    cnaes_codigos_a = [op.split(" — ")[0].strip() for op in cnaes_a]
+                    if cnae_manual_a.strip():
+                        cnaes_codigos_a += [c.strip() for c in cnae_manual_a.split(",") if c.strip()]
+                    cnaes_codigos_a = list(dict.fromkeys(cnaes_codigos_a))
+                    filtros_auto = {
+                        "cnaes":           cnaes_codigos_a,
+                        "uf":              uf_a,
+                        "municipio":       mun_a.strip(),
+                        "limite":          int(lim_auto_c),
+                        "simples_optante": True if simples_a == "Apenas optantes" else None,
+                        "excluir_simples": simples_a == "Excluir optantes",
+                        "com_telefone":    True,
+                        "com_email":       False,
+                    }
+
+                # ── Planilha destino ──────────────────────────────────────────
+                st.markdown("**Exportação → Google Sheets**")
+                if not sheets_ok:
+                    st.warning("Conecte sua conta Google e configure uma planilha em ⚙️ Configurações para ativar a exportação automática.", icon="📊")
+                    sheet_id_sel  = ""
+                    sheet_aba_sel = "Leads"
+                else:
+                    plan_nomes = [f"{p['nome']} → {p['aba']}" for p in planilhas_cfg]
+                    plan_idx   = st.selectbox("Planilha destino", range(len(plan_nomes)),
+                                              format_func=lambda i: plan_nomes[i], key="an_plan")
+                    plan_sel   = planilhas_cfg[plan_idx]
+                    sheet_id_sel  = plan_sel["id"]
+                    sheet_aba_sel = plan_sel["aba"]
+
+                # ── Agenda ───────────────────────────────────────────────────
+                st.markdown("**Agenda de execução**")
+                dias_sel = st.multiselect(
+                    "Dias da semana",
+                    options=list(range(7)),
+                    default=[1, 2, 3, 4, 5],
+                    format_func=lambda d: _DIAS_PT[d],
+                    key="an_dias",
+                )
+                hora_sel = st.time_input("Horário (Horário de Brasília)", value=None, key="an_hora", step=1800)
+
+                # ── Submit ───────────────────────────────────────────────────
+                submitted = st.form_submit_button("✅ Criar Automação", type="primary", use_container_width=True)
+
+            if submitted:
+                erros = []
+                if not nome_auto.strip():
+                    erros.append("Informe um nome para a automação.")
+                if tipo_val == "maps" and not localidade_auto:
+                    erros.append("Informe ao menos a cidade ou o estado.")
+                if tipo_val == "cnpj" and not filtros_auto.get("cnaes"):
+                    erros.append("Selecione ao menos um CNAE.")
+                if not dias_sel:
+                    erros.append("Selecione ao menos um dia da semana.")
+                if hora_sel is None:
+                    erros.append("Defina o horário de execução.")
+
+                if erros:
+                    for e in erros:
+                        st.error(e)
+                else:
+                    from datetime import time as dtime
+                    horario_str = hora_sel.strftime("%H:%M") if hora_sel else "08:00"
+                    proxima = calcular_proxima_execucao(dias_sel, horario_str)
+                    novo_id = criar_automacao(
+                        user_id=user_id,
+                        nome=nome_auto.strip(),
+                        tipo=tipo_val,
+                        filtros=filtros_auto,
+                        sheet_id=sheet_id_sel,
+                        sheet_aba=sheet_aba_sel,
+                        dias_semana=dias_sel,
+                        horario=horario_str,
+                        proxima_execucao=proxima,
+                    )
+                    if novo_id:
+                        st.success(f"✅ Automação **{nome_auto}** criada! Próxima execução: {proxima.strftime('%d/%m às %H:%M') if proxima else '—'}.")
+                        st.session_state["_auto_form_aberto"] = False
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Erro ao salvar a automação. Verifique as configurações do Supabase.")
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Lista de automações ───────────────────────────────────────────────────
+    st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+
+    if not autos:
+        st.markdown(
+            '<div style="text-align:center;padding:48px 24px;color:#4b5a72;font-size:14px">'
+            '⚡ Nenhuma automação criada ainda.<br>'
+            '<span style="font-size:12px">Clique em "+ Nova Automação" para agendar sua primeira busca automática.</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        for auto in autos:
+            _card_automacao(auto)
+
+
 # ── Configurações ──────────────────────────────────────────────────────────────
 
 def pagina_configuracoes():
@@ -1829,6 +2164,7 @@ def pagina_admin():
 _NAV_ICONS = {
     "busca":         '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
     "historico":     '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>',
+    "automacoes":    '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     "configuracoes": '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
     "admin":         '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
     "logout":        '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
@@ -1891,6 +2227,7 @@ def _sidebar():
         nav_items = [
             ("busca",         "Busca"),
             ("historico",     "Histórico"),
+            ("automacoes",    "Automações"),
             ("configuracoes", "Configurações"),
         ]
         if eh_admin():
@@ -1981,6 +2318,13 @@ def main():
         from modules.database import renovar_creditos_se_necessario
         renovar_creditos_se_necessario()
 
+    # Scheduler de automações — inicia uma vez por processo (singleton global)
+    try:
+        from modules.scheduler import ensure_started as _sched_start
+        _sched_start()
+    except Exception:
+        pass
+
     _sidebar()
 
     page = st.session_state.get("page", "busca")
@@ -1989,6 +2333,8 @@ def main():
         pagina_busca()
     elif page == "historico":
         pagina_historico()
+    elif page == "automacoes":
+        pagina_automacoes()
     elif page == "configuracoes":
         pagina_configuracoes()
     elif page == "admin":

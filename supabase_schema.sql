@@ -181,3 +181,48 @@ BEGIN
     ) USING p_delta, p_user_id;
 END;
 $$;
+
+-- ── Tabela de automações ──────────────────────────────────────
+-- Cada registro representa uma busca programada de um usuário.
+-- dias_semana: 0=Dom 1=Seg 2=Ter 3=Qua 4=Qui 5=Sex 6=Sáb
+CREATE TABLE IF NOT EXISTS automations (
+    id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id         UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    nome            TEXT NOT NULL,
+    tipo            TEXT NOT NULL CHECK (tipo IN ('maps', 'cnpj')),
+    filtros         JSONB NOT NULL DEFAULT '{}',
+    sheet_id        TEXT,
+    sheet_aba       TEXT DEFAULT 'Leads',
+    dias_semana     INTEGER[] NOT NULL DEFAULT ARRAY[1,2,3,4,5],
+    horario         TEXT NOT NULL DEFAULT '08:00',
+    ativa           BOOLEAN NOT NULL DEFAULT TRUE,
+    ultima_execucao TIMESTAMPTZ,
+    proxima_execucao TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE automations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY IF NOT EXISTS "own_automations"
+    ON automations FOR ALL TO authenticated
+    USING  (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+-- ── Tabela de execuções (log de cada vez que uma automação rodou) ──
+CREATE TABLE IF NOT EXISTS automation_runs (
+    id             UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    automation_id  UUID REFERENCES automations(id) ON DELETE CASCADE NOT NULL,
+    user_id        UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    iniciada_em    TIMESTAMPTZ DEFAULT NOW(),
+    concluida_em   TIMESTAMPTZ,
+    leads_encontrados INTEGER DEFAULT 0,
+    status         TEXT CHECK (status IN ('running','success','error','sem_creditos','sem_sheets')),
+    erro           TEXT
+);
+
+ALTER TABLE automation_runs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY IF NOT EXISTS "own_automation_runs"
+    ON automation_runs FOR ALL TO authenticated
+    USING  (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
