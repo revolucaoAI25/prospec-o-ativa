@@ -1422,15 +1422,16 @@ _DIAS_OPT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]  # índice == val
 
 def _card_automacao(auto: dict) -> None:
     from modules.automation_db import atualizar_automacao, deletar_automacao, obter_ultimas_execucoes
-    from modules.scheduler import calcular_proxima_execucao, formatar_proxima_execucao, formatar_dias
+    from modules.scheduler import calcular_proxima_execucao, formatar_proxima_execucao, formatar_dias, formatar_horarios
 
     aid  = auto["id"]
     nome = auto.get("nome", "Sem nome")
     tipo = auto.get("tipo", "maps")
     ativa = bool(auto.get("ativa", True))
     dias  = auto.get("dias_semana") or [1,2,3,4,5]
-    hora  = (auto.get("horario") or "08:00")[:5]
+    hora  = (auto.get("horario") or "08:00")
     prox  = auto.get("proxima_execucao")
+    data_fim = (auto.get("filtros") or {}).get("data_fim", "")
 
     tipo_badge = ("🗺️ Maps" if tipo == "maps" else "🏢 CNPJ")
     status_cor  = "#00D97E" if ativa else "#4b5a72"
@@ -1448,9 +1449,10 @@ def _card_automacao(auto: dict) -> None:
             f'padding:2px 8px;border-radius:99px">{status_txt}</span>'
             f'</div>'
             f'<div style="margin-top:8px;font-size:12px;color:#94a3b8;display:flex;gap:20px;flex-wrap:wrap">'
-            f'<span>🗓️ {formatar_dias(dias)} às {hora}</span>'
+            f'<span>🗓️ {formatar_dias(dias)} às {formatar_horarios(hora)}</span>'
             f'<span>⏭️ {formatar_proxima_execucao(prox)}</span>'
-            f'</div>'
+            + (f'<span>🔚 Encerra em {data_fim[8:10]}/{data_fim[5:7]}/{data_fim[:4]}</span>' if data_fim else '')
+            + f'</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -1764,15 +1766,29 @@ def pagina_automacoes():
                     sheet_aba_sel = plan_sel["aba"]
 
                 # ── Agenda ───────────────────────────────────────────────────
-                st.markdown("**Agenda de execução**")
-                dias_sel = st.multiselect(
-                    "Dias da semana",
-                    options=list(range(7)),
-                    default=[1, 2, 3, 4, 5],
-                    format_func=lambda d: _DIAS_PT[d],
-                    key="an_dias",
+                st.markdown("**Agenda de execução** (fuso: Brasília / BRT)")
+                _ag1, _ag2 = st.columns([3, 4])
+                with _ag1:
+                    dias_sel = st.multiselect(
+                        "Dias da semana",
+                        options=list(range(7)),
+                        default=[1, 2, 3, 4, 5],
+                        format_func=lambda d: _DIAS_PT[d],
+                        key="an_dias",
+                    )
+                with _ag2:
+                    _SLOTS = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 30)]
+                    horarios_sel = st.multiselect(
+                        "Horários (pode escolher mais de um)",
+                        options=_SLOTS,
+                        default=["08:00"],
+                        key="an_horarios",
+                    )
+                data_fim_sel = st.date_input(
+                    "Data de encerramento (opcional — deixe em branco para rodar indefinidamente)",
+                    value=None,
+                    key="an_data_fim",
                 )
-                hora_sel = st.time_input("Horário (Horário de Brasília)", value=None, key="an_hora", step=1800)
 
                 # ── Submit ───────────────────────────────────────────────────
                 submitted = st.form_submit_button("✅ Criar Automação", type="primary", use_container_width=True)
@@ -1787,15 +1803,16 @@ def pagina_automacoes():
                     erros.append("Selecione ao menos um CNAE.")
                 if not dias_sel:
                     erros.append("Selecione ao menos um dia da semana.")
-                if hora_sel is None:
-                    erros.append("Defina o horário de execução.")
+                if not horarios_sel:
+                    erros.append("Selecione ao menos um horário de execução.")
 
                 if erros:
                     for e in erros:
                         st.error(e)
                 else:
-                    from datetime import time as dtime
-                    horario_str = hora_sel.strftime("%H:%M") if hora_sel else "08:00"
+                    horario_str = ",".join(sorted(horarios_sel))
+                    if data_fim_sel:
+                        filtros_auto["data_fim"] = data_fim_sel.strftime("%Y-%m-%d")
                     proxima = calcular_proxima_execucao(dias_sel, horario_str)
                     novo_id = criar_automacao(
                         user_id=user_id,
@@ -1809,7 +1826,8 @@ def pagina_automacoes():
                         proxima_execucao=proxima,
                     )
                     if novo_id:
-                        st.success(f"✅ Automação **{nome_auto}** criada! Próxima execução: {proxima.strftime('%d/%m às %H:%M') if proxima else '—'}.")
+                        prox_fmt = proxima.strftime('%d/%m às %H:%M') if proxima else '—'
+                        st.success(f"✅ Automação **{nome_auto}** criada! Próxima execução: {prox_fmt}.")
                         st.session_state["_auto_form_aberto"] = False
                         time.sleep(0.5)
                         st.rerun()

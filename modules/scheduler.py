@@ -34,37 +34,52 @@ def calcular_proxima_execucao(
     Calcula o próximo datetime (com timezone de Brasília) em que a automação deve rodar.
 
     dias_semana: lista de ints onde 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
-    horario: string "HH:MM"
+    horario: string "HH:MM" ou múltiplos separados por vírgula "08:00,14:00,20:00"
 
-    Retorna datetime com timezone (America/Sao_Paulo) ou None se dias_semana vazio.
+    Retorna o mais próximo datetime com timezone (America/Sao_Paulo) ou None.
     """
     if not dias_semana or not horario:
         return None
 
-    try:
-        h, m = map(int, horario.split(":")[:2])
-    except (ValueError, AttributeError):
-        return None
-
+    horarios = [h.strip() for h in horario.split(",") if h.strip()]
     agora = datetime.now(BRAZIL_TZ)
+    melhor: Optional[datetime] = None
 
-    for delta in range(8):  # hoje + até 7 dias à frente
-        data_cand = (agora + timedelta(days=delta)).date()
-        # Python weekday: 0=Seg...6=Dom → nossa conv: 0=Dom,1=Seg...6=Sáb
-        python_wd = data_cand.weekday()
-        nosso_wd  = (python_wd + 1) % 7
-
-        if nosso_wd not in dias_semana:
+    for h_str in horarios:
+        try:
+            h, m = map(int, h_str.split(":")[:2])
+        except (ValueError, AttributeError):
             continue
 
-        dt_cand = datetime(
-            data_cand.year, data_cand.month, data_cand.day,
-            h, m, 0, tzinfo=BRAZIL_TZ,
-        )
-        if dt_cand > agora:
-            return dt_cand
+        for delta in range(8):  # hoje + até 7 dias à frente
+            data_cand = (agora + timedelta(days=delta)).date()
+            # Python weekday: 0=Seg...6=Dom → nossa conv: 0=Dom,1=Seg...6=Sáb
+            python_wd = data_cand.weekday()
+            nosso_wd  = (python_wd + 1) % 7
 
-    return None
+            if nosso_wd not in dias_semana:
+                continue
+
+            dt_cand = datetime(
+                data_cand.year, data_cand.month, data_cand.day,
+                h, m, 0, tzinfo=BRAZIL_TZ,
+            )
+            if dt_cand > agora:
+                if melhor is None or dt_cand < melhor:
+                    melhor = dt_cand
+                break  # próximo horário
+
+    return melhor
+
+
+def formatar_horarios(horario: str) -> str:
+    """'08:00,14:00,20:00' → '08:00, 14:00 e 20:00'"""
+    times = [h.strip() for h in (horario or "").split(",") if h.strip()]
+    if not times:
+        return "—"
+    if len(times) == 1:
+        return times[0]
+    return ", ".join(times[:-1]) + f" e {times[-1]}"
 
 
 def formatar_proxima_execucao(proxima_iso: Optional[str]) -> str:
@@ -138,6 +153,21 @@ def executar_automacao(auto: dict) -> None:
     filtros = auto.get("filtros") or {}
 
     logger.info("Executando automação %s (user=%s tipo=%s)", auto_id, user_id, tipo)
+
+    # 0. Verificar data de encerramento
+    data_fim_str = filtros.get("data_fim", "")
+    if data_fim_str:
+        try:
+            from datetime import date as _date
+            data_fim = datetime.strptime(data_fim_str, "%Y-%m-%d").date()
+            hoje = datetime.now(BRAZIL_TZ).date()
+            if hoje > data_fim:
+                logger.info("Automação %s encerrada: data_fim %s atingida", auto_id, data_fim_str)
+                from modules.automation_db import atualizar_automacao as _upd
+                _upd(auto_id, ativa=False)
+                return
+        except Exception:
+            pass
 
     # 1. Perfil do usuário
     perfil = get_perfil_usuario(user_id)
