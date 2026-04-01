@@ -1575,6 +1575,22 @@ def pagina_automacoes():
             )
             tipo_val = "maps" if tipo_sel == "Google Maps" else "cnpj"
 
+            # País (Maps) — FORA do form para ser reativo
+            _pais_opts_a = [
+                "Brasil", "Estados Unidos", "Portugal", "Argentina", "México",
+                "Colômbia", "Chile", "Peru", "Espanha", "Reino Unido",
+                "França", "Alemanha", "Itália", "Canadá", "Austrália",
+                "Japão", "Outro…",
+            ]
+            if tipo_val == "maps":
+                _pa0, _pa1 = st.columns([2, 5])
+                with _pa0:
+                    pais_auto = st.selectbox("País", _pais_opts_a, index=0, key="an_pais")
+                is_brasil_auto = pais_auto == "Brasil"
+            else:
+                pais_auto = "Brasil"
+                is_brasil_auto = True
+
             planilhas_cfg = st.session_state.get("sheets_planilhas", [])
             sheets_ok = bool(st.session_state.get("sheets_creds") and planilhas_cfg)
 
@@ -1602,19 +1618,35 @@ def pagina_automacoes():
 
                     ca, cb, cc = st.columns([3, 2, 2])
                     with ca:
-                        cidade_auto = st.text_input("Cidade", placeholder="Ex: São Paulo", key="an_cidade")
+                        if pais_auto == "Outro…":
+                            cidade_auto = st.text_input("País / Cidade", placeholder="Ex: Dubai, Singapura…", key="an_cidade")
+                        elif is_brasil_auto:
+                            cidade_auto = st.text_input("Cidade", placeholder="Ex: São Paulo", key="an_cidade")
+                        else:
+                            cidade_auto = st.text_input("Cidade / Região (opcional)", placeholder="Ex: Miami…", key="an_cidade")
                     with cb:
-                        estado_auto = st.selectbox("Estado (BR)", ["—"] + SIGLAS_ESTADOS, key="an_estado")
-                        estado_auto = "" if estado_auto == "—" else estado_auto
+                        if is_brasil_auto:
+                            estado_auto_raw = st.selectbox("Estado", ["—"] + SIGLAS_ESTADOS, key="an_estado")
+                            estado_auto = "" if estado_auto_raw == "—" else estado_auto_raw
+                        else:
+                            st.text_input("Estado", value="", disabled=True, key="an_estado_dis")
+                            estado_auto = ""
                     with cc:
                         lim_auto_m = st.number_input("Máx. resultados", 10, 500, 50, 10, key="an_lim_m")
 
                     # Montar localidade
-                    _est_nome = ESTADOS.get(estado_auto, estado_auto) if estado_auto else ""
-                    localidade_auto = (
-                        f"{cidade_auto}, {_est_nome}" if cidade_auto and _est_nome
-                        else cidade_auto or _est_nome
-                    )
+                    pais_final_auto = "" if pais_auto in ("Brasil", "Outro…") else pais_auto
+                    if is_brasil_auto:
+                        _est_nome = ESTADOS.get(estado_auto, estado_auto) if estado_auto else ""
+                        localidade_auto = (
+                            f"{cidade_auto}, {_est_nome}" if cidade_auto and _est_nome
+                            else cidade_auto or _est_nome
+                        )
+                    else:
+                        localidade_auto = (
+                            f"{cidade_auto}, {pais_final_auto}" if cidade_auto and pais_final_auto
+                            else cidade_auto or pais_final_auto
+                        )
                     filtros_auto: dict = {
                         "query_base": query_auto,
                         "localidade": localidade_auto,
@@ -1622,7 +1654,7 @@ def pagina_automacoes():
                         "subnicho":   sub_auto,
                         "cidade":     cidade_auto,
                         "estado":     estado_auto,
-                        "pais":       "Brasil",
+                        "pais":       pais_auto,
                         "limite":     int(lim_auto_m),
                     }
 
@@ -1645,24 +1677,76 @@ def pagina_automacoes():
                     with cc:
                         lim_auto_c = st.number_input("Máx. resultados", 1, 2000, 100, 50, key="an_lim_c")
 
-                    simples_a = st.radio(
-                        "Simples Nacional",
-                        ["Indiferente", "Apenas optantes", "Excluir optantes"],
-                        horizontal=True, key="an_simples",
-                    )
+                    with st.expander("📊 Filtros da empresa"):
+                        fc1, fc2 = st.columns(2)
+                        with fc1:
+                            portes_a = st.multiselect(
+                                "Porte da empresa",
+                                ["01 — Micro Empresa", "03 — Empresa de Pequeno Porte", "05 — Demais"],
+                                key="an_porte",
+                            )
+                            matriz_a = st.radio(
+                                "Matriz / Filial",
+                                ["Todos", "Somente Matriz", "Somente Filial"],
+                                horizontal=True, key="an_matriz",
+                            )
+                        with fc2:
+                            simples_a = st.radio(
+                                "Simples Nacional",
+                                ["Indiferente", "Apenas optantes", "Excluir optantes"],
+                                key="an_simples",
+                            )
+                            mei_a = st.radio(
+                                "MEI",
+                                ["Indiferente", "Apenas MEI", "Excluir MEI"],
+                                key="an_mei",
+                            )
+                        fd1, fd2 = st.columns(2)
+                        with fd1:
+                            dt_ini_a = st.date_input("Abertura — de", value=None, key="an_dt_ini")
+                            cap_min_a = st.number_input("Capital mínimo (R$)", min_value=0, value=0, step=1000, key="an_cap_min")
+                        with fd2:
+                            dt_fim_a = st.date_input("Abertura — até", value=None, key="an_dt_fim")
+                            cap_max_a = st.number_input("Capital máximo (R$)", min_value=0, value=0, step=1000, key="an_cap_max")
+
+                    with st.expander("📞 Filtros de contato"):
+                        fct1, fct2 = st.columns(2)
+                        with fct1:
+                            tipo_tel_a = st.radio(
+                                "Tipo de telefone",
+                                ["Todos", "Somente celular", "Somente fixo"],
+                                horizontal=True, key="an_tipo_tel",
+                            )
+                            com_email_a = st.checkbox("Exigir e-mail", value=False, key="an_com_email")
+                        with fct2:
+                            excl_contab_a = st.checkbox("Excluir e-mails contábeis", value=True, key="an_excl_contab")
+
                     cnaes_codigos_a = [op.split(" — ")[0].strip() for op in cnaes_a]
                     if cnae_manual_a.strip():
                         cnaes_codigos_a += [c.strip() for c in cnae_manual_a.split(",") if c.strip()]
                     cnaes_codigos_a = list(dict.fromkeys(cnaes_codigos_a))
+
+                    mf_map_a = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
                     filtros_auto = {
-                        "cnaes":           cnaes_codigos_a,
-                        "uf":              uf_a,
-                        "municipio":       mun_a.strip(),
-                        "limite":          int(lim_auto_c),
-                        "simples_optante": True if simples_a == "Apenas optantes" else None,
-                        "excluir_simples": simples_a == "Excluir optantes",
-                        "com_telefone":    True,
-                        "com_email":       False,
+                        "cnaes":              cnaes_codigos_a,
+                        "uf":                 uf_a,
+                        "municipio":          mun_a.strip(),
+                        "limite":             int(lim_auto_c),
+                        "porte":              [op.split(" — ")[0].strip() for op in portes_a] or None,
+                        "matriz_filial":      mf_map_a.get(matriz_a, ""),
+                        "simples_optante":    True if simples_a == "Apenas optantes" else None,
+                        "excluir_simples":    simples_a == "Excluir optantes",
+                        "mei_optante":        True if mei_a == "Apenas MEI" else None,
+                        "excluir_mei":        mei_a == "Excluir MEI",
+                        "com_telefone":       True,
+                        "com_email":          com_email_a,
+                        "somente_celular":    tipo_tel_a == "Somente celular",
+                        "somente_fixo":       tipo_tel_a == "Somente fixo",
+                        "excluir_email_contab": excl_contab_a,
+                        "data_abertura_inicio": dt_ini_a.strftime("%Y-%m-%d") if dt_ini_a else "",
+                        "data_abertura_fim":    dt_fim_a.strftime("%Y-%m-%d") if dt_fim_a else "",
+                        "capital_min":        int(cap_min_a) if cap_min_a else None,
+                        "capital_max":        int(cap_max_a) if cap_max_a else None,
                     }
 
                 # ── Planilha destino ──────────────────────────────────────────
