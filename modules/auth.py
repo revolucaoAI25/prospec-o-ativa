@@ -200,7 +200,7 @@ def logout():
     for k in ["user", "user_gmaps_key", "maps_credits_enabled", "maps_api_key_admin",
               "sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista",
               "maps_res", "rf_res", "page", "_cfg_cache", "_cookie_set",
-              "_pesquisas_cache", "_sb_client", "_cm_init_done", "_credits_renewed"]:
+              "_pesquisas_cache", "_sb_client", "_credits_renewed"]:
         st.session_state.pop(k, None)
 
 

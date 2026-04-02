@@ -2661,9 +2661,17 @@ def main():
             # Seta flag e para — CookieManager dispara rerun automático (~100-300ms).
             st.session_state["_cm_init_done"] = True
             st.stop()
-        rt = cm.get(_COOKIE_NAME)
-        if rt:
-            restaurar_sessao(rt)
+        # Logout pendente: deleta o cookie ANTES de tentar restaurar sessão
+        if st.session_state.get("_do_logout_cookie"):
+            try:
+                cm.delete(_COOKIE_NAME)
+            except Exception:
+                pass
+            st.session_state.pop("_do_logout_cookie", None)
+        else:
+            rt = cm.get(_COOKIE_NAME)
+            if rt:
+                restaurar_sessao(rt)
 
     # ── Persiste sheets_creds no Supabase se veio de redirect OAuth ──────────
     if "user" in st.session_state and st.session_state.pop("_pending_sheets_save", False):
@@ -2680,13 +2688,7 @@ def main():
         rt = st.session_state.pop("_pending_rt")
         cm.set(_COOKIE_NAME, rt, expires_at=datetime.now() + timedelta(days=30))
 
-    # ── Apaga cookie no logout ────────────────────────────────────────────────
-    if st.session_state.get("_do_logout_cookie"):
-        try:
-            cm.delete(_COOKIE_NAME)
-        except Exception:
-            pass
-        st.session_state.pop("_do_logout_cookie", None)
+    # (_do_logout_cookie é tratado antes da restauração de sessão — ver acima)
 
     user = usuario_logado()
 
