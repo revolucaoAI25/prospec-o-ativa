@@ -1457,7 +1457,7 @@ def _card_automacao(auto: dict) -> None:
             unsafe_allow_html=True,
         )
 
-        col_tog, col_run, col_del, col_exp = st.columns([2, 2, 2, 3])
+        col_tog, col_run, col_ed, col_del, col_exp = st.columns([2, 2, 2, 2, 2])
         with col_tog:
             label_tog = "⏸️ Pausar" if ativa else "▶️ Ativar"
             if st.button(label_tog, key=f"tog_{aid}", use_container_width=True):
@@ -1479,12 +1479,18 @@ def _card_automacao(auto: dict) -> None:
                     except Exception as _exc:
                         st.error(f"Erro: {_exc}")
                 st.rerun()
+        with col_ed:
+            _edit_key = f"_edit_aberto_{aid}"
+            label_ed = "✏️ Fechar edição" if st.session_state.get(_edit_key) else "✏️ Editar"
+            if st.button(label_ed, key=f"ed_btn_{aid}", use_container_width=True):
+                st.session_state[_edit_key] = not st.session_state.get(_edit_key, False)
+                st.rerun()
         with col_del:
             if st.button("🗑️ Excluir", key=f"del_{aid}", use_container_width=True):
                 st.session_state[f"_conf_del_{aid}"] = True
                 st.rerun()
         with col_exp:
-            if st.button("📋 Ver execuções", key=f"exp_{aid}", use_container_width=True):
+            if st.button("📋 Execuções", key=f"exp_{aid}", use_container_width=True):
                 chave = f"_runs_aberto_{aid}"
                 st.session_state[chave] = not st.session_state.get(chave, False)
                 st.rerun()
@@ -1530,6 +1536,272 @@ def _card_automacao(auto: dict) -> None:
                         + "</div>",
                         unsafe_allow_html=True,
                     )
+
+        # ── Painel de edição ──────────────────────────────────────────────────
+        if st.session_state.get(f"_edit_aberto_{aid}"):
+            from modules.nichos import NICHOS, ESTADOS, NOMES_NICHOS, SIGLAS_ESTADOS
+            from modules.cnaes import OPCOES_MULTISELECT as _CNAES_OPTS
+            from datetime import datetime as _dt_parse, date as _date_cls
+            filtros_e = auto.get("filtros") or {}
+            _SLOTS_E = [f"{_h:02d}:{_m:02d}" for _h in range(24) for _m in (0, 30)]
+            planilhas_cfg_e = st.session_state.get("sheets_planilhas", [])
+            sheets_ok_e = bool(st.session_state.get("sheets_creds") and planilhas_cfg_e)
+
+            st.markdown("---")
+            st.markdown("**✏️ Editar automação**")
+
+            # País selector (Maps) — fora do form para ser reativo
+            _pais_opts_e = [
+                "Brasil", "Estados Unidos", "Portugal", "Argentina", "México",
+                "Colômbia", "Chile", "Peru", "Espanha", "Reino Unido",
+                "França", "Alemanha", "Itália", "Canadá", "Austrália", "Japão", "Outro…",
+            ]
+            if tipo == "maps":
+                _pais_stored = filtros_e.get("pais", "Brasil")
+                _pais_idx_e  = _pais_opts_e.index(_pais_stored) if _pais_stored in _pais_opts_e else 0
+                pais_ed     = st.selectbox("País", _pais_opts_e, index=_pais_idx_e, key=f"ed_{aid}_pais")
+                is_brasil_ed = pais_ed == "Brasil"
+            else:
+                pais_ed      = "Brasil"
+                is_brasil_ed = True
+
+            with st.form(key=f"form_edit_{aid}"):
+                nome_ed = st.text_input("Nome da automação *", value=nome, key=f"ed_{aid}_nome")
+                st.caption(f"Tipo: **{'Google Maps' if tipo == 'maps' else 'CNPJ / Receita Federal'}** (não pode ser alterado após a criação)")
+
+                if tipo == "maps":
+                    st.markdown("**Busca no Maps**")
+                    _NK = list(NICHOS.keys())
+                    _ND = [NOMES_NICHOS.get(k, k) for k in _NK]
+                    _nicho_stored = filtros_e.get("nicho", "")
+                    _nicho_idx_e  = _NK.index(_nicho_stored) if _nicho_stored in _NK else 0
+                    em1, em2 = st.columns([3, 3])
+                    with em1:
+                        nicho_idx_ed = st.selectbox("Nicho *", range(len(_NK)),
+                                                     format_func=lambda i: _ND[i],
+                                                     index=_nicho_idx_e, key=f"ed_{aid}_nicho")
+                        nicho_key_ed = _NK[nicho_idx_ed]
+                        _subs_e      = NICHOS.get(nicho_key_ed, [])
+                        _sub_stored  = filtros_e.get("subnicho", "")
+                        _sub_idx_e   = (_subs_e.index(_sub_stored) + 1) if _sub_stored in _subs_e else 0
+                        sub_ed = st.selectbox("Subnicho", ["—"] + _subs_e, index=_sub_idx_e, key=f"ed_{aid}_sub") if _subs_e else None
+                    with em2:
+                        query_ed = st.text_input("Busca personalizada" if nicho_key_ed == "outro" else "Busca (opcional)",
+                                                  value=filtros_e.get("query_base", ""), key=f"ed_{aid}_query")
+                    ec1, ec2, ec3 = st.columns([3, 2, 2])
+                    with ec1:
+                        _lbl_cidade = "País / Cidade" if pais_ed == "Outro…" else ("Cidade" if is_brasil_ed else "Cidade / Região (opcional)")
+                        cidade_ed = st.text_input(_lbl_cidade, value=filtros_e.get("cidade", ""), key=f"ed_{aid}_cidade")
+                    with ec2:
+                        if is_brasil_ed:
+                            _est_stored = filtros_e.get("estado", "")
+                            _est_idx_e  = (SIGLAS_ESTADOS.index(_est_stored) + 1) if _est_stored in SIGLAS_ESTADOS else 0
+                            estado_ed_raw = st.selectbox("Estado", ["—"] + SIGLAS_ESTADOS, index=_est_idx_e, key=f"ed_{aid}_estado")
+                            estado_ed = "" if estado_ed_raw == "—" else estado_ed_raw
+                        else:
+                            st.text_input("Estado", value="", disabled=True, key=f"ed_{aid}_estado_dis")
+                            estado_ed = ""
+                    with ec3:
+                        lim_ed_m = st.number_input("Máx. resultados", 10, 500, int(filtros_e.get("limite", 50)), 10, key=f"ed_{aid}_lim_m")
+
+                else:  # cnpj
+                    st.markdown("**Busca por CNPJ**")
+                    _cnaes_stored   = filtros_e.get("cnaes") or []
+                    _cnaes_default_e = [op for op in _CNAES_OPTS if op.split(" — ")[0].strip() in _cnaes_stored]
+                    cnaes_ed = st.multiselect("CNAE(s) *", _CNAES_OPTS, default=_cnaes_default_e,
+                                              placeholder="Digite para buscar…", key=f"ed_{aid}_cnaes")
+                    cnae_manual_ed = st.text_input("Ou adicione código manualmente (separado por vírgula)",
+                                                    placeholder="6911701, 6912500", key=f"ed_{aid}_cnae_manual")
+                    fca, fcb, fcc = st.columns([2, 2, 2])
+                    with fca:
+                        _uf_stored = filtros_e.get("uf", "SP")
+                        _uf_idx_e  = SIGLAS_ESTADOS.index(_uf_stored) if _uf_stored in SIGLAS_ESTADOS else 0
+                        uf_ed = st.selectbox("Estado *", SIGLAS_ESTADOS, index=_uf_idx_e, key=f"ed_{aid}_uf")
+                    with fcb:
+                        mun_ed = st.text_input("Município (opcional)", value=filtros_e.get("municipio", ""), key=f"ed_{aid}_mun")
+                    with fcc:
+                        lim_ed_c = st.number_input("Máx. resultados", 1, 2000, int(filtros_e.get("limite", 100)), 50, key=f"ed_{aid}_lim_c")
+
+                    _PORTE_OPTS_E = ["01 — Micro Empresa", "03 — Empresa de Pequeno Porte", "05 — Demais"]
+                    with st.expander("📊 Filtros da empresa"):
+                        _porte_stored   = filtros_e.get("porte") or []
+                        _porte_default_e = [op for op in _PORTE_OPTS_E if op.split(" — ")[0].strip() in _porte_stored]
+                        gc1, gc2 = st.columns(2)
+                        with gc1:
+                            portes_ed = st.multiselect("Porte da empresa", _PORTE_OPTS_E, default=_porte_default_e, key=f"ed_{aid}_porte")
+                            _mf_idx   = {"MATRIZ": 1, "FILIAL": 2}.get(filtros_e.get("matriz_filial", ""), 0)
+                            matriz_ed = st.radio("Matriz / Filial", ["Todos", "Somente Matriz", "Somente Filial"],
+                                                  index=_mf_idx, horizontal=True, key=f"ed_{aid}_matriz")
+                        with gc2:
+                            _simp_idx  = 1 if filtros_e.get("simples_optante") is True else (2 if filtros_e.get("excluir_simples") else 0)
+                            simples_ed = st.radio("Simples Nacional", ["Indiferente", "Apenas optantes", "Excluir optantes"],
+                                                   index=_simp_idx, key=f"ed_{aid}_simples")
+                            _mei_idx   = 1 if filtros_e.get("mei_optante") is True else (2 if filtros_e.get("excluir_mei") else 0)
+                            mei_ed     = st.radio("MEI", ["Indiferente", "Apenas MEI", "Excluir MEI"],
+                                                   index=_mei_idx, key=f"ed_{aid}_mei")
+                        gd1, gd2 = st.columns(2)
+                        _dti_s = filtros_e.get("data_abertura_inicio", "")
+                        _dtf_s = filtros_e.get("data_abertura_fim", "")
+                        with gd1:
+                            dt_ini_ed  = st.date_input("Abertura — de",
+                                                        value=(_dt_parse.strptime(_dti_s, "%Y-%m-%d").date() if _dti_s else None),
+                                                        key=f"ed_{aid}_dt_ini")
+                            cap_min_ed = st.number_input("Capital mínimo (R$)", 0,
+                                                          value=int(filtros_e.get("capital_min") or 0),
+                                                          step=1000, key=f"ed_{aid}_cap_min")
+                        with gd2:
+                            dt_fim_ed  = st.date_input("Abertura — até",
+                                                        value=(_dt_parse.strptime(_dtf_s, "%Y-%m-%d").date() if _dtf_s else None),
+                                                        key=f"ed_{aid}_dt_fim")
+                            cap_max_ed = st.number_input("Capital máximo (R$)", 0,
+                                                          value=int(filtros_e.get("capital_max") or 0),
+                                                          step=1000, key=f"ed_{aid}_cap_max")
+
+                    with st.expander("📞 Filtros de contato"):
+                        _tel_idx   = 1 if filtros_e.get("somente_celular") else (2 if filtros_e.get("somente_fixo") else 0)
+                        gt1, gt2   = st.columns(2)
+                        with gt1:
+                            tipo_tel_ed  = st.radio("Tipo de telefone", ["Todos", "Somente celular", "Somente fixo"],
+                                                      index=_tel_idx, horizontal=True, key=f"ed_{aid}_tipo_tel")
+                            com_email_ed = st.checkbox("Exigir e-mail",
+                                                        value=bool(filtros_e.get("com_email", False)),
+                                                        key=f"ed_{aid}_com_email")
+                        with gt2:
+                            excl_contab_ed = st.checkbox("Excluir e-mails contábeis",
+                                                          value=bool(filtros_e.get("excluir_email_contab", True)),
+                                                          key=f"ed_{aid}_excl_contab")
+
+                # ── Planilha destino ──
+                st.markdown("**Exportação → Google Sheets**")
+                if not sheets_ok_e:
+                    st.warning("Planilha não configurada. Acesse ⚙️ Configurações.", icon="📊")
+                    sheet_id_ed  = auto.get("sheet_id", "")
+                    sheet_aba_ed = auto.get("sheet_aba", "Leads")
+                else:
+                    _pln_nomes_e  = [f"{p['nome']} → {p['aba']}" for p in planilhas_cfg_e]
+                    _cur_sheet_id = auto.get("sheet_id", "")
+                    _cur_idx_e    = next((i for i, p in enumerate(planilhas_cfg_e) if p["id"] == _cur_sheet_id), 0)
+                    plan_idx_e    = st.selectbox("Planilha destino", range(len(_pln_nomes_e)),
+                                                  format_func=lambda i: _pln_nomes_e[i],
+                                                  index=_cur_idx_e, key=f"ed_{aid}_plan")
+                    plan_sel_e    = planilhas_cfg_e[plan_idx_e]
+                    sheet_id_ed   = plan_sel_e["id"]
+                    sheet_aba_ed  = plan_sel_e["aba"]
+
+                # ── Agenda ──
+                st.markdown("**Agenda de execução** (fuso: Brasília / BRT)")
+                _ag1e, _ag2e = st.columns([3, 4])
+                with _ag1e:
+                    dias_ed = st.multiselect("Dias da semana", options=list(range(7)), default=dias,
+                                              format_func=lambda d: _DIAS_PT[d], key=f"ed_{aid}_dias")
+                with _ag2e:
+                    _hora_default_e = [h.strip() for h in hora.split(",") if h.strip()]
+                    horarios_ed = st.multiselect("Horários", options=_SLOTS_E,
+                                                  default=[h for h in _hora_default_e if h in _SLOTS_E],
+                                                  key=f"ed_{aid}_horarios")
+                _data_fim_stored_e = filtros_e.get("data_fim", "")
+                _data_fim_default_e = (_dt_parse.strptime(_data_fim_stored_e, "%Y-%m-%d").date()
+                                        if _data_fim_stored_e else None)
+                data_fim_ed = st.date_input("Data de encerramento (opcional)",
+                                             value=_data_fim_default_e, key=f"ed_{aid}_data_fim")
+
+                col_sv, col_cancel = st.columns([4, 1])
+                with col_sv:
+                    submitted_ed = st.form_submit_button("💾 Salvar alterações", type="primary", use_container_width=True)
+                with col_cancel:
+                    cancel_ed = st.form_submit_button("Cancelar", use_container_width=True)
+
+            if cancel_ed:
+                st.session_state.pop(f"_edit_aberto_{aid}", None)
+                st.rerun()
+
+            if submitted_ed:
+                _erros_ed = []
+                if not nome_ed.strip():
+                    _erros_ed.append("Informe um nome.")
+                if not dias_ed:
+                    _erros_ed.append("Selecione ao menos um dia.")
+                if not horarios_ed:
+                    _erros_ed.append("Selecione ao menos um horário.")
+
+                if tipo == "maps":
+                    _pais_final_ed = "" if pais_ed in ("Brasil", "Outro…") else pais_ed
+                    if is_brasil_ed:
+                        _est_nome_ed = ESTADOS.get(estado_ed, estado_ed) if estado_ed else ""
+                        _loc_ed = (f"{cidade_ed}, {_est_nome_ed}" if cidade_ed and _est_nome_ed
+                                   else cidade_ed or _est_nome_ed)
+                    else:
+                        _loc_ed = (f"{cidade_ed}, {_pais_final_ed}" if cidade_ed and _pais_final_ed
+                                   else cidade_ed or _pais_final_ed)
+                    if not _loc_ed:
+                        _erros_ed.append("Informe ao menos a cidade ou o estado.")
+                    _sub_val_ed = sub_ed if isinstance(sub_ed, str) and sub_ed != "—" else ""
+                    novos_filtros_ed = {
+                        "query_base": query_ed,
+                        "localidade": _loc_ed,
+                        "nicho":      nicho_key_ed,
+                        "subnicho":   _sub_val_ed,
+                        "cidade":     cidade_ed,
+                        "estado":     estado_ed,
+                        "pais":       pais_ed,
+                        "limite":     int(lim_ed_m),
+                    }
+                else:
+                    _cnaes_cod_ed = [op.split(" — ")[0].strip() for op in cnaes_ed]
+                    if cnae_manual_ed.strip():
+                        _cnaes_cod_ed += [c.strip() for c in cnae_manual_ed.split(",") if c.strip()]
+                    _cnaes_cod_ed = list(dict.fromkeys(_cnaes_cod_ed))
+                    if not _cnaes_cod_ed:
+                        _erros_ed.append("Selecione ao menos um CNAE.")
+                    _mfmap_ed = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
+                    novos_filtros_ed = {
+                        "cnaes":              _cnaes_cod_ed,
+                        "uf":                 uf_ed,
+                        "municipio":          mun_ed.strip(),
+                        "limite":             int(lim_ed_c),
+                        "porte":              [op.split(" — ")[0].strip() for op in portes_ed] or None,
+                        "matriz_filial":      _mfmap_ed.get(matriz_ed, ""),
+                        "simples_optante":    True if simples_ed == "Apenas optantes" else None,
+                        "excluir_simples":    simples_ed == "Excluir optantes",
+                        "mei_optante":        True if mei_ed == "Apenas MEI" else None,
+                        "excluir_mei":        mei_ed == "Excluir MEI",
+                        "com_telefone":       True,
+                        "com_email":          com_email_ed,
+                        "somente_celular":    tipo_tel_ed == "Somente celular",
+                        "somente_fixo":       tipo_tel_ed == "Somente fixo",
+                        "excluir_email_contab": excl_contab_ed,
+                        "data_abertura_inicio": dt_ini_ed.strftime("%Y-%m-%d") if dt_ini_ed else "",
+                        "data_abertura_fim":    dt_fim_ed.strftime("%Y-%m-%d") if dt_fim_ed else "",
+                        "capital_min":        int(cap_min_ed) if cap_min_ed else None,
+                        "capital_max":        int(cap_max_ed) if cap_max_ed else None,
+                    }
+
+                if data_fim_ed:
+                    novos_filtros_ed["data_fim"] = data_fim_ed.strftime("%Y-%m-%d")
+
+                if _erros_ed:
+                    for _e in _erros_ed:
+                        st.error(_e)
+                else:
+                    _horario_str_ed = ",".join(sorted(horarios_ed))
+                    _proxima_ed = calcular_proxima_execucao(dias_ed, _horario_str_ed)
+                    _ok_ed = atualizar_automacao(
+                        aid,
+                        nome=nome_ed.strip(),
+                        filtros=novos_filtros_ed,
+                        sheet_id=sheet_id_ed or None,
+                        sheet_aba=sheet_aba_ed or "Leads",
+                        dias_semana=dias_ed,
+                        horario=_horario_str_ed,
+                        proxima_execucao=_proxima_ed,
+                    )
+                    if _ok_ed:
+                        st.success("✅ Automação atualizada!")
+                        st.session_state.pop(f"_edit_aberto_{aid}", None)
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error("Erro ao salvar. Tente novamente.")
 
 
 def pagina_automacoes():
