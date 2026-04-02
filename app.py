@@ -1457,7 +1457,7 @@ def _card_automacao(auto: dict) -> None:
             unsafe_allow_html=True,
         )
 
-        col_tog, col_del, col_exp = st.columns([2, 2, 3])
+        col_tog, col_run, col_del, col_exp = st.columns([2, 2, 2, 3])
         with col_tog:
             label_tog = "⏸️ Pausar" if ativa else "▶️ Ativar"
             if st.button(label_tog, key=f"tog_{aid}", use_container_width=True):
@@ -1467,6 +1467,16 @@ def _card_automacao(auto: dict) -> None:
                     nova_prox = calcular_proxima_execucao(dias, hora)
                     if nova_prox:
                         atualizar_automacao(aid, proxima_execucao=nova_prox)
+                st.rerun()
+        with col_run:
+            if st.button("▶️ Executar agora", key=f"run_{aid}", use_container_width=True):
+                from modules.scheduler import executar_automacao as _exec_auto
+                with st.spinner("Executando…"):
+                    try:
+                        _exec_auto(auto)
+                        st.success("Execução concluída.")
+                    except Exception as _exc:
+                        st.error(f"Erro: {_exc}")
                 st.rerun()
         with col_del:
             if st.button("🗑️ Excluir", key=f"del_{aid}", use_container_width=True):

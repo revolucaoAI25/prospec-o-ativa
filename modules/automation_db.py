@@ -127,10 +127,10 @@ def obter_automacoes_vencidas() -> list[dict]:
     try:
         agora_iso = datetime.now(timezone.utc).isoformat()
         resp = (sb.table("automations")
-                  .select("*, profiles(google_maps_api_key, maps_api_key_admin, maps_credits_enabled, cdd_credits, maps_credits, google_sheets_creds)")
+                  .select("*")
                   .eq("ativa", True)
                   .lte("proxima_execucao", agora_iso)
-                  .is_("proxima_execucao", "not.null")
+                  .not_.is_("proxima_execucao", "null")
                   .execute())
         return resp.data or []
     except Exception as e:
