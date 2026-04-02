@@ -1578,7 +1578,7 @@ def _card_automacao(auto: dict) -> None:
                         nicho_key_ed = st.selectbox("Nicho *", NOMES_NICHOS,
                                                      index=_nicho_idx_e, key=f"ed_{aid}_nicho")
                         _is_custom_e = nicho_key_ed == "Outro / Personalizado"
-                        _subs_e      = NICHOS.get(nicho_key_ed, [])
+                        _subs_e      = NICHOS.get(nicho_key_ed, {}).get("subnichos", [])
                         _sub_stored  = filtros_e.get("subnicho", "")
                         _sub_idx_e   = (_subs_e.index(_sub_stored) + 1) if _sub_stored in _subs_e else 0
                         sub_ed = st.selectbox("Subnicho", ["—"] + _subs_e, index=_sub_idx_e, key=f"ed_{aid}_sub") if _subs_e else None
