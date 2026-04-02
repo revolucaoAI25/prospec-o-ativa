@@ -1571,22 +1571,19 @@ def _card_automacao(auto: dict) -> None:
 
                 if tipo == "maps":
                     st.markdown("**Busca no Maps**")
-                    _NK = list(NICHOS.keys())
-                    _ND = [NOMES_NICHOS.get(k, k) for k in _NK]
                     _nicho_stored = filtros_e.get("nicho", "")
-                    _nicho_idx_e  = _NK.index(_nicho_stored) if _nicho_stored in _NK else 0
+                    _nicho_idx_e  = NOMES_NICHOS.index(_nicho_stored) if _nicho_stored in NOMES_NICHOS else 0
                     em1, em2 = st.columns([3, 3])
                     with em1:
-                        nicho_idx_ed = st.selectbox("Nicho *", range(len(_NK)),
-                                                     format_func=lambda i: _ND[i],
+                        nicho_key_ed = st.selectbox("Nicho *", NOMES_NICHOS,
                                                      index=_nicho_idx_e, key=f"ed_{aid}_nicho")
-                        nicho_key_ed = _NK[nicho_idx_ed]
+                        _is_custom_e = nicho_key_ed == "Outro / Personalizado"
                         _subs_e      = NICHOS.get(nicho_key_ed, [])
                         _sub_stored  = filtros_e.get("subnicho", "")
                         _sub_idx_e   = (_subs_e.index(_sub_stored) + 1) if _sub_stored in _subs_e else 0
                         sub_ed = st.selectbox("Subnicho", ["—"] + _subs_e, index=_sub_idx_e, key=f"ed_{aid}_sub") if _subs_e else None
                     with em2:
-                        query_ed = st.text_input("Busca personalizada" if nicho_key_ed == "outro" else "Busca (opcional)",
+                        query_ed = st.text_input("Busca personalizada" if _is_custom_e else "Busca (opcional)",
                                                   value=filtros_e.get("query_base", ""), key=f"ed_{aid}_query")
                     ec1, ec2, ec3 = st.columns([3, 2, 2])
                     with ec1:
@@ -1737,9 +1734,9 @@ def _card_automacao(auto: dict) -> None:
                         _erros_ed.append("Informe ao menos a cidade ou o estado.")
                     _sub_val_ed = sub_ed if isinstance(sub_ed, str) and sub_ed != "—" else ""
                     novos_filtros_ed = {
-                        "query_base": query_ed,
+                        "query_base": query_ed if _is_custom_e else query_ed,
                         "localidade": _loc_ed,
-                        "nicho":      nicho_key_ed,
+                        "nicho":      nicho_key_ed if not _is_custom_e else query_ed,
                         "subnicho":   _sub_val_ed,
                         "cidade":     cidade_ed,
                         "estado":     estado_ed,
