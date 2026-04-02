@@ -7,12 +7,13 @@
 
 O Lead Extractor é a sua central de prospecção ativa. Em vez de gastar horas procurando contatos manualmente, você encontra centenas de empresas qualificadas em segundos — com telefone, e-mail, site e muito mais.
 
-A plataforma oferece dois motores de busca complementares:
+A plataforma oferece dois motores de busca complementares e um sistema de automação:
 
 - **Google Maps** — ideal para encontrar negócios locais por nicho e localização, com dados de contato atualizados (telefone, site, avaliações)
 - **Busca por CNPJ** — ideal para prospecção B2B estruturada, com dados fiscais completos (sócios, regime tributário, capital social, CNAE)
+- **Automações** — buscas programadas que rodam sozinhas nos dias e horários que você definir, exportando os leads direto para o Google Sheets
 
-Use os dois juntos para uma estratégia de prospecção completa. Cada motor tem seu ponto forte — entender isso vai multiplicar seus resultados.
+Use os três recursos juntos para uma estratégia de prospecção completa e contínua.
 
 ---
 
@@ -320,9 +321,116 @@ Use o histórico para revisar campanhas anteriores e identificar padrões — qu
 
 ---
 
-## 6. Boas Práticas para Resultados Melhores
+## 6. Automações — Buscas Programadas
 
-### 6.1 Defina seu ICP antes de buscar
+A aba **Automações** permite criar buscas que rodam automaticamente nos dias e horários que você definir — sem precisar acessar a plataforma. Os leads são exportados direto para o Google Sheets assim que cada execução termina.
+
+É a forma mais prática de manter uma esteira de prospecção contínua funcionando em segundo plano.
+
+---
+
+### 6.1 Como funciona
+
+Você cria uma automação uma vez. A partir daí, ela:
+
+1. Executa a busca (Maps ou CNPJ) nos dias e horários configurados
+2. Aplica todos os filtros que você definiu
+3. Deduplica automaticamente — nunca exporta um telefone ou CNPJ que já está no seu histórico
+4. Exporta os novos leads para a planilha do Google Sheets vinculada
+5. Agenda a próxima execução automaticamente
+
+Se não houver créditos suficientes, a automação registra a tentativa como "Sem créditos" e agenda normalmente para a próxima vez.
+
+---
+
+### 6.2 Criando uma automação
+
+1. Acesse a aba **Automações** na sidebar
+2. Clique em **+ Nova Automação**
+3. Preencha o formulário:
+
+**Nome** — escolha um nome descritivo (ex: "Advogados SP — diário")
+
+**Tipo de busca** — Google Maps ou CNPJ. Essa escolha não pode ser alterada depois.
+
+**Filtros da busca** — os mesmos filtros disponíveis na busca manual:
+- Maps: nicho, subnicho, país, cidade, estado, máximo de resultados
+- CNPJ: CNAEs, UF, município, porte, matriz/filial, Simples Nacional, MEI, data de abertura, capital, tipo de telefone, e-mail
+
+**Planilha destino** — selecione a planilha do Google Sheets para onde os leads serão exportados. Você precisa ter uma conta Google conectada e uma planilha vinculada nas Configurações.
+
+**Agenda de execução:**
+- *Dias da semana* — marque os dias em que a automação deve rodar (ex: Seg, Qua, Sex)
+- *Horários* — selecione um ou mais horários por dia (ex: 08:00 e 14:00). Todos os horários usam o fuso de Brasília (BRT)
+- *Data de encerramento* — opcional. Se preenchida, a automação se desativa automaticamente nessa data
+
+4. Clique em **Criar Automação**
+
+A automação entra em fila imediatamente e mostrará a próxima execução prevista no card.
+
+---
+
+### 6.3 Gerenciando automações
+
+Cada automação aparece como um card com as informações principais e cinco botões de ação:
+
+| Botão | O que faz |
+|---|---|
+| Pausar / Ativar | Suspende ou reativa a automação sem excluí-la |
+| Executar agora | Dispara a execução imediatamente, fora do horário programado |
+| Editar | Abre o formulário pré-preenchido para alterar qualquer configuração |
+| Excluir | Remove a automação permanentemente (pede confirmação) |
+| Execuções | Mostra o histórico das últimas execuções com status e quantidade de leads |
+
+**Editando uma automação:**
+Clique em **Editar** para abrir o painel com todos os campos pré-preenchidos. Você pode alterar filtros, planilha, dias, horários e data de encerramento. O tipo de busca (Maps ou CNPJ) não pode ser alterado após a criação.
+
+---
+
+### 6.4 Múltiplos horários por dia
+
+Você pode selecionar mais de um horário para a mesma automação. Por exemplo: **08:00 e 18:00** faz a busca duas vezes por dia, sempre exportando apenas leads novos.
+
+> **Dica:** Combine múltiplos horários em dias específicos para intensificar a prospecção em períodos de campanha sem criar várias automações separadas.
+
+---
+
+### 6.5 Deduplicação automática
+
+As automações verificam automaticamente todos os telefones e CNPJs já salvos no seu histórico antes de exportar. Leads duplicados são descartados silenciosamente — sua planilha sempre recebe apenas contatos novos.
+
+Isso vale mesmo que o mesmo contato apareça em buscas manuais anteriores ou em outras automações.
+
+---
+
+### 6.6 Histórico de execuções
+
+Clique em **Execuções** em qualquer card para ver as últimas execuções com:
+
+| Status | Significado |
+|---|---|
+| ✅ Sucesso | Busca concluída e leads exportados |
+| ❌ Erro | Falha na busca (detalhes aparecem na linha) |
+| 💳 Sem créditos | Créditos insuficientes no momento da execução |
+| 📊 Sem Sheets | Planilha não configurada ou sem autorização |
+
+---
+
+### 6.7 Pré-requisitos para automações funcionarem
+
+Antes de criar automações, certifique-se de que:
+
+- **Para automações Maps:** você tem uma chave de API do Google Maps configurada (ou o administrador configurou a chave da plataforma)
+- **Para automações CNPJ:** você tem créditos disponíveis na conta
+- **Para exportação:** sua conta Google está conectada e uma planilha está vinculada nas Configurações
+
+> **Importante:** As automações rodam em segundo plano no servidor enquanto a plataforma está ativa. Se você pausar uma automação e depois reativá-la, a próxima execução é recalculada automaticamente a partir do momento da reativação.
+
+---
+
+## 7. Boas Práticas para Resultados Melhores
+
+### 7.1 Defina seu ICP antes de buscar
 
 ICP (Ideal Customer Profile) é o perfil do seu cliente ideal. Antes de qualquer busca, responda:
 
@@ -335,7 +443,7 @@ Com esse perfil definido, seus filtros ficam muito mais precisos — e seus cré
 
 ---
 
-### 6.2 Google Maps ou CNPJ? Quando usar cada um
+### 7.2 Google Maps ou CNPJ? Quando usar cada um
 
 | Situação | Recomendação |
 |---|---|
@@ -351,7 +459,7 @@ Com esse perfil definido, seus filtros ficam muito mais precisos — e seus cré
 
 ---
 
-### 6.3 Organize por campanhas
+### 7.3 Organize por campanhas
 
 Antes de exportar, defina uma estrutura de organização:
 
@@ -363,7 +471,7 @@ O Lead Extractor gera os dados — a organização do processo de vendas é o qu
 
 ---
 
-### 6.4 Qualidade antes de quantidade
+### 7.4 Qualidade antes de quantidade
 
 É melhor ter 50 leads altamente qualificados do que 500 leads genéricos. Use os filtros ao máximo:
 
@@ -373,7 +481,7 @@ O Lead Extractor gera os dados — a organização do processo de vendas é o qu
 
 ---
 
-## 7. Dúvidas Frequentes
+## 8. Dúvidas Frequentes
 
 **Por que minha busca no Maps retornou menos resultados do que o limite configurado?**
 O Google Maps limita tecnicamente a cerca de 60 resultados por combinação de busca + localidade. Em cidades grandes ou nichos saturados, o sistema já faz múltiplas buscas automaticamente, mas o total pode ser menor do que o teto configurado. Tente dividir a busca por bairro ou subnicho.
@@ -386,6 +494,21 @@ Os dados vêm diretamente do cadastro da Receita Federal. Se a empresa não info
 
 **Posso usar o Lead Extractor no celular?**
 Sim, a plataforma é responsiva. A experiência é melhor em telas maiores (desktop ou tablet), especialmente para visualizar tabelas com muitas colunas.
+
+**Minha automação não executou no horário programado — o que pode ter acontecido?**
+Verifique se: (1) a automação está ativa (não pausada), (2) o horário configurado usa o fuso de Brasília, (3) os pré-requisitos estão atendidos (chave de API, créditos, conta Google). Se tudo estiver correto, use o botão **Executar agora** para forçar a execução e verificar se aparece algum erro no histórico.
+
+**Posso ter automações Maps e CNPJ rodando ao mesmo tempo?**
+Sim. Você pode criar quantas automações quiser, de qualquer tipo, com agendamentos independentes.
+
+**A automação vai exportar leads que eu já tenho na planilha?**
+Não. A deduplicação é automática — a automação cruza com todo o histórico de buscas da sua conta antes de exportar. Apenas leads com telefone ou CNPJ ainda não vistos são enviados à planilha.
+
+**O que acontece se minha automação rodar e eu não tiver créditos?**
+A execução é registrada com o status "Sem créditos" e nenhum lead é processado. A próxima execução é agendada normalmente — quando seus créditos forem renovados ou você comprar mais, a automação volta a funcionar sozinha.
+
+**Posso alterar os filtros de uma automação que já está rodando?**
+Sim. Clique em **Editar** no card da automação, faça as alterações e salve. As mudanças entram em vigor na próxima execução agendada.
 
 **Como entro em contato com o suporte?**
 Envie um e-mail para **suporte@revolucao-ai.com**. Inclua uma descrição do problema e, se possível, um print da tela.
