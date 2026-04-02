@@ -310,6 +310,17 @@ def executar_automacao(auto: dict) -> None:
     _reagendar(auto)
 
 
+def _reservar_automacao(auto: dict) -> None:
+    """
+    Move proxima_execucao para longe no futuro (sentinel) antes de executar.
+    Impede que o scheduler ou o botão manual disparem a mesma automação duas vezes.
+    _reagendar() ao final da execução substitui esse valor pelo próximo horário real.
+    """
+    from modules.automation_db import atualizar_automacao
+    sentinel = datetime.now(timezone.utc) + timedelta(hours=24)
+    atualizar_automacao(auto["id"], proxima_execucao=sentinel)
+
+
 def _reagendar(auto: dict) -> None:
     """Calcula e salva a próxima execução da automação."""
     from modules.automation_db import atualizar_automacao
@@ -357,12 +368,15 @@ class AutomationScheduler:
             time.sleep(60)
 
     def _tick(self):
-        from modules.automation_db import obter_automacoes_vencidas
+        from modules.automation_db import obter_automacoes_vencidas, atualizar_automacao
         vencidas = obter_automacoes_vencidas()
         if not vencidas:
             return
         logger.info("Scheduler: %d automação(ões) vencida(s)", len(vencidas))
         for auto in vencidas:
+            # "Reserva" a automação atualizando proxima_execucao para o futuro
+            # antes de executar — evita duplo disparo (scheduler + botão manual)
+            _reservar_automacao(auto)
             t = threading.Thread(
                 target=self._executar_com_guard,
                 args=(auto,),

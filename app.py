@@ -1470,7 +1470,8 @@ def _card_automacao(auto: dict) -> None:
                 st.rerun()
         with col_run:
             if st.button("▶️ Executar agora", key=f"run_{aid}", use_container_width=True):
-                from modules.scheduler import executar_automacao as _exec_auto
+                from modules.scheduler import executar_automacao as _exec_auto, _reservar_automacao
+                _reservar_automacao(auto)  # evita duplo disparo com o scheduler
                 with st.spinner("Executando…"):
                     try:
                         _exec_auto(auto)
