@@ -15,9 +15,9 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-APIFY_BASE       = "https://api.apify.com/v2"
-ACTOR_FOLLOWERS  = "louisdeconinck~instagram-following-scraper"
-ACTOR_COMMENTS   = "louisdeconinck~instagram-comments-scraper"
+APIFY_BASE                = "https://api.apify.com/v2"
+ACTOR_FOLLOWERS_FOLLOWING = "scraping_solutions~instagram-scraper-followers-following-no-cookies"
+ACTOR_COMMENTS            = "louisdeconinck~instagram-comments-scraper"
 
 # Timeout máximo (segundos) aguardando o Apify concluir o job
 RUN_TIMEOUT = 420
@@ -120,7 +120,7 @@ def _normalizar_perfil(item: dict, tipo: str) -> Optional[dict]:
         "comentario":      comentario[:300],
         "maps_url":        f"https://www.instagram.com/{username}/" if username else "",
         "nicho_busca":     "Instagram",
-        "subnicho_busca":  "Seguidor" if tipo == "seguidores" else "Comentarista",
+        "subnicho_busca":  {"seguidores": "Seguidor", "seguindo": "Following"}.get(tipo, "Comentarista"),
         "cidade_busca":    "",
         "estado_busca":    "",
         "fonte":           "instagram",
@@ -159,15 +159,17 @@ def buscar(
 
     _cb(0, 1, "Preparando extração…")
 
-    if tipo == "seguidores":
+    if tipo in ("seguidores", "seguindo"):
         # Extrai username puro a partir de URL ou handle
         if alvo.startswith("http"):
             username = alvo.rstrip("/").split("/")[-1]
         else:
             username = alvo.lstrip("@")
-        actor_id   = ACTOR_FOLLOWERS
+        actor_id   = ACTOR_FOLLOWERS_FOLLOWING
         input_data = {
-            "usernames": [username],   # aceita lista; scrapa quem esse usuário segue
+            "Account":      [username],
+            "resultsLimit": limite,
+            "dataToScrape": "Followers" if tipo == "seguidores" else "Following",
         }
     elif tipo == "comentaristas":
         url = (alvo if alvo.startswith("http")
@@ -175,11 +177,11 @@ def buscar(
         actor_id   = ACTOR_COMMENTS
         input_data = {
             "postUrls":           [url],
-            "maxCommentsPerPost": limite * 3,  # pede mais pois pode haver repetições
+            "maxCommentsPerPost": limite * 3,
             "sortOrder":          "newest",
         }
     else:
-        raise ValueError(f"Tipo inválido: {tipo!r}. Use 'seguidores' ou 'comentaristas'.")
+        raise ValueError(f"Tipo inválido: {tipo!r}. Use 'seguidores', 'seguindo' ou 'comentaristas'.")
 
     _cb(0, 1, "Iniciando job no Apify…")
     run_id, dataset_id = _iniciar_run(apify_api_key, actor_id, input_data)
