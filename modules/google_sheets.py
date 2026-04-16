@@ -61,6 +61,8 @@ COLUNAS_EXPORT = [
     ("socio_principal",  "Sócio Principal"),
     ("cidade_busca",     "Cidade Buscada"),
     ("estado_busca",     "Estado Buscado"),
+    ("instagram_id",     "Instagram ID"),
+    ("comentario",       "Comentário"),
     ("fonte",            "Fonte"),
 ]
 

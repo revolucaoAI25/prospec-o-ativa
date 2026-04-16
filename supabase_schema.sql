@@ -226,3 +226,72 @@ CREATE POLICY IF NOT EXISTS "own_automation_runs"
     ON automation_runs FOR ALL TO authenticated
     USING  (user_id = auth.uid())
     WITH CHECK (user_id = auth.uid());
+
+-- ── Instagram / Apify — colunas adicionais ────────────────────
+-- Execute no SQL Editor do Supabase se o banco já existia.
+
+-- Créditos Instagram e chave Apify nos perfis
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS instagram_credits         INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS instagram_credits_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS apify_api_key_admin       TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS monthly_instagram_credits INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS apify_api_key             TEXT;   -- chave própria do usuário
+
+-- ID numérico do Instagram na tabela de leads
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS instagram_id TEXT;
+
+-- Atualizar constraint de fonte das buscas para aceitar 'instagram'
+ALTER TABLE searches DROP CONSTRAINT IF EXISTS searches_fonte_check;
+ALTER TABLE searches ADD CONSTRAINT searches_fonte_check
+    CHECK (fonte IN ('maps', 'receita_federal', 'instagram'));
+
+-- Atualizar view user_stats para incluir campos Instagram
+CREATE OR REPLACE VIEW user_stats AS
+SELECT
+    p.id,
+    p.email,
+    p.role,
+    p.cdd_credits,
+    p.maps_credits,
+    p.maps_credits_enabled,
+    p.maps_api_key_admin,
+    p.monthly_cdd_credits,
+    p.monthly_maps_credits,
+    p.credits_renewed_at,
+    p.instagram_credits,
+    p.instagram_credits_enabled,
+    p.apify_api_key_admin,
+    p.monthly_instagram_credits,
+    p.created_at,
+    COUNT(DISTINCT s.id)  AS total_searches,
+    COUNT(DISTINCT l.id)  AS total_leads,
+    MAX(s.created_at)     AS last_search_at
+FROM profiles p
+LEFT JOIN searches s ON s.user_id = p.id
+LEFT JOIN leads    l ON l.user_id = p.id
+GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
+         p.maps_credits_enabled, p.maps_api_key_admin,
+         p.monthly_cdd_credits, p.monthly_maps_credits,
+         p.credits_renewed_at, p.instagram_credits, p.instagram_credits_enabled,
+         p.apify_api_key_admin, p.monthly_instagram_credits, p.created_at;
+
+-- Atualizar função RPC de débito para aceitar 'instagram_credits'
+CREATE OR REPLACE FUNCTION decrement_credits(
+    p_user_id UUID,
+    p_campo   TEXT,
+    p_delta   INTEGER
+) RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF p_campo NOT IN ('cdd_credits', 'maps_credits', 'instagram_credits') THEN
+        RAISE EXCEPTION 'Campo inválido: %', p_campo;
+    END IF;
+    IF p_delta <= 0 THEN
+        RETURN;
+    END IF;
+    EXECUTE format(
+        'UPDATE profiles SET %I = GREATEST(0, %I - $1) WHERE id = $2',
+        p_campo, p_campo
+    ) USING p_delta, p_user_id;
+END;
+$$;

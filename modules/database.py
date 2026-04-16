@@ -123,6 +123,7 @@ def salvar_leads(search_id: str, resultados: list[dict]) -> bool:
             "nicho":            str(r.get("nicho_busca", "") or ""),
             "subnicho":         str(r.get("subnicho_busca", "") or ""),
             "fonte":            str(r.get("fonte", "") or ""),
+            "instagram_id":     str(r.get("instagram_id", "") or ""),
         })
 
     try:
@@ -205,7 +206,8 @@ def deletar_pesquisa(search_id: str) -> tuple[bool, str]:
 
 _CREDIT_FIELDS = (
     "cdd_credits, maps_credits, maps_credits_enabled, "
-    "maps_api_key_admin, monthly_cdd_credits, monthly_maps_credits, credits_renewed_at"
+    "maps_api_key_admin, monthly_cdd_credits, monthly_maps_credits, credits_renewed_at, "
+    "instagram_credits, instagram_credits_enabled, apify_api_key_admin, monthly_instagram_credits"
 )
 
 
@@ -277,7 +279,35 @@ def debitar_creditos_maps(quantidade: int) -> bool:
     """Debita créditos Maps do usuário logado."""
     if quantidade <= 0:
         return True
+
     return _debitar_atomico("maps_credits", quantidade)
+
+
+def obter_creditos_instagram() -> int:
+    """Retorna o saldo de créditos Instagram do usuário logado."""
+    return int(obter_perfil_creditos().get("instagram_credits", 0))
+
+
+def debitar_creditos_instagram(quantidade: int) -> bool:
+    """Debita créditos Instagram do usuário logado."""
+    if quantidade <= 0:
+        return True
+    return _debitar_atomico("instagram_credits", quantidade)
+
+
+def buscar_instagram_ids_existentes() -> set:
+    """
+    Retorna set de instagram_ids já salvos pelo usuário.
+    Usado para deduplicação em buscas Instagram subsequentes.
+    """
+    sb = _client_autenticado()
+    if not sb:
+        return set()
+    try:
+        resp = sb.table("leads").select("instagram_id").execute()
+        return {r["instagram_id"] for r in (resp.data or []) if r.get("instagram_id")}
+    except Exception:
+        return set()
 
 
 def renovar_creditos_se_necessario() -> None:
@@ -361,6 +391,7 @@ def salvar_configuracoes(dados: dict) -> tuple[bool, str]:
         campos = {k: v for k, v in dados.items() if k in (
             "google_maps_api_key", "google_client_id",
             "google_client_secret", "google_sheets_creds", "app_url",
+            "apify_api_key",
         )}
         sb.table("profiles").update(campos).eq("id", user_id).execute()
         return True, "Configurações salvas."

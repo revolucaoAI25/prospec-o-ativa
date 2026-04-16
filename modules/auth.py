@@ -121,7 +121,8 @@ def restaurar_sessao(refresh_token: str) -> bool:
         sess = resp.session
         perfil = sb.table("profiles").select(
             "role, google_maps_api_key, google_sheets_creds, "
-            "maps_credits_enabled, maps_api_key_admin"
+            "maps_credits_enabled, maps_api_key_admin, "
+            "instagram_credits_enabled, apify_api_key_admin, apify_api_key"
         ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
         st.session_state["user"] = {
@@ -132,8 +133,12 @@ def restaurar_sessao(refresh_token: str) -> bool:
             "refresh_token": sess.refresh_token,
         }
         maps_enabled = bool(dados.get("maps_credits_enabled", False))
-        st.session_state["maps_credits_enabled"] = maps_enabled
-        st.session_state["maps_api_key_admin"]   = dados.get("maps_api_key_admin") or ""
+        st.session_state["maps_credits_enabled"]      = maps_enabled
+        st.session_state["maps_api_key_admin"]        = dados.get("maps_api_key_admin") or ""
+        insta_enabled = bool(dados.get("instagram_credits_enabled", False))
+        st.session_state["instagram_credits_enabled"] = insta_enabled
+        st.session_state["apify_api_key_admin"]       = dados.get("apify_api_key_admin") or ""
+        st.session_state["apify_api_key_user"]        = dados.get("apify_api_key") or ""
         if maps_enabled:
             st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
         elif dados.get("google_maps_api_key"):
@@ -316,6 +321,9 @@ def configurar_creditos_admin(user_id: str, **campos) -> tuple[bool, str]:
         if "monthly_maps_credits" in updates:
             updates["maps_credits"] = int(updates["monthly_maps_credits"])
             updates["credits_renewed_at"] = date.today().isoformat()
+        if "monthly_instagram_credits" in updates:
+            updates["instagram_credits"] = int(updates["monthly_instagram_credits"])
+            updates["credits_renewed_at"] = date.today().isoformat()
         sb.table("profiles").update(updates).eq("id", user_id).execute()
         return True, "Configuração salva."
     except Exception as e:
@@ -326,11 +334,11 @@ def configurar_creditos_admin(user_id: str, **campos) -> tuple[bool, str]:
 def ajustar_creditos_admin(user_id: str, delta: int, tipo: str = "cdd") -> tuple[bool, str]:
     """
     Adiciona (delta > 0) ou subtrai (delta < 0) créditos de um usuário.
-    tipo: 'cdd' ou 'maps'
+    tipo: 'cdd' | 'maps' | 'instagram'
     """
     if not eh_admin():
         return False, "Acesso não autorizado."
-    campo = "cdd_credits" if tipo == "cdd" else "maps_credits"
+    campo = {"cdd": "cdd_credits", "maps": "maps_credits", "instagram": "instagram_credits"}.get(tipo, "cdd_credits")
     sb = _admin_client()
     if not sb:
         return False, "SUPABASE_SERVICE_ROLE_KEY não configurado."

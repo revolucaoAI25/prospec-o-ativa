@@ -965,7 +965,7 @@ def pagina_busca():
         gmaps_key = _cfg_busca.get("google_maps_api_key", "") or st.session_state.get("user_gmaps_key", "")
     gmaps_ok  = bool(gmaps_key)
 
-    aba_maps, aba_rf = st.tabs(["🗺️  Google Maps  ·  com telefone", "🏢  CNPJ + filtros avançados"])
+    aba_maps, aba_rf, aba_insta = st.tabs(["🗺️  Google Maps  ·  com telefone", "🏢  CNPJ + filtros avançados", "📸  Instagram"])
 
     with aba_maps:
         if not gmaps_ok:
@@ -1342,6 +1342,184 @@ def pagina_busca():
             st.success(f"✅ **{len(res)}** resultados")
             _stats(res); _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
+
+
+    with aba_insta:
+        _insta_credits_en = st.session_state.get("instagram_credits_enabled", False)
+        _apify_key_user   = st.session_state.get("apify_api_key_user", "")
+        _apify_key_admin  = st.session_state.get("apify_api_key_admin", "")
+
+        # Seleciona chave a usar: usuário > admin > env
+        if _apify_key_user:
+            _apify_key = _apify_key_user
+            _usar_creditos_insta = False
+        elif _apify_key_admin:
+            _apify_key = _apify_key_admin
+            _usar_creditos_insta = _insta_credits_en
+        else:
+            _apify_key = _s("APIFY_API_KEY")
+            _usar_creditos_insta = _insta_credits_en
+
+        if not _apify_key:
+            st.warning(
+                "Busca via Instagram não configurada.  \n"
+                "O administrador precisa configurar a chave Apify para habilitar esta busca.",
+                icon="⚠️",
+            )
+        else:
+            st.markdown(
+                '<div class="info-box">Extrai <strong>seguidores</strong> de perfis públicos ou '
+                '<strong>comentaristas</strong> de publicações. '
+                'Retorna username e ID numérico (para disparo via DM automatizado).</div>',
+                unsafe_allow_html=True,
+            )
+
+            # Tipo fora do form para atualizar labels dinamicamente
+            _insta_tipo = st.radio(
+                "Tipo de extração",
+                ["Seguidores de um perfil", "Comentaristas de uma publicação"],
+                horizontal=True, key="insta_tipo",
+            )
+            _tipo_val = "seguidores" if _insta_tipo.startswith("Seguidores") else "comentaristas"
+
+            with st.form("form_instagram"):
+                if _tipo_val == "seguidores":
+                    _alvo = st.text_input(
+                        "Username do perfil",
+                        placeholder="Ex: neymarjr (sem @)",
+                        key="insta_alvo",
+                    )
+                else:
+                    _alvo = st.text_input(
+                        "URL da publicação",
+                        placeholder="https://www.instagram.com/p/...",
+                        key="insta_alvo",
+                    )
+
+                _lim_insta = st.slider("Máx. resultados", 10, 1000, 200, 10, key="insta_lim")
+                _apenas_novos_insta = st.toggle(
+                    "🔄 Apenas leads novos (remover duplicatas de buscas anteriores)",
+                    value=True, key="insta_apenas_novos",
+                    help="Remove perfis com Instagram ID já salvos em buscas anteriores.",
+                )
+                btn_insta = st.form_submit_button("📸 Extrair do Instagram", use_container_width=True, type="primary")
+
+            if btn_insta:
+                if not _alvo.strip():
+                    st.error("Informe o username ou URL do alvo.")
+                else:
+                    _insta_ok = True
+                    if _usar_creditos_insta:
+                        from modules.database import obter_creditos_instagram
+                        _saldo_insta = obter_creditos_instagram()
+                        if _saldo_insta < _lim_insta:
+                            st.error(
+                                f"Créditos insuficientes. Você tem **{_saldo_insta}** créditos Instagram "
+                                f"e a busca requer **{_lim_insta}**. "
+                                "Reduza o limite ou solicite mais créditos ao administrador."
+                            )
+                            _insta_ok = False
+
+                    if _insta_ok:
+                        _excl_insta: set = set()
+                        if _apenas_novos_insta:
+                            from modules.database import buscar_instagram_ids_existentes
+                            _excl_insta = buscar_instagram_ids_existentes()
+
+                        bar_insta = st.progress(0, text="Iniciando extração…")
+
+                        def _cb_insta(a, t, msg):
+                            v = min(a / max(t, 1), 1.0)
+                            bar_insta.progress(v, text=str(msg)[:120])
+
+                        try:
+                            from modules.instagram import buscar as insta_buscar
+                            res_insta = insta_buscar(
+                                apify_api_key=_apify_key,
+                                tipo=_tipo_val,
+                                alvo=_alvo.strip(),
+                                limite=_lim_insta,
+                                progress_callback=_cb_insta,
+                                exclude_ids=_excl_insta if _apenas_novos_insta else None,
+                            )
+                            bar_insta.progress(1.0, text=f"Concluído! {len(res_insta)} resultados.")
+                            bar_insta.empty()
+                            st.session_state["insta_res"] = res_insta
+                            _alvo_slug = _alvo.strip().replace("/", "_").replace("@", "")[:20]
+                            st.session_state["insta_prefix"] = f"instagram_{_tipo_val}_{_alvo_slug}"
+                        except Exception as e:
+                            bar_insta.empty()
+                            st.error(f"Erro na extração: {e}")
+                            st.session_state["insta_res"] = []
+                        else:
+                            try:
+                                from modules.database import (
+                                    salvar_pesquisa, salvar_leads, debitar_creditos_instagram,
+                                )
+                                sid = salvar_pesquisa(
+                                    "Instagram", _tipo_val, "", "", _alvo.strip(),
+                                    "instagram", len(res_insta),
+                                )
+                                if sid:
+                                    salvar_leads(sid, res_insta)
+                                if _usar_creditos_insta:
+                                    debitar_creditos_instagram(len(res_insta))
+                            except Exception:
+                                pass
+                            if st.session_state.get("auto_export_enabled"):
+                                st.session_state["_auto_exp_insta"] = True
+
+        if st.session_state.get("insta_res"):
+            res = st.session_state["insta_res"]
+            if st.session_state.pop("_auto_exp_insta", False):
+                _planilhas = st.session_state.get("sheets_planilhas", [])
+                _padrao = next((p for p in _planilhas if p.get("padrao")), None)
+                if _padrao and st.session_state.get("sheets_creds"):
+                    from modules.google_sheets import exportar
+                    with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
+                        _ok, _msg = exportar(
+                            res, st.session_state["sheets_creds"],
+                            _padrao["id"], _padrao["aba"], _padrao.get("modo", "substituir"),
+                        )
+                    if _ok:
+                        st.success(_msg)
+                    else:
+                        st.error(_msg)
+                elif not st.session_state.get("sheets_creds"):
+                    st.warning("Auto-export: conta Google não vinculada.")
+                else:
+                    st.warning("Auto-export: nenhuma planilha padrão ⭐ definida.")
+            st.success(f"✅ **{len(res)}** resultados")
+            _stats(res)
+            _dl_buttons(
+                res,
+                st.session_state.get("insta_prefix", "instagram"),
+                "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")),
+            )
+            st.markdown("#### Prévia")
+            import pandas as pd_ig
+            _insta_vis = [
+                "nome", "instagram_id", "nome_completo", "email", "site",
+                "bio", "followers_count", "is_business", "comentario", "fonte",
+            ]
+            _lm_insta = {
+                "nome":            "Username / @handle",
+                "instagram_id":    "Instagram ID",
+                "nome_completo":   "Nome Completo",
+                "email":           "E-mail",
+                "site":            "Site",
+                "bio":             "Bio",
+                "followers_count": "Seguidores",
+                "is_business":     "Conta Business",
+                "comentario":      "Comentário",
+                "fonte":           "Fonte",
+            }
+            _df_insta = pd_ig.DataFrame(res)
+            _insta_cols = [c for c in _insta_vis if c in _df_insta.columns]
+            st.dataframe(
+                _df_insta[_insta_cols].rename(columns=_lm_insta).fillna("").astype(str).replace("nan", ""),
+                use_container_width=True, height=380,
+            )
 
 
 def pagina_historico():
@@ -2371,6 +2549,30 @@ def pagina_configuracoes():
                 url = gerar_url_auth(cid, cs, ru)
                 st.link_button("🔗 Conectar conta Google", url, use_container_width=True)
 
+    # ── Instagram / Apify ──────────────────────────────────────────────────────────
+    if st.session_state.get("instagram_credits_enabled"):
+        with st.expander("📸 Instagram (Apify API Key)", expanded=False):
+            st.markdown(
+                "Insira sua própria chave Apify para usar a busca Instagram sem deduzir créditos da plataforma.  \n"
+                "Deixe em branco para usar a chave da plataforma (créditos serão debitados a cada extração)."
+            )
+            _apify_cur = st.session_state.get("apify_api_key_user", "")
+            apify_inp = st.text_input(
+                "Apify API Key (opcional)",
+                value=_apify_cur,
+                type="password",
+                placeholder="apify_api_...",
+                key="cfg_apify_key",
+            )
+            if st.button("💾 Salvar chave Apify", key="save_apify"):
+                from modules.database import salvar_configuracoes
+                ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
+                if ok_ap:
+                    st.session_state["apify_api_key_user"] = apify_inp.strip()
+                    st.success("Chave Apify salva com sucesso.")
+                else:
+                    st.error(msg_ap)
+
     # ── Alterar senha ────────────────────────────────────────────────────────────
     with st.expander("🔑 Alterar senha", expanded=False):
         np1 = st.text_input("Nova senha", type="password", key="cfg_np1")
@@ -2540,6 +2742,55 @@ def pagina_admin():
                         (st.success if ok12 else st.error)(msg12)
                         if ok12: time.sleep(0.3); st.rerun()
 
+            # ── Créditos Instagram ──────────────────────────────────────
+            insta_en     = bool(u.get("instagram_credits_enabled", False))
+            insta_bal    = int(u.get("instagram_credits", 0) or 0)
+            monthly_insta = int(u.get("monthly_instagram_credits", 0) or 0)
+            apify_adm_key = u.get("apify_api_key_admin") or ""
+
+            st.markdown("**📸 Créditos Instagram**")
+            insta_toggle = st.toggle(
+                "Habilitar créditos Instagram (usa chave Apify da plataforma)",
+                value=insta_en, key=f"insta_en_{uid}",
+            )
+            if insta_toggle != insta_en:
+                ok_it, msg_it = configurar_creditos_admin(uid, instagram_credits_enabled=insta_toggle)
+                (st.success if ok_it else st.error)(msg_it)
+                if ok_it: time.sleep(0.3); st.rerun()
+
+            if insta_toggle:
+                new_apify_key = st.text_input(
+                    "Chave Apify (admin)", value=apify_adm_key, type="password",
+                    key=f"apify_key_{uid}", placeholder="apify_api_...",
+                )
+                if st.button("💾 Salvar chave Apify", key=f"apify_key_save_{uid}"):
+                    ok_ak, msg_ak = configurar_creditos_admin(uid, apify_api_key_admin=new_apify_key)
+                    (st.success if ok_ak else st.error)(msg_ak)
+                    if ok_ak: time.sleep(0.3); st.rerun()
+
+                st.markdown(f"Saldo Instagram atual: **{insta_bal}**  ·  Mensal: **{monthly_insta}**/mês")
+                ci1, ci2, ci3, ci4 = st.columns([2, 1, 1, 2])
+                with ci1:
+                    delta_insta = st.number_input("Qtd Instagram", min_value=1, value=100, step=50,
+                                                  key=f"insta_delta_{uid}", label_visibility="collapsed")
+                with ci2:
+                    if st.button("➕", key=f"insta_add_{uid}", use_container_width=True, help="Adicionar créditos Instagram"):
+                        ok13, msg13 = ajustar_creditos_admin(uid, int(delta_insta), "instagram")
+                        (st.success if ok13 else st.error)(msg13)
+                        if ok13: time.sleep(0.3); st.rerun()
+                with ci3:
+                    if st.button("➖", key=f"insta_sub_{uid}", use_container_width=True, help="Subtrair créditos Instagram"):
+                        ok14, msg14 = ajustar_creditos_admin(uid, -int(delta_insta), "instagram")
+                        (st.success if ok14 else st.error)(msg14)
+                        if ok14: time.sleep(0.3); st.rerun()
+                with ci4:
+                    new_monthly_insta = st.number_input("Mensal Instagram", min_value=0, value=monthly_insta,
+                                                        step=50, key=f"insta_mon_{uid}", label_visibility="collapsed")
+                    if st.button("💾 Salvar mensal Instagram", key=f"insta_mon_save_{uid}", use_container_width=True):
+                        ok15, msg15 = configurar_creditos_admin(uid, monthly_instagram_credits=int(new_monthly_insta))
+                        (st.success if ok15 else st.error)(msg15)
+                        if ok15: time.sleep(0.3); st.rerun()
+
 
 # ── Sidebar & roteamento principal ────────────────────────────────────────────
 
@@ -2589,13 +2840,17 @@ def _sidebar():
         # ── Créditos ──────────────────────────────────────────
         from modules.database import obter_perfil_creditos
         _pc = obter_perfil_creditos()
-        _cdd_bal  = int(_pc.get("cdd_credits", 0))
-        _maps_bal = int(_pc.get("maps_credits", 0))
-        _maps_en  = bool(_pc.get("maps_credits_enabled", False))
+        _cdd_bal   = int(_pc.get("cdd_credits", 0))
+        _maps_bal  = int(_pc.get("maps_credits", 0))
+        _maps_en   = bool(_pc.get("maps_credits_enabled", False))
+        _insta_bal = int(_pc.get("instagram_credits", 0))
+        _insta_en  = bool(_pc.get("instagram_credits_enabled", False))
         def _cor(v): return "#00D97E" if v > 50 else "#f59e0b" if v > 0 else "#ef4444"
         _lines = f'CNPJ: <span style="color:{_cor(_cdd_bal)};font-weight:700">{_cdd_bal}</span>'
         if _maps_en:
             _lines += f' &nbsp;&nbsp; Maps: <span style="color:{_cor(_maps_bal)};font-weight:700">{_maps_bal}</span>'
+        if _insta_en:
+            _lines += f' &nbsp;&nbsp; Insta: <span style="color:{_cor(_insta_bal)};font-weight:700">{_insta_bal}</span>'
         st.markdown(
             f'<div style="margin:6px 4px 10px;padding:8px 12px;'
             f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);'
