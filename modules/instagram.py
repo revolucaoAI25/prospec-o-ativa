@@ -15,9 +15,9 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-APIFY_BASE  = "https://api.apify.com/v2"
-ACTOR_SCRAPER   = "apify~instagram-scraper"
-ACTOR_COMMENTS  = "apify~instagram-comment-scraper"
+APIFY_BASE       = "https://api.apify.com/v2"
+ACTOR_FOLLOWERS  = "apify~instagram-followers-scraper"   # seguidores de perfil
+ACTOR_COMMENTS   = "apify~instagram-comment-scraper"     # comentaristas de post
 
 # Timeout máximo (segundos) aguardando o Apify concluir o job
 RUN_TIMEOUT = 420
@@ -33,7 +33,13 @@ def _iniciar_run(api_key: str, actor_id: str, input_data: dict) -> tuple[str, st
         json=input_data,
         timeout=30,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        # Inclui o corpo do erro para facilitar diagnóstico
+        try:
+            detalhe = resp.json().get("error", {}).get("message", resp.text[:300])
+        except Exception:
+            detalhe = resp.text[:300]
+        raise RuntimeError(f"Apify {resp.status_code}: {detalhe}")
     data = resp.json()["data"]
     return data["id"], data["defaultDatasetId"]
 
@@ -154,12 +160,15 @@ def buscar(
     _cb(0, 1, "Preparando extração…")
 
     if tipo == "seguidores":
-        url = (alvo if alvo.startswith("http")
-               else f"https://www.instagram.com/{alvo}/")
-        actor_id   = ACTOR_SCRAPER
+        # Extrai username puro a partir de URL ou handle
+        if alvo.startswith("http"):
+            # https://www.instagram.com/username/ → username
+            username = alvo.rstrip("/").split("/")[-1]
+        else:
+            username = alvo.lstrip("@")
+        actor_id   = ACTOR_FOLLOWERS
         input_data = {
-            "directUrls":   [url],
-            "resultsType":  "followers",
+            "username":     username,
             "resultsLimit": limite,
         }
     elif tipo == "comentaristas":
