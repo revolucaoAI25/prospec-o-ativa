@@ -16,8 +16,8 @@ from typing import Callable, Optional
 logger = logging.getLogger(__name__)
 
 APIFY_BASE       = "https://api.apify.com/v2"
-ACTOR_FOLLOWERS  = "apify~instagram-followers-scraper"   # seguidores de perfil
-ACTOR_COMMENTS   = "apify~instagram-comment-scraper"     # comentaristas de post
+ACTOR_FOLLOWERS  = "louisdeconinck~instagram-following-scraper"
+ACTOR_COMMENTS   = "louisdeconinck~instagram-comments-scraper"
 
 # Timeout máximo (segundos) aguardando o Apify concluir o job
 RUN_TIMEOUT = 420
@@ -176,8 +176,9 @@ def buscar(
                else f"https://www.instagram.com/p/{alvo}/")
         actor_id   = ACTOR_COMMENTS
         input_data = {
-            "directUrls": [url],
-            "maxItems":   limite * 3,  # pede mais pois pode haver repetições
+            "postUrls":           [url],
+            "maxCommentsPerPost": limite * 3,  # pede mais pois pode haver repetições
+            "sortOrder":          "newest",
         }
     else:
         raise ValueError(f"Tipo inválido: {tipo!r}. Use 'seguidores' ou 'comentaristas'.")
