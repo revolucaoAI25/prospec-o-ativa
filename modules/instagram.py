@@ -162,14 +162,12 @@ def buscar(
     if tipo == "seguidores":
         # Extrai username puro a partir de URL ou handle
         if alvo.startswith("http"):
-            # https://www.instagram.com/username/ → username
             username = alvo.rstrip("/").split("/")[-1]
         else:
             username = alvo.lstrip("@")
         actor_id   = ACTOR_FOLLOWERS
         input_data = {
-            "username":     username,
-            "resultsLimit": limite,
+            "usernames": [username],   # aceita lista; scrapa quem esse usuário segue
         }
     elif tipo == "comentaristas":
         url = (alvo if alvo.startswith("http")
