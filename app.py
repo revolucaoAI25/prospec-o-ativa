@@ -1401,7 +1401,8 @@ def pagina_busca():
                         key="insta_alvo",
                     )
 
-                _lim_insta = st.slider("Máx. resultados", 10, 1000, 200, 10, key="insta_lim")
+                _lim_min   = 100 if _tipo_val in ("seguidores", "seguindo") else 10
+                _lim_insta = st.slider("Máx. resultados", _lim_min, 1000, max(200, _lim_min), 10, key="insta_lim")
                 _apenas_novos_insta = st.toggle(
                     "🔄 Apenas leads novos (remover duplicatas de buscas anteriores)",
                     value=True, key="insta_apenas_novos",

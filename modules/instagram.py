@@ -176,7 +176,7 @@ def buscar(
                else f"https://www.instagram.com/p/{alvo}/")
         actor_id   = ACTOR_COMMENTS
         input_data = {
-            "postUrls":           [url],
+            "urls":               [url],
             "maxCommentsPerPost": limite * 3,
             "sortOrder":          "newest",
         }
