@@ -176,9 +176,8 @@ def buscar(
                else f"https://www.instagram.com/p/{alvo}/")
         actor_id   = ACTOR_COMMENTS
         input_data = {
-            "urls":               [url],
-            "maxCommentsPerPost": limite * 3,
-            "sortOrder":          "newest",
+            "urls":        [url],
+            "maxComments": limite * 3,
         }
     else:
         raise ValueError(f"Tipo inválido: {tipo!r}. Use 'seguidores', 'seguindo' ou 'comentaristas'.")
