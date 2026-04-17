@@ -1367,6 +1367,9 @@ def pagina_busca():
                 icon="⚠️",
             )
         else:
+            # Exibe erro persistente de extração anterior
+            if st.session_state.get("_insta_error"):
+                st.error(st.session_state.pop("_insta_error"))
             st.markdown(
                 '<div class="info-box">Extrai <strong>seguidores</strong> de perfis públicos ou '
                 '<strong>comentaristas</strong> de publicações. '
@@ -1455,8 +1458,9 @@ def pagina_busca():
                             st.session_state["insta_prefix"] = f"instagram_{_tipo_val}_{_alvo_slug}"
                         except Exception as e:
                             bar_insta.empty()
-                            st.error(f"Erro na extração: {e}")
+                            st.session_state["_insta_error"] = f"Erro na extração: {e}"
                             st.session_state["insta_res"] = []
+                            st.rerun()
                         else:
                             try:
                                 from modules.database import (
