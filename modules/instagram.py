@@ -223,8 +223,11 @@ def buscar(
         resultados.append(r)
 
     if raw_items and not resultados:
-        # Ajuda a diagnosticar: mostra as chaves do primeiro item retornado
-        chaves = list(raw_items[0].keys())
+        # Verifica se o actor retornou uma mensagem de erro como item
+        first = raw_items[0]
+        if list(first.keys()) == ["message"] or "message" in first and len(first) <= 3:
+            raise RuntimeError(f"O actor retornou um erro: {first.get('message')}")
+        chaves = list(first.keys())
         raise RuntimeError(
             f"Apify retornou {len(raw_items)} itens mas nenhum pôde ser normalizado. "
             f"Campos do primeiro item: {chaves}"
