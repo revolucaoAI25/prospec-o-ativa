@@ -1453,13 +1453,18 @@ def pagina_busca():
                             )
                             bar_insta.progress(1.0, text=f"Concluído! {len(res_insta)} resultados.")
                             bar_insta.empty()
+                            if not res_insta:
+                                st.session_state["_insta_error"] = "Nenhum resultado encontrado. Verifique o username/URL e tente novamente."
+                                st.rerun()
                             st.session_state["insta_res"] = res_insta
                             _alvo_slug = _alvo.strip().replace("/", "_").replace("@", "")[:20]
                             st.session_state["insta_prefix"] = f"instagram_{_tipo_val}_{_alvo_slug}"
                         except Exception as e:
                             bar_insta.empty()
-                            st.session_state["_insta_error"] = f"Erro na extração: {e}"
+                            _err = f"Erro na extração: {e}"
+                            st.session_state["_insta_error"] = _err
                             st.session_state["insta_res"] = []
+                            st.toast(_err, icon="🚨")
                             st.rerun()
                         else:
                             try:
