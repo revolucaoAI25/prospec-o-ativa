@@ -1380,29 +1380,17 @@ def pagina_busca():
             # Tipo fora do form para atualizar labels dinamicamente
             _insta_tipo = st.radio(
                 "Tipo de extração",
-                ["👥 Seguidores do perfil", "➡️ Quem o perfil segue (Following)", "💬 Comentaristas de uma publicação"],
+                ["👥 Seguidores do perfil", "➡️ Quem o perfil segue (Following)"],
                 horizontal=True, key="insta_tipo",
             )
-            if "Seguidores" in _insta_tipo:
-                _tipo_val = "seguidores"
-            elif "segue" in _insta_tipo:
-                _tipo_val = "seguindo"
-            else:
-                _tipo_val = "comentaristas"
+            _tipo_val = "seguidores" if "Seguidores" in _insta_tipo else "seguindo"
 
             with st.form("form_instagram"):
-                if _tipo_val in ("seguidores", "seguindo"):
-                    _alvo = st.text_input(
-                        "Username do perfil",
-                        placeholder="Ex: neymarjr (sem @)",
-                        key="insta_alvo",
-                    )
-                else:
-                    _alvo = st.text_input(
-                        "URL da publicação",
-                        placeholder="https://www.instagram.com/p/...",
-                        key="insta_alvo",
-                    )
+                _alvo = st.text_input(
+                    "Username do perfil",
+                    placeholder="Ex: neymarjr (sem @)",
+                    key="insta_alvo",
+                )
 
                 _lim_min   = 100 if _tipo_val in ("seguidores", "seguindo") else 10
                 _lim_insta = st.slider("Máx. resultados", _lim_min, 1000, max(200, _lim_min), 10, key="insta_lim")
