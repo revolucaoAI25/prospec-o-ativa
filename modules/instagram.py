@@ -85,26 +85,30 @@ def _normalizar_perfil(item: dict, tipo: str) -> Optional[dict]:
     Converte um item Apify para o dict padrão da plataforma.
     Retorna None se não houver username nem ID.
     """
-    # IDs e usernames têm nomes diferentes por actor
+    # Para comentaristas o actor retorna dados do usuário dentro de item["user"]
+    user_obj  = item.get("user") or {}
+    src       = user_obj if user_obj else item   # fallback para campo plano
+
     insta_id = str(
-        item.get("id") or item.get("pk") or
+        src.get("id") or src.get("pk") or
+        src.get("pk_id") or
         item.get("ownerUserId") or item.get("owner_id") or ""
     ).strip()
     username = str(
-        item.get("username") or item.get("ownerUsername") or
-        item.get("owner_username") or ""
+        src.get("username") or
+        item.get("ownerUsername") or item.get("owner_username") or ""
     ).strip().lstrip("@")
 
     if not username and not insta_id:
         return None
 
     nome_exibicao = f"@{username}" if username else insta_id
-    nome_completo = str(item.get("full_name") or item.get("ownerFullName") or "").strip()
-    bio       = str(item.get("biography") or item.get("bio") or "").strip()
-    website   = str(item.get("external_url") or item.get("externalUrl") or item.get("website") or "").strip()
-    email     = str(item.get("public_email") or item.get("publicEmail") or item.get("email") or "").strip()
-    followers = int(item.get("followers_count") or item.get("followersCount") or 0)
-    is_biz    = bool(item.get("is_business_account") or item.get("isBusinessAccount") or False)
+    nome_completo = str(src.get("full_name") or item.get("ownerFullName") or "").strip()
+    bio       = str(src.get("biography") or item.get("bio") or "").strip()
+    website   = str(src.get("external_url") or src.get("website") or "").strip()
+    email     = str(src.get("public_email") or src.get("email") or "").strip()
+    followers = int(src.get("followers_count") or src.get("followersCount") or 0)
+    is_biz    = bool(src.get("is_business_account") or src.get("isBusinessAccount") or False)
     comentario = str(item.get("text") or "") if tipo == "comentaristas" else ""
 
     return {
