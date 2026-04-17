@@ -192,6 +192,12 @@ def buscar(
     raw_items = _obter_items(apify_api_key, dataset_id, limite * 3)
     logger.info("Instagram: %d itens brutos recebidos", len(raw_items))
 
+    if not raw_items:
+        raise RuntimeError(
+            f"O Apify retornou 0 itens. "
+            f"Verifique se a URL é de um post público com comentários visíveis."
+        )
+
     # Normalizar, dedup por instagram_id/username e respeitar limite
     vistos:  set[str] = set(exclude_ids or [])
     ignorados = 0
@@ -211,6 +217,14 @@ def buscar(
         if dedup_key:
             vistos.add(dedup_key)
         resultados.append(r)
+
+    if raw_items and not resultados:
+        # Ajuda a diagnosticar: mostra as chaves do primeiro item retornado
+        chaves = list(raw_items[0].keys())
+        raise RuntimeError(
+            f"Apify retornou {len(raw_items)} itens mas nenhum pôde ser normalizado. "
+            f"Campos do primeiro item: {chaves}"
+        )
 
     if ignorados:
         logger.info("Instagram: %d duplicatas ignoradas", ignorados)
