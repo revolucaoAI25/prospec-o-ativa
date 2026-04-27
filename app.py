@@ -1211,6 +1211,17 @@ def pagina_busca():
                     help="Remove empresas com CNPJ ou telefone já salvos em buscas anteriores.",
                 )
 
+                if gmaps_ok:
+                    _enr_label = "🗺️ Enriquecer com Google Maps (avaliação, telefone extra, site)"
+                    if _maps_credits_enabled:
+                        _enr_label += "  — 1 crédito Maps por empresa"
+                    enriquecer_maps_cdd = st.toggle(
+                        _enr_label, value=False, key="cdd_enriquecer_maps",
+                        help="Após buscar, complementa cada empresa com dados do Google Maps.",
+                    )
+                else:
+                    enriquecer_maps_cdd = False
+
                 btn_cdd = st.form_submit_button("🔍 Buscar empresas por CNPJ", use_container_width=True, type="primary")
 
             if btn_cdd:
@@ -1303,9 +1314,20 @@ def pagina_busca():
                             )
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
+                            if enriquecer_maps_cdd and res_cdd:
+                                _bar_enr2 = st.progress(0, text="Enriquecendo com Google Maps…")
+                                def _cb_enr2(a, t, m): _bar_enr2.progress(min(a / max(t, 1), 1.0), text=str(m)[:100])
+                                from modules.google_maps import enriquecer_com_maps
+                                enriquecer_com_maps(res_cdd, gmaps_key, _cb_enr2)
+                                _bar_enr2.empty()
+                                st.session_state["_rf_enriched"] = True
+                                if _maps_credits_enabled:
+                                    from modules.database import debitar_creditos_maps
+                                    debitar_creditos_maps(len(res_cdd))
+                            else:
+                                st.session_state.pop("_rf_enriched", None)
                             st.session_state["rf_res"] = res_cdd
                             st.session_state["rf_prefix"] = f"cdd_{local_cdd.lower().replace(' ','_')}"
-                            st.session_state.pop("_rf_enriched", None)
                         except Exception as e:
                             bar_cdd.empty()
                             st.error(f"Erro: {e}")
@@ -1344,16 +1366,21 @@ def pagina_busca():
             _stats(res)
             if gmaps_ok and not st.session_state.get("_rf_enriched"):
                 _n_enr = len(res)
-                _ec1, _ec2 = st.columns([5, 2])
-                with _ec1:
+                if _maps_credits_enabled:
+                    from modules.database import obter_creditos_maps
+                    _ec1, _ec2 = st.columns([5, 2])
+                    with _ec1:
+                        _btn_enr = st.button(
+                            f"🗺️ Enriquecer com Google Maps  —  {_n_enr} créditos Maps",
+                            key="btn_enrich_rf", use_container_width=True,
+                        )
+                    with _ec2:
+                        st.caption(f"Saldo Maps: {obter_creditos_maps()}")
+                else:
                     _btn_enr = st.button(
-                        f"🗺️ Enriquecer com Google Maps  —  {_n_enr} créditos Maps",
+                        "🗺️ Enriquecer com Google Maps",
                         key="btn_enrich_rf", use_container_width=True,
                     )
-                with _ec2:
-                    if _maps_credits_enabled:
-                        from modules.database import obter_creditos_maps
-                        st.caption(f"Saldo Maps: {obter_creditos_maps()}")
                 if _btn_enr:
                     _cred_ok = True
                     if _maps_credits_enabled:
