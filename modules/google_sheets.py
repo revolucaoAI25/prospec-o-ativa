@@ -63,7 +63,6 @@ COLUNAS_EXPORT = [
     ("estado_busca",     "Estado Buscado"),
     ("instagram_id",     "Instagram ID"),
     ("comentario",       "Comentário"),
-    ("fonte",            "Fonte"),
 ]
 
 
