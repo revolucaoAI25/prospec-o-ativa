@@ -1305,6 +1305,7 @@ def pagina_busca():
                             bar_cdd.empty()
                             st.session_state["rf_res"] = res_cdd
                             st.session_state["rf_prefix"] = f"cdd_{local_cdd.lower().replace(' ','_')}"
+                            st.session_state.pop("_rf_enriched", None)
                         except Exception as e:
                             bar_cdd.empty()
                             st.error(f"Erro: {e}")
@@ -1340,7 +1341,44 @@ def pagina_busca():
                 else:
                     st.warning("Auto-export: nenhuma planilha padrão ⭐ definida.")
             st.success(f"✅ **{len(res)}** resultados")
-            _stats(res); _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
+            _stats(res)
+            if gmaps_ok and not st.session_state.get("_rf_enriched"):
+                _n_enr = len(res)
+                _ec1, _ec2 = st.columns([5, 2])
+                with _ec1:
+                    _btn_enr = st.button(
+                        f"🗺️ Enriquecer com Google Maps  —  {_n_enr} créditos Maps",
+                        key="btn_enrich_rf", use_container_width=True,
+                    )
+                with _ec2:
+                    if _maps_credits_enabled:
+                        from modules.database import obter_creditos_maps
+                        st.caption(f"Saldo Maps: {obter_creditos_maps()}")
+                if _btn_enr:
+                    _cred_ok = True
+                    if _maps_credits_enabled:
+                        from modules.database import obter_creditos_maps
+                        _saldo_m = obter_creditos_maps()
+                        if _saldo_m < _n_enr:
+                            st.error(f"Créditos Maps insuficientes ({_saldo_m} disponíveis, {_n_enr} necessários).")
+                            _cred_ok = False
+                    if _cred_ok:
+                        _bar_enr = st.progress(0, text="Iniciando enriquecimento…")
+                        def _cb_enr(a, t, m): _bar_enr.progress(min(a / max(t, 1), 1.0), text=str(m)[:100])
+                        from modules.google_maps import enriquecer_com_maps
+                        try:
+                            enriquecer_com_maps(res, gmaps_key, _cb_enr)
+                            st.session_state["rf_res"] = res
+                            st.session_state["_rf_enriched"] = True
+                            if _maps_credits_enabled:
+                                from modules.database import debitar_creditos_maps
+                                debitar_creditos_maps(_n_enr)
+                            _bar_enr.empty()
+                            st.rerun()
+                        except Exception as _enr_e:
+                            _bar_enr.empty()
+                            st.error(f"Erro no enriquecimento: {_enr_e}")
+            _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
 
 

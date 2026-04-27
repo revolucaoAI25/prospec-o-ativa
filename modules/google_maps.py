@@ -245,3 +245,72 @@ def buscar_escritorios(
         estado=estado,
         progress_callback=progress_callback,
     )
+
+
+def enriquecer_com_maps(
+    resultados: list[dict],
+    api_key: str,
+    progress_callback: Callable = None,
+) -> list[dict]:
+    """
+    Enriquece cada empresa da lista com dados do Google Maps:
+    avaliacao, total_avaliacoes, maps_url, telefone/telefone2 (se vazio), site (se vazio).
+    Não sobrescreve campos já preenchidos pelo CNPJ.
+    Retorna a mesma lista modificada in-place.
+    """
+    total = len(resultados)
+
+    def _cb(i, msg):
+        if progress_callback:
+            progress_callback(i, total, msg)
+
+    for i, r in enumerate(resultados):
+        nome      = (r.get("nome") or "").strip()
+        municipio = (r.get("municipio") or r.get("cidade_busca") or "").strip()
+        uf        = (r.get("uf") or r.get("estado_busca") or "").strip()
+
+        _cb(i, f"[{i+1}/{total}] {nome[:45]}…")
+
+        if not nome:
+            continue
+
+        query = f"{nome} {municipio} {uf}".strip()
+        try:
+            resp = _text_search(query, api_key)
+            if resp.get("status") != "OK" or not resp.get("results"):
+                continue
+
+            place = resp["results"][0]
+            pid   = place.get("place_id", "")
+
+            # Avaliação já vem no Text Search — sem chamada extra
+            if place.get("rating") is not None:
+                r["avaliacao"] = place["rating"]
+            if place.get("user_ratings_total") is not None:
+                r["total_avaliacoes"] = place["user_ratings_total"]
+
+            # Detalhes: telefone, site e maps_url real
+            if pid:
+                det = _get_details(pid, api_key)
+                if det.get("url"):
+                    r["maps_url"] = det["url"]
+                else:
+                    r["maps_url"] = f"https://www.google.com/maps/place/?q=place_id:{pid}"
+
+                tel = det.get("formatted_phone_number") or det.get("international_phone_number") or ""
+                if tel:
+                    if not r.get("telefone"):
+                        r["telefone"] = tel
+                    elif r.get("telefone") != tel and not r.get("telefone2"):
+                        r["telefone2"] = tel
+
+                if det.get("website") and not r.get("site"):
+                    r["site"] = det["website"]
+
+        except Exception:
+            pass
+
+        time.sleep(0.05)
+
+    _cb(total, "Enriquecimento concluído!")
+    return resultados
