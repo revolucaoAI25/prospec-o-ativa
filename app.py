@@ -844,7 +844,7 @@ def _tabela(rows):
         "cnpj","nicho_busca","cnae_codigo","subnicho_busca","matriz_filial",
         "natureza_juridica","data_abertura","capital_social",
         "simples_optante","mei_optante","socio_principal",
-        "site","avaliacao","total_avaliacoes","maps_url","fonte",
+        "site","avaliacao","total_avaliacoes","maps_url",
     ]
     lm={c:l for c,l in ALL_COLS}; df=pd.DataFrame(rows)
     cols=[c for c in vis if c in df.columns]
