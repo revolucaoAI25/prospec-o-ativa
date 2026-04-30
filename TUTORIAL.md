@@ -251,6 +251,38 @@ O saldo de créditos aparece na sidebar lateral, logo abaixo das informações d
 
 ---
 
+### 3.5 Enriquecimento com Google Maps
+
+Após uma busca por CNPJ, você pode cruzar automaticamente cada empresa com o Google Maps para complementar os dados com informações de presença digital: avaliação dos clientes, número de avaliações, link do perfil no Maps, site e telefone alternativo.
+
+Os dados da Receita Federal **nunca são sobrescritos** — o enriquecimento apenas preenche campos que estavam vazios ou adiciona um segundo telefone quando o Maps retorna um número diferente do cadastrado.
+
+**Como usar — opção 1: antes da busca (recomendado)**
+
+Ative o toggle **🗺️ Enriquecer com Google Maps** que aparece logo acima do botão de busca. Com essa opção ativada, o enriquecimento roda automaticamente assim que a busca termina — antes de qualquer exportação automática.
+
+**Como usar — opção 2: após a busca**
+
+Se a busca já foi concluída sem o enriquecimento, clique no botão **🗺️ Enriquecer com Google Maps** que aparece acima dos resultados. O processo roda empresa por empresa e atualiza a prévia ao final.
+
+**Campos adicionados pelo enriquecimento**
+
+| Campo | Descrição |
+|---|---|
+| Avaliação | Nota média no Google (ex: 4.3) |
+| Nº Avaliações | Quantidade total de avaliações |
+| Google Maps | Link direto para o perfil da empresa no Maps |
+| Telefone 2 | Segundo número, se diferente do cadastrado na Receita |
+| Site | Site da empresa, se não havia um cadastrado no CNPJ |
+
+**Quando vale a pena usar**
+
+O enriquecimento é especialmente útil quando você quer qualificar a lista antes de prospectar — empresas com muitas avaliações positivas tendem a estar ativas e com movimento. Também ajuda a encontrar o site da empresa quando ele não está no cadastro da Receita Federal.
+
+> **Custo:** O enriquecimento consome créditos Maps (1 por empresa), caso sua conta esteja configurada com créditos Maps. Se você usa chave de API própria, não há custo adicional de créditos na plataforma — apenas o custo da API do Google diretamente.
+
+---
+
 ## 4. Exportação de Resultados
 
 Cada busca gera uma lista de leads que pode ser exportada de duas formas: automaticamente para o Google Sheets ou manualmente em Excel.
