@@ -965,7 +965,14 @@ def pagina_busca():
         gmaps_key = _cfg_busca.get("google_maps_api_key", "") or st.session_state.get("user_gmaps_key", "")
     gmaps_ok  = bool(gmaps_key)
 
-    aba_maps, aba_rf, aba_insta = st.tabs(["🗺️  Google Maps  ·  com telefone", "🏢  CNPJ + filtros avançados", "📸  Instagram"])
+    _insta_visible = st.session_state.get("instagram_visible", True)
+    _tab_labels = ["🗺️  Google Maps  ·  com telefone", "🏢  CNPJ + filtros avançados"]
+    if _insta_visible:
+        _tab_labels.append("📸  Instagram")
+    _tabs = st.tabs(_tab_labels)
+    aba_maps = _tabs[0]
+    aba_rf   = _tabs[1]
+    aba_insta = _tabs[2] if _insta_visible else None
 
     with aba_maps:
         if not gmaps_ok:
@@ -1409,7 +1416,8 @@ def pagina_busca():
             st.markdown("#### Prévia"); _tabela(res)
 
 
-    with aba_insta:
+    if aba_insta is not None:
+     with aba_insta:
         _insta_credits_en = st.session_state.get("instagram_credits_enabled", False)
         _apify_key_user   = st.session_state.get("apify_api_key_user", "")
         _apify_key_admin  = st.session_state.get("apify_api_key_admin", "")
@@ -2810,7 +2818,17 @@ def pagina_admin():
                         (st.success if ok12 else st.error)(msg12)
                         if ok12: time.sleep(0.3); st.rerun()
 
-            # ── Créditos Instagram ──────────────────────────────────────
+            # ── Instagram — visibilidade e créditos ────────────────────
+            insta_visible = bool(u.get("instagram_visible", True))
+            insta_vis_toggle = st.toggle(
+                "Exibir aba Instagram para este usuário",
+                value=insta_visible, key=f"insta_vis_{uid}",
+            )
+            if insta_vis_toggle != insta_visible:
+                ok_iv, msg_iv = configurar_creditos_admin(uid, instagram_visible=insta_vis_toggle)
+                (st.success if ok_iv else st.error)(msg_iv)
+                if ok_iv: time.sleep(0.3); st.rerun()
+
             insta_en     = bool(u.get("instagram_credits_enabled", False))
             insta_bal    = int(u.get("instagram_credits", 0) or 0)
             monthly_insta = int(u.get("monthly_instagram_credits", 0) or 0)

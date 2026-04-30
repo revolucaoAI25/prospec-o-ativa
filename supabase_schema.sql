@@ -295,3 +295,7 @@ BEGIN
     ) USING p_delta, p_user_id;
 END;
 $$;
+
+-- ── Visibilidade do Instagram por usuário ─────────────────────
+-- Execute no SQL Editor do Supabase se o banco já existia.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS instagram_visible BOOLEAN NOT NULL DEFAULT TRUE;
