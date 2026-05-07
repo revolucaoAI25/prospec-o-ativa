@@ -995,8 +995,6 @@ def pagina_busca():
                 st.warning("Chave do Google Maps não configurada pelo administrador.", icon="⚠️")
             else:
                 st.warning("Chave do Google Maps não configurada. Acesse **Configurações → Google Maps API** para adicionar.", icon="⚠️")
-        elif not gmaps_ok and _apify_maps_key:
-            st.info("Nenhuma chave do Google Maps configurada. As buscas usarão **Apify** como provedor ($4 / 1.000 resultados).", icon="ℹ️")
         st.markdown('<div class="info-box">Melhor fonte para <strong>telefones</strong>. Até ~500 resultados com múltiplas buscas automáticas.</div>', unsafe_allow_html=True)
 
         col_n, col_s = st.columns(2)
