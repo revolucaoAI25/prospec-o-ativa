@@ -1,30 +1,33 @@
 """
-Módulo de busca via Google Maps Places API.
+Módulo de busca via Google Maps Places API (legada).
 
-Para superar o limite de 60 resultados por consulta do Google, o módulo
-realiza múltiplas buscas com variações de localidade (zonas da cidade,
-bairros, etc.) e deduplica os resultados pelo place_id.
+Custo por SKU (API Places legada):
+  - Text Search:    Pro  — 5.000 gratuitas/mês, depois US$32/1.000
+  - Place Details:  Pro  — 5.000 gratuitas/mês, depois US$17/1.000
+  - Contact Data:   Enterprise — 1.000 gratuitas/mês (telefone + site)
+  - Atmosphere Data: nunca cobrado aqui — rating vem do Text Search (Essentials, grátis)
 
-Custo estimado (2026):
-  - Text Search:   US$ 0,032 por página
-  - Place Details: US$ 0,017 por resultado
-  - Crédito gratuito do Google: US$ 200/mês (~5.000 buscas completas)
+Estratégia de custo:
+  - rating/user_ratings_total são obtidos do Text Search (sem custo Enterprise)
+  - Place Details é chamado apenas quando show_phone=True (Contact Data)
+  - Com show_phone=False: apenas Text Search → 5.000 gratuitas/mês
+  - Com show_phone=True:  Text Search + Details + Contact Data → 1.000 gratuitas/mês
 """
 
 import time
 import os
 import requests
-from typing import Callable
+from typing import Callable, Optional
 
 PLACES_TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 PLACES_DETAILS_URL     = "https://maps.googleapis.com/maps/api/place/details/json"
 
+# Campos de detalhe — sem rating/user_ratings_total (vêm do Text Search de graça)
 DETAIL_FIELDS = (
     "name,formatted_phone_number,international_phone_number,"
-    "formatted_address,website,url,business_status,rating,user_ratings_total"
+    "formatted_address,website,url,business_status"
 )
 
-# Modificadores geográficos usados para ampliar resultados além de 60
 _MODIFICADORES = [
     "",
     "centro",
@@ -51,44 +54,42 @@ def _text_search(query: str, api_key: str, page_token: str = None) -> dict:
 def _get_details(place_id: str, api_key: str) -> dict:
     params = {
         "place_id": place_id,
-        "fields": DETAIL_FIELDS,
+        "fields":   DETAIL_FIELDS,
         "language": "pt-BR",
-        "key": api_key,
+        "key":      api_key,
     }
     resp = requests.get(PLACES_DETAILS_URL, params=params, timeout=15)
     resp.raise_for_status()
     return resp.json().get("result", {})
 
 
-def _coletar_place_ids(
+def _coletar_places(
     query_base: str,
     api_key: str,
     limite: int,
     log: Callable,
-) -> list[str]:
+) -> list[dict]:
     """
-    Coleta place_ids até atingir o limite, usando múltiplas queries se necessário.
-    Deduplica automaticamente.
+    Coleta dados básicos de places via Text Search até atingir o limite.
+    Retorna rating/user_ratings_total diretamente do Text Search (Essentials, grátis).
     """
     vistos: set[str] = set()
-    place_ids: list[str] = []
+    places: list[dict] = []
 
-    # Quantas queries rodar? Cada query retorna no máx 60.
-    # Usamos modificadores geográficos para variar os resultados.
-    max_queries = min(len(_MODIFICADORES), -(-limite // 60))  # ceil(limite/60)
+    max_queries = min(len(_MODIFICADORES), -(-limite // 60))
 
     for mod_idx in range(max_queries):
-        if len(place_ids) >= limite:
+        if len(places) >= limite:
             break
 
-        mod = _MODIFICADORES[mod_idx]
+        mod   = _MODIFICADORES[mod_idx]
         query = f"{query_base} {mod}".strip() if mod else query_base
         log(0, 0, f"Buscando: {query}")
 
         page_token = None
-        paginas = 0
+        paginas    = 0
 
-        while len(place_ids) < limite and paginas < 3:
+        while len(places) < limite and paginas < 3:
             try:
                 data = _text_search(query, api_key, page_token)
             except requests.HTTPError as e:
@@ -112,15 +113,22 @@ def _coletar_place_ids(
                 pid = place["place_id"]
                 if pid not in vistos:
                     vistos.add(pid)
-                    place_ids.append(pid)
+                    places.append({
+                        "place_id":            pid,
+                        "nome":                place.get("name", ""),
+                        "endereco":            place.get("formatted_address", ""),
+                        "avaliacao":           place.get("rating", ""),
+                        "total_avaliacoes":    place.get("user_ratings_total", ""),
+                        "status_funcionamento": place.get("business_status", ""),
+                    })
 
             page_token = data.get("next_page_token")
             paginas += 1
             if not page_token:
                 break
-            time.sleep(2)  # Google exige ~2s entre páginas com next_page_token
+            time.sleep(2)
 
-    return place_ids[:limite]
+    return places[:limite]
 
 
 def buscar(
@@ -134,20 +142,17 @@ def buscar(
     estado: str = "",
     progress_callback: Callable[[int, int, str], None] = None,
     exclude_phones: set = None,
+    show_phone: bool = True,
+    show_rating: bool = True,
 ) -> list[dict]:
     """
     Busca estabelecimentos no Google Maps e retorna lista de dicts.
 
-    Parâmetros:
-        query_base        - Termo principal (ex: "escritório de advocacia")
-        localidade        - Cidade e/ou estado (ex: "São Paulo, SP")
-        limite            - Máx de resultados únicos a retornar
-        api_key           - Chave da Google Maps API
-        nicho/subnicho    - Metadados para incluir nos resultados
-        cidade/estado     - Metadados para incluir nos resultados
-        progress_callback - função(atual, total, msg) para atualizar UI
-        exclude_phones    - Set de telefones já vistos; duplicatas são puladas e
-                            a busca continua até completar `limite` ou esgotar resultados
+    show_phone  — busca telefone e site via Place Details (Contact Data, 1.000 gratuitas/mês)
+    show_rating — inclui avaliação nos resultados (vem do Text Search, sempre gratuito)
+
+    Com show_phone=False: apenas Text Search → 5.000 resultados gratuitos/mês.
+    Com show_phone=True:  Text Search + Place Details → 1.000 resultados gratuitos/mês.
     """
     if api_key is None:
         api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
@@ -169,54 +174,68 @@ def buscar(
     if subnicho:
         query_completa = f"{query_base} {subnicho.lower()} em {localidade}"
 
-    # Se há deduplicação ativa, busca mais place_ids do que o limite pedido
-    # para compensar as que serão descartadas por serem duplicatas.
     fetch_limit = limite if not exclude_phones else min(len(_MODIFICADORES) * 60, limite * 3)
 
-    # ── Coleta place_ids ──────────────────────────────────────────────────────
     log(0, limite, f"Coletando resultados para: {query_completa}")
-    place_ids = _coletar_place_ids(query_completa, api_key, fetch_limit, log)
-    log(0, limite, f"{len(place_ids)} candidatos encontrados. Buscando detalhes...")
+    places = _coletar_places(query_completa, api_key, fetch_limit, log)
+    detalhe_label = "Buscando detalhes..." if show_phone else "Montando resultados..."
+    log(0, limite, f"{len(places)} candidatos encontrados. {detalhe_label}")
 
-    # ── Busca detalhes, pulando duplicatas até completar a cota ───────────────
     resultados = []
-    pulados = 0
+    pulados    = 0
 
-    for pid in place_ids:
+    for p in places:
         if len(resultados) >= limite:
             break
-        try:
-            det = _get_details(pid, api_key)
-        except requests.HTTPError:
-            continue
 
-        telefone = det.get("formatted_phone_number", "")
+        pid      = p["place_id"]
+        telefone = ""
+        tel_int  = ""
+        site     = ""
+        endereco = p["endereco"]
+        maps_url = f"https://www.google.com/maps/place/?q=place_id:{pid}"
+
+        if show_phone:
+            try:
+                det      = _get_details(pid, api_key)
+                telefone = det.get("formatted_phone_number", "")
+                tel_int  = det.get("international_phone_number", "")
+                site     = det.get("website", "")
+                maps_url = det.get("url") or maps_url
+                endereco = det.get("formatted_address") or endereco
+            except requests.HTTPError:
+                pass
+
         if exclude_phones and telefone and telefone in exclude_phones:
             pulados += 1
             log(len(resultados), limite,
-                f"Detalhes: {len(resultados)}/{limite} (pulados {pulados} repetidos)")
-            time.sleep(0.1)
+                f"{'Detalhes' if show_phone else 'Resultados'}: "
+                f"{len(resultados)}/{limite} (pulados {pulados} repetidos)")
+            if show_phone:
+                time.sleep(0.1)
             continue
 
         resultados.append({
-            "nome":                    det.get("name", ""),
-            "telefone":                telefone,
-            "telefone_internacional":  det.get("international_phone_number", ""),
-            "endereco":                det.get("formatted_address", ""),
-            "site":                    det.get("website", ""),
-            "maps_url":                det.get("url", ""),
-            "avaliacao":               det.get("rating", ""),
-            "total_avaliacoes":        det.get("user_ratings_total", ""),
-            "status_funcionamento":    det.get("business_status", ""),
-            "nicho_busca":             nicho,
-            "subnicho_busca":          subnicho,
-            "cidade_busca":            cidade,
-            "estado_busca":            estado,
-            "fonte":                   "Google Maps",
+            "nome":                   p["nome"],
+            "telefone":               telefone,
+            "telefone_internacional": tel_int,
+            "endereco":               endereco,
+            "site":                   site,
+            "maps_url":               maps_url,
+            "avaliacao":              p["avaliacao"] if show_rating else "",
+            "total_avaliacoes":       p["total_avaliacoes"] if show_rating else "",
+            "status_funcionamento":   p["status_funcionamento"],
+            "nicho_busca":            nicho,
+            "subnicho_busca":         subnicho,
+            "cidade_busca":           cidade,
+            "estado_busca":           estado,
+            "fonte":                  "Google Maps",
         })
 
-        log(len(resultados), limite, f"Detalhes: {len(resultados)}/{limite}")
-        time.sleep(0.1)
+        log(len(resultados), limite,
+            f"{'Detalhes' if show_phone else 'Resultados'}: {len(resultados)}/{limite}")
+        if show_phone:
+            time.sleep(0.1)
 
     sufixo = f" ({pulados} repetidos ignorados)" if pulados else ""
     log(limite, limite, f"Concluído: {len(resultados)} resultados{sufixo}.")
@@ -251,12 +270,14 @@ def enriquecer_com_maps(
     resultados: list[dict],
     api_key: str,
     progress_callback: Callable = None,
+    show_phone: bool = True,
+    show_rating: bool = True,
 ) -> list[dict]:
     """
-    Enriquece cada empresa da lista com dados do Google Maps:
-    avaliacao, total_avaliacoes, maps_url, telefone/telefone2 (se vazio), site (se vazio).
+    Enriquece cada empresa com dados do Google Maps.
+    show_phone=True  → busca telefone/site via Place Details (Contact Data)
+    show_rating=True → inclui avaliação (vem do Text Search, sempre gratuito)
     Não sobrescreve campos já preenchidos pelo CNPJ.
-    Retorna a mesma lista modificada in-place.
     """
     total = len(resultados)
 
@@ -283,19 +304,22 @@ def enriquecer_com_maps(
             place = resp["results"][0]
             pid   = place.get("place_id", "")
 
-            # Avaliação já vem no Text Search — sem chamada extra
-            if place.get("rating") is not None:
-                r["avaliacao"] = place["rating"]
-            if place.get("user_ratings_total") is not None:
-                r["total_avaliacoes"] = place["user_ratings_total"]
+            # Avaliação do Text Search — sem custo Enterprise
+            if show_rating:
+                if place.get("rating") is not None:
+                    r["avaliacao"] = place["rating"]
+                if place.get("user_ratings_total") is not None:
+                    r["total_avaliacoes"] = place["user_ratings_total"]
 
-            # Detalhes: telefone, site e maps_url real
-            if pid:
+            # Maps URL básica (funciona sem Details)
+            if pid and not r.get("maps_url"):
+                r["maps_url"] = f"https://www.google.com/maps/place/?q=place_id:{pid}"
+
+            # Place Details: apenas se show_phone=True
+            if pid and show_phone:
                 det = _get_details(pid, api_key)
                 if det.get("url"):
                     r["maps_url"] = det["url"]
-                else:
-                    r["maps_url"] = f"https://www.google.com/maps/place/?q=place_id:{pid}"
 
                 tel = det.get("formatted_phone_number") or det.get("international_phone_number") or ""
                 if tel:

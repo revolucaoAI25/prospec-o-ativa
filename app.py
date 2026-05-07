@@ -955,14 +955,27 @@ def pagina_busca():
         unsafe_allow_html=True,
     )
 
-    # Chave do Google Maps — usa chave admin se maps_credits_enabled
+    # Chave do Google Maps — usa chave admin (ou pool) se maps_credits_enabled
     from modules.database import carregar_configuracoes
     _cfg_busca = carregar_configuracoes()
     _maps_credits_enabled = st.session_state.get("maps_credits_enabled", False)
     if _maps_credits_enabled:
         gmaps_key = st.session_state.get("maps_api_key_admin", "")
+        if not gmaps_key:
+            # Verifica se há pool configurado (para gmaps_ok)
+            from modules.auth import obter_pool_maps_usuario_admin
+            _pool_adm_check = obter_pool_maps_usuario_admin(
+                st.session_state.get("user", {}).get("id", "")
+            )
+            if _pool_adm_check:
+                gmaps_key = _pool_adm_check[0].get("key", "")
     else:
         gmaps_key = _cfg_busca.get("google_maps_api_key", "") or st.session_state.get("user_gmaps_key", "")
+        if not gmaps_key:
+            from modules.database import obter_pool_maps_usuario
+            _pool_usr_check = obter_pool_maps_usuario()
+            if _pool_usr_check:
+                gmaps_key = _pool_usr_check[0].get("key", "")
     gmaps_ok  = bool(gmaps_key)
 
     _insta_visible = st.session_state.get("instagram_visible", True)
@@ -1040,6 +1053,19 @@ def pagina_busca():
                 value=True,
                 help="Quando ativado, leads com mesmo telefone ou CNPJ de pesquisas anteriores são removidos dos resultados.",
             )
+            _tc1, _tc2 = st.columns(2)
+            with _tc1:
+                show_phone_maps = st.toggle(
+                    "📞 Exibir telefone e site",
+                    value=True, key="maps_show_phone",
+                    help="Busca telefone e site via Place Details. Consome Contact Data (1.000 gratuitas/mês por chave).",
+                )
+            with _tc2:
+                show_rating_maps = st.toggle(
+                    "⭐ Exibir avaliações",
+                    value=True, key="maps_show_rating",
+                    help="Inclui avaliação e nº de reviews. Vem do Text Search — sem custo adicional.",
+                )
             buscar_btn = st.form_submit_button("🔍 Buscar no Google Maps", disabled=not gmaps_ok, use_container_width=True, type="primary")
 
         if buscar_btn:
@@ -1081,11 +1107,26 @@ def pagina_busca():
                 def _cb(a, t, m):
                     v = min(a / t, 1.0) if t and t > 0 else 0
                     prog.progress(v, text=str(m)[:120])
+                # ── Seleção de chave via pool (se configurado) ────────────────
+                from modules.database import obter_pool_maps_usuario, selecionar_chave_maps
+                _pool_ativo   = obter_pool_maps_usuario()
+                _pool_key_idx = -1
+                _chave_busca  = gmaps_key
+                if _pool_ativo:
+                    _c, _pool_key_idx, _pool_ativo = selecionar_chave_maps(_pool_ativo)
+                    if _c:
+                        _chave_busca = _c
+                    elif not _chave_busca:
+                        prog.empty()
+                        st.error("Todas as chaves Maps atingiram o limite mensal. Adicione novas chaves ou aguarde o próximo mês.")
+                        st.stop()
+
                 try:
                     res = maps_buscar(query_base=qbase, localidade=localidade, limite=lim,
-                                      api_key=gmaps_key, nicho=nicho_lbl, subnicho=sub_final,
+                                      api_key=_chave_busca, nicho=nicho_lbl, subnicho=sub_final,
                                       cidade=cv, estado=ev, progress_callback=_cb,
-                                      exclude_phones=excl_tels_maps if apenas_novos_maps else None)
+                                      exclude_phones=excl_tels_maps if apenas_novos_maps else None,
+                                      show_phone=show_phone_maps, show_rating=show_rating_maps)
                     prog.progress(1.0, text=f"Concluído! {len(res)} resultados.")
                     prog.empty()
                     st.session_state["maps_res"] = res
@@ -1095,6 +1136,12 @@ def pagina_busca():
                 except Exception as e:
                     prog.empty(); st.error(f"Erro: {e}"); st.session_state["maps_res"] = []
                 else:
+                    # Registra uso no pool
+                    if _pool_ativo and _pool_key_idx >= 0:
+                        from modules.database import registrar_uso_maps, salvar_pool_maps_usuario
+                        salvar_pool_maps_usuario(
+                            registrar_uso_maps(_pool_ativo, _pool_key_idx, len(res))
+                        )
                     try:
                         from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos_maps
                         sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade, "maps", len(res))
@@ -2406,21 +2453,54 @@ def pagina_configuracoes():
     # ── Google Maps ─────────────────────────────────────────────────────────────
     with st.expander("🗺️ Google Maps API", expanded=True):
         if st.session_state.get("maps_credits_enabled"):
-            st.info("A chave do Google Maps é gerenciada pelo administrador nesta conta.", icon="ℹ️")
+            st.info("As chaves do Google Maps são gerenciadas pelo administrador nesta conta.", icon="ℹ️")
         else:
-            st.markdown("Insira sua chave de API do Google Maps (Places API).")
-            gmk = st.text_input(
-                "Chave de API",
-                value=cfg.get("google_maps_api_key",""),
-                type="password",
-                placeholder="AIzaSy...",
-                key="cfg_gmaps",
-            )
-            if st.button("💾 Salvar chave Maps", key="save_gmaps"):
-                ok, msg = salvar_configuracoes({"google_maps_api_key": gmk})
-                (st.success if ok else st.error)(msg)
-                if ok:
-                    st.session_state["user_gmaps_key"] = gmk
+            st.markdown("Configure uma ou mais chaves de API do Google Maps. O sistema usa rodízio automático quando uma chave atinge o limite mensal.")
+            from modules.database import obter_pool_maps_usuario, salvar_pool_maps_usuario, selecionar_chave_maps
+            _cfg_pool = obter_pool_maps_usuario()
+            if _cfg_pool:
+                for _pi, _pe in enumerate(_cfg_pool):
+                    _pc1, _pc2, _pc3 = st.columns([3, 3, 1])
+                    with _pc1:
+                        st.caption(_pe.get("nickname") or f"Chave {_pi+1}")
+                    with _pc2:
+                        _puse = int(_pe.get("usage", 0))
+                        _plim = int(_pe.get("limit", 900))
+                        _pmon = _pe.get("month", "—")
+                        _ppct = min(_puse / max(_plim, 1), 1.0)
+                        _pcor = "🔴" if _ppct >= 1.0 else ("🟡" if _ppct >= 0.8 else "🟢")
+                        st.caption(f"{_pcor} {_pmon}: **{_puse}/{_plim}**")
+                    with _pc3:
+                        if st.button("🗑️", key=f"del_cfg_mk_{_pi}", help="Remover"):
+                            _np = [k for j, k in enumerate(_cfg_pool) if j != _pi]
+                            if salvar_pool_maps_usuario(_np):
+                                st.rerun()
+            with st.form("add_cfg_mk"):
+                _fc1, _fc2, _fc3 = st.columns([2, 4, 2])
+                with _fc1:
+                    _fn = st.text_input("Apelido", placeholder="Chave 1", key="cfg_mk_nick")
+                with _fc2:
+                    _fk = st.text_input("Chave API", placeholder="AIzaSy...", type="password", key="cfg_mk_val")
+                with _fc3:
+                    _fl = st.number_input("Limite/mês", min_value=100, value=900, step=100, key="cfg_mk_lim")
+                if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
+                    if _fk:
+                        _np = list(_cfg_pool) + [{
+                            "key": _fk, "nickname": _fn or f"Chave {len(_cfg_pool)+1}",
+                            "usage": 0, "month": "", "limit": int(_fl),
+                        }]
+                        if salvar_pool_maps_usuario(_np):
+                            st.success("Chave adicionada!")
+                            st.rerun()
+            # Chave única (compatibilidade)
+            with st.expander("Ou use chave única (modo legado)"):
+                gmk = st.text_input("Chave única", value=cfg.get("google_maps_api_key",""),
+                                    type="password", placeholder="AIzaSy...", key="cfg_gmaps")
+                if st.button("💾 Salvar chave única", key="save_gmaps"):
+                    ok, msg = salvar_configuracoes({"google_maps_api_key": gmk})
+                    (st.success if ok else st.error)(msg)
+                    if ok:
+                        st.session_state["user_gmaps_key"] = gmk
 
     # ── Google Sheets OAuth ─────────────────────────────────────────────────────
     with st.expander("📊 Google Sheets (OAuth)", expanded=True):
@@ -2791,11 +2871,48 @@ def pagina_admin():
                 if ok8: time.sleep(0.3); st.rerun()
 
             if maps_toggle:
-                new_maps_key = st.text_input("Chave Maps (admin)", value=maps_adm_key, type="password", key=f"maps_key_{uid}", placeholder="AIzaSy...")
-                if st.button("💾 Salvar chave Maps", key=f"maps_key_save_{uid}"):
-                    ok9, msg9 = configurar_creditos_admin(uid, maps_api_key_admin=new_maps_key)
-                    (st.success if ok9 else st.error)(msg9)
-                    if ok9: time.sleep(0.3); st.rerun()
+                # ── Pool de chaves Maps ──────────────────────────────────
+                from modules.auth import obter_pool_maps_usuario_admin
+                _upool = obter_pool_maps_usuario_admin(uid)
+                st.markdown("**Chaves de API Maps** (rodízio automático por mês)")
+                if _upool:
+                    for _ki, _ke in enumerate(_upool):
+                        _kc1, _kc2, _kc3 = st.columns([3, 3, 1])
+                        with _kc1:
+                            st.caption(_ke.get("nickname") or f"Chave {_ki+1}")
+                        with _kc2:
+                            _kuse = int(_ke.get("usage", 0))
+                            _klim = int(_ke.get("limit", 900))
+                            _kmon = _ke.get("month", "—")
+                            _kpct = min(_kuse / max(_klim, 1), 1.0)
+                            _cor  = "🔴" if _kpct >= 1.0 else ("🟡" if _kpct >= 0.8 else "🟢")
+                            st.caption(f"{_cor} {_kmon}: **{_kuse}/{_klim}**")
+                        with _kc3:
+                            if st.button("🗑️", key=f"del_mk_{uid}_{_ki}", help="Remover chave"):
+                                _np = [k for j, k in enumerate(_upool) if j != _ki]
+                                _ok_p, _msg_p = configurar_creditos_admin(uid, maps_keys_pool=_np)
+                                (st.success if _ok_p else st.error)(_msg_p)
+                                if _ok_p: time.sleep(0.3); st.rerun()
+                else:
+                    st.caption("Nenhuma chave configurada.")
+                with st.form(f"add_mk_{uid}"):
+                    _ac1, _ac2, _ac3 = st.columns([2, 4, 2])
+                    with _ac1:
+                        _new_nick = st.text_input("Apelido", placeholder="Chave 1", key=f"mk_nick_{uid}")
+                    with _ac2:
+                        _new_kval = st.text_input("Chave API", placeholder="AIzaSy...", type="password", key=f"mk_val_{uid}")
+                    with _ac3:
+                        _new_klim = st.number_input("Limite/mês", min_value=100, value=900, step=100, key=f"mk_lim_{uid}")
+                    if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
+                        if _new_kval:
+                            _np = list(_upool) + [{
+                                "key": _new_kval,
+                                "nickname": _new_nick or f"Chave {len(_upool)+1}",
+                                "usage": 0, "month": "", "limit": int(_new_klim),
+                            }]
+                            _ok_p, _msg_p = configurar_creditos_admin(uid, maps_keys_pool=_np)
+                            (st.success if _ok_p else st.error)(_msg_p)
+                            if _ok_p: time.sleep(0.3); st.rerun()
 
                 st.markdown(f"Saldo Maps atual: **{maps_bal}**  ·  Mensal: **{monthly_maps}**/mês")
                 cm1, cm2, cm3, cm4 = st.columns([2,1,1,2])

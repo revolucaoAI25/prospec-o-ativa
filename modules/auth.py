@@ -361,6 +361,18 @@ def ajustar_creditos_admin(user_id: str, delta: int, tipo: str = "cdd") -> tuple
         return False, "Erro ao ajustar créditos."
 
 
+def obter_pool_maps_usuario_admin(user_id: str) -> list[dict]:
+    """Carrega maps_keys_pool de um usuário específico (requer service role)."""
+    sb = _admin_client()
+    if not sb:
+        return []
+    try:
+        resp = sb.table("profiles").select("maps_keys_pool").eq("id", user_id).single().execute()
+        return (resp.data or {}).get("maps_keys_pool") or []
+    except Exception:
+        return []
+
+
 def redefinir_senha(user_id: str, nova_senha: str) -> tuple[bool, str]:
     if not eh_admin():
         return False, "Acesso não autorizado."

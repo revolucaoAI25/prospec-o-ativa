@@ -397,3 +397,61 @@ def salvar_configuracoes(dados: dict) -> tuple[bool, str]:
         return True, "Configurações salvas."
     except Exception as e:
         return False, str(e)
+
+
+# ── Pool de chaves Maps ───────────────────────────────────────────────────────
+
+def obter_pool_maps_usuario() -> list[dict]:
+    """Retorna o pool de chaves Maps do usuário logado."""
+    sb = _client_autenticado()
+    if not sb:
+        return []
+    user_id = st.session_state.get("user", {}).get("id")
+    if not user_id:
+        return []
+    try:
+        resp = sb.table("profiles").select("maps_keys_pool").eq("id", user_id).single().execute()
+        return (resp.data or {}).get("maps_keys_pool") or []
+    except Exception:
+        return []
+
+
+def salvar_pool_maps_usuario(pool: list[dict]) -> bool:
+    """Salva o pool de chaves Maps do usuário logado."""
+    sb = _client_autenticado()
+    if not sb:
+        return False
+    user_id = st.session_state.get("user", {}).get("id")
+    if not user_id:
+        return False
+    try:
+        sb.table("profiles").update({"maps_keys_pool": pool}).eq("id", user_id).execute()
+        return True
+    except Exception:
+        return False
+
+
+def selecionar_chave_maps(pool: list[dict]) -> tuple[str, int, list[dict]]:
+    """
+    Seleciona a primeira chave disponível no mês atual.
+    Reseta o contador de chaves de meses anteriores automaticamente.
+    Retorna (api_key, index, pool_atualizado) ou ("", -1, pool) se todas esgotadas.
+    """
+    from datetime import date
+    mes = date.today().strftime("%Y-%m")
+    pool_copia = [dict(k) for k in pool]
+    for i, entry in enumerate(pool_copia):
+        if entry.get("month") != mes:
+            entry["usage"] = 0
+            entry["month"] = mes
+        if int(entry.get("usage", 0)) < int(entry.get("limit", 900)):
+            return entry.get("key", ""), i, pool_copia
+    return "", -1, pool_copia
+
+
+def registrar_uso_maps(pool: list[dict], key_idx: int, calls: int) -> list[dict]:
+    """Incrementa o contador de uso de uma chave no pool."""
+    pool_copia = [dict(k) for k in pool]
+    if 0 <= key_idx < len(pool_copia):
+        pool_copia[key_idx]["usage"] = int(pool_copia[key_idx].get("usage", 0)) + calls
+    return pool_copia
