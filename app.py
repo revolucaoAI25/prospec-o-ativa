@@ -2740,30 +2740,28 @@ def pagina_configuracoes():
                 url = gerar_url_auth(cid, cs, ru)
                 st.link_button("🔗 Conectar conta Google", url, use_container_width=True)
 
-    # ── Instagram / Apify ──────────────────────────────────────────────────────────
-    if st.session_state.get("instagram_credits_enabled"):
-        with st.expander("📸 Instagram (Apify API Key)", expanded=False):
-            st.markdown(
-                "Insira sua própria chave Apify para usar a busca Instagram sem deduzir créditos da plataforma.  \n"
-                "Deixe em branco para usar a chave da plataforma (créditos serão debitados a cada extração).  \n"
-                "Esta chave também é usada como **fallback automático** na busca Google Maps quando a cota é esgotada ($4/1.000 resultados)."
-            )
-            _apify_cur = st.session_state.get("apify_api_key_user", "")
-            apify_inp = st.text_input(
-                "Apify API Key (opcional)",
-                value=_apify_cur,
-                type="password",
-                placeholder="apify_api_...",
-                key="cfg_apify_key",
-            )
-            if st.button("💾 Salvar chave Apify", key="save_apify"):
-                from modules.database import salvar_configuracoes
-                ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
-                if ok_ap:
-                    st.session_state["apify_api_key_user"] = apify_inp.strip()
-                    st.success("Chave Apify salva com sucesso.")
-                else:
-                    st.error(msg_ap)
+    # ── Apify API Key ─────────────────────────────────────────────────────────────
+    with st.expander("🤖 Apify API Key", expanded=False):
+        _apify_desc = "Usada como **fallback automático** na busca Google Maps quando a cota é esgotada ($4/1.000 resultados)."
+        if st.session_state.get("instagram_credits_enabled"):
+            _apify_desc += "  \nTambém usada na busca Instagram para não deduzir créditos da plataforma."
+        st.markdown(_apify_desc)
+        _apify_cur = st.session_state.get("apify_api_key_user", "")
+        apify_inp = st.text_input(
+            "Apify API Key",
+            value=_apify_cur,
+            type="password",
+            placeholder="apify_api_...",
+            key="cfg_apify_key",
+        )
+        if st.button("💾 Salvar chave Apify", key="save_apify"):
+            from modules.database import salvar_configuracoes
+            ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
+            if ok_ap:
+                st.session_state["apify_api_key_user"] = apify_inp.strip()
+                st.success("Chave Apify salva com sucesso.")
+            else:
+                st.error(msg_ap)
 
     # ── Alterar senha ────────────────────────────────────────────────────────────
     with st.expander("🔑 Alterar senha", expanded=False):
