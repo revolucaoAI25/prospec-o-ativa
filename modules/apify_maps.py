@@ -48,16 +48,13 @@ def buscar(
         "locationQuery":             localidade,
         "maxCrawledPlacesPerSearch": limite,
         "language":                  "pt",
-        "scrapeReviews":             False,
-        "scrapeImageUrls":           False,
-        "additionalInfo":            False,
     }
 
     try:
         resp = requests.post(
             _SYNC_URL,
             json=payload,
-            params={"token": api_key, "format": "json", "memory": 1024},
+            params={"token": api_key, "format": "json"},
             timeout=600,
         )
         resp.raise_for_status()
