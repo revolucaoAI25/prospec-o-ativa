@@ -189,6 +189,7 @@ def executar_automacao(auto: dict) -> None:
         limite = min(limite, saldo)
 
     # 3. API Keys
+    _apify_key_sched = perfil.get("apify_api_key", "")
     if tipo == "maps":
         # Tenta pool primeiro, cai na chave única se não houver pool
         from modules.database import selecionar_chave_maps, registrar_uso_maps, salvar_pool_maps_usuario
@@ -202,7 +203,7 @@ def executar_automacao(auto: dict) -> None:
                 api_key = perfil.get("maps_api_key_admin", "")
             else:
                 api_key = perfil.get("google_maps_api_key", "")
-        if not api_key:
+        if not api_key and not _apify_key_sched:
             registrar_execucao(auto_id, user_id, "error", erro="Chave Google Maps não configurada")
             _reagendar(auto)
             return
@@ -219,14 +220,13 @@ def executar_automacao(auto: dict) -> None:
 
     # 5. Executar busca
     resultados = []
+    _sched_used_apify = False
     try:
         if tipo == "maps":
-            from modules.google_maps import buscar as maps_buscar
-            resultados = maps_buscar(
+            _maps_kwargs = dict(
                 query_base=filtros.get("query_base", ""),
                 localidade=filtros.get("localidade", ""),
                 limite=limite,
-                api_key=api_key,
                 nicho=filtros.get("nicho", ""),
                 subnicho=filtros.get("subnicho", ""),
                 cidade=filtros.get("cidade", ""),
@@ -236,8 +236,23 @@ def executar_automacao(auto: dict) -> None:
                 show_phone=filtros.get("show_phone", True),
                 show_rating=filtros.get("show_rating", True),
             )
-            # Atualiza contador do pool
-            if _pool_sched and _pool_idx >= 0:
+            if api_key:
+                from modules.google_maps import buscar as maps_buscar, QuotaExceededError
+                try:
+                    resultados = maps_buscar(api_key=api_key, **_maps_kwargs)
+                except QuotaExceededError:
+                    if not _apify_key_sched:
+                        raise
+                    logger.info("Automação %s: cota Google Maps esgotada, usando Apify", auto_id)
+                    _sched_used_apify = True
+                    from modules.apify_maps import buscar as apify_buscar
+                    resultados = apify_buscar(api_key=_apify_key_sched, **_maps_kwargs)
+            else:
+                _sched_used_apify = True
+                from modules.apify_maps import buscar as apify_buscar
+                resultados = apify_buscar(api_key=_apify_key_sched, **_maps_kwargs)
+            # Atualiza contador do pool (somente se usou Google Maps)
+            if not _sched_used_apify and _pool_sched and _pool_idx >= 0:
                 from modules.database import salvar_pool_maps_por_user_id
                 salvar_pool_maps_por_user_id(
                     user_id,

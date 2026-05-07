@@ -20,6 +20,10 @@ import requests
 from typing import Callable, Optional
 
 PLACES_TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+
+
+class QuotaExceededError(RuntimeError):
+    """Raised when the Google Maps API daily quota is exhausted (OVER_QUERY_LIMIT)."""
 PLACES_DETAILS_URL     = "https://maps.googleapis.com/maps/api/place/details/json"
 
 # Campos de detalhe — sem rating/user_ratings_total (vêm do Text Search de graça)
@@ -103,6 +107,10 @@ def _coletar_places(
                 raise ValueError(
                     f"API negou o acesso: {data.get('error_message', '')}.\n"
                     "Verifique se a chave está correta e se a Places API está ativada."
+                )
+            if status == "OVER_QUERY_LIMIT":
+                raise QuotaExceededError(
+                    "Cota diária da API Google Maps esgotada."
                 )
             if status != "OK":
                 raise RuntimeError(

@@ -976,7 +976,9 @@ def pagina_busca():
             _pool_usr_check = obter_pool_maps_usuario()
             if _pool_usr_check:
                 gmaps_key = _pool_usr_check[0].get("key", "")
-    gmaps_ok  = bool(gmaps_key)
+    gmaps_ok        = bool(gmaps_key)
+    _apify_maps_key = st.session_state.get("apify_api_key_user", "")
+    maps_ok         = gmaps_ok or bool(_apify_maps_key)
 
     _insta_visible = st.session_state.get("instagram_visible", True)
     _tab_labels = ["🗺️  Google Maps  ·  com telefone", "🏢  CNPJ + filtros avançados"]
@@ -988,11 +990,13 @@ def pagina_busca():
     aba_insta = _tabs[2] if _insta_visible else None
 
     with aba_maps:
-        if not gmaps_ok:
+        if not maps_ok:
             if _maps_credits_enabled:
                 st.warning("Chave do Google Maps não configurada pelo administrador.", icon="⚠️")
             else:
                 st.warning("Chave do Google Maps não configurada. Acesse **Configurações → Google Maps API** para adicionar.", icon="⚠️")
+        elif not gmaps_ok and _apify_maps_key:
+            st.info("Nenhuma chave do Google Maps configurada. As buscas usarão **Apify** como provedor ($4 / 1.000 resultados).", icon="ℹ️")
         st.markdown('<div class="info-box">Melhor fonte para <strong>telefones</strong>. Até ~500 resultados com múltiplas buscas automáticas.</div>', unsafe_allow_html=True)
 
         col_n, col_s = st.columns(2)
@@ -1066,7 +1070,7 @@ def pagina_busca():
                     value=True, key="maps_show_rating",
                     help="Inclui avaliação e nº de reviews. Vem do Text Search — sem custo adicional.",
                 )
-            buscar_btn = st.form_submit_button("🔍 Buscar no Google Maps", disabled=not gmaps_ok, use_container_width=True, type="primary")
+            buscar_btn = st.form_submit_button("🔍 Buscar no Google Maps", disabled=not maps_ok, use_container_width=True, type="primary")
 
         if buscar_btn:
             cv, ev = cidade.strip(), estado.strip()
@@ -1090,7 +1094,6 @@ def pagina_busca():
             if _maps_err:
                 st.error(_maps_err)
             else:
-                from modules.google_maps import buscar as maps_buscar
                 qbase = query_custom.strip() if is_custom else nicho_data["query"]
                 nicho_lbl = qbase if is_custom else nicho_sel
                 sub_final = "" if (is_custom or subnicho_sel=="Todos (sem filtro)") else (sub_custom.strip() if subnicho_sel=="✏️ Personalizado..." else subnicho_sel)
@@ -1108,25 +1111,55 @@ def pagina_busca():
                     v = min(a / t, 1.0) if t and t > 0 else 0
                     prog.progress(v, text=str(m)[:120])
                 # ── Seleção de chave via pool (se configurado) ────────────────
-                from modules.database import obter_pool_maps_usuario, selecionar_chave_maps
-                _pool_ativo   = obter_pool_maps_usuario()
+                _pool_ativo   = []
                 _pool_key_idx = -1
                 _chave_busca  = gmaps_key
-                if _pool_ativo:
-                    _c, _pool_key_idx, _pool_ativo = selecionar_chave_maps(_pool_ativo)
-                    if _c:
-                        _chave_busca = _c
-                    elif not _chave_busca:
-                        prog.empty()
-                        st.error("Todas as chaves Maps atingiram o limite mensal. Adicione novas chaves ou aguarde o próximo mês.")
-                        st.stop()
+                if gmaps_ok:
+                    from modules.database import obter_pool_maps_usuario, selecionar_chave_maps
+                    _pool_ativo = obter_pool_maps_usuario()
+                    if _pool_ativo:
+                        _c, _pool_key_idx, _pool_ativo = selecionar_chave_maps(_pool_ativo)
+                        if _c:
+                            _chave_busca = _c
+                        elif not _chave_busca:
+                            if _apify_maps_key:
+                                _chave_busca = ""  # força fallback Apify
+                            else:
+                                prog.empty()
+                                st.error("Todas as chaves Maps atingiram o limite mensal. Adicione novas chaves ou configure uma chave Apify como fallback.")
+                                st.stop()
 
+                _used_apify = False
+                _excl = excl_tels_maps if apenas_novos_maps else None
                 try:
-                    res = maps_buscar(query_base=qbase, localidade=localidade, limite=lim,
-                                      api_key=_chave_busca, nicho=nicho_lbl, subnicho=sub_final,
-                                      cidade=cv, estado=ev, progress_callback=_cb,
-                                      exclude_phones=excl_tels_maps if apenas_novos_maps else None,
-                                      show_phone=show_phone_maps, show_rating=show_rating_maps)
+                    if _chave_busca:
+                        from modules.google_maps import buscar as maps_buscar, QuotaExceededError
+                        try:
+                            res = maps_buscar(query_base=qbase, localidade=localidade, limite=lim,
+                                              api_key=_chave_busca, nicho=nicho_lbl, subnicho=sub_final,
+                                              cidade=cv, estado=ev, progress_callback=_cb,
+                                              exclude_phones=_excl,
+                                              show_phone=show_phone_maps, show_rating=show_rating_maps)
+                        except QuotaExceededError:
+                            if not _apify_maps_key:
+                                raise RuntimeError("Cota Google Maps esgotada e nenhuma chave Apify configurada como fallback.")
+                            prog.progress(0, text="Cota Google Maps esgotada. Usando Apify como fallback…")
+                            _used_apify = True
+                            from modules.apify_maps import buscar as apify_buscar
+                            res = apify_buscar(query_base=qbase, localidade=localidade, limite=lim,
+                                               api_key=_apify_maps_key, nicho=nicho_lbl, subnicho=sub_final,
+                                               cidade=cv, estado=ev, progress_callback=_cb,
+                                               exclude_phones=_excl,
+                                               show_phone=show_phone_maps, show_rating=show_rating_maps)
+                    else:
+                        # Apify-only (sem chave Google Maps)
+                        _used_apify = True
+                        from modules.apify_maps import buscar as apify_buscar
+                        res = apify_buscar(query_base=qbase, localidade=localidade, limite=lim,
+                                           api_key=_apify_maps_key, nicho=nicho_lbl, subnicho=sub_final,
+                                           cidade=cv, estado=ev, progress_callback=_cb,
+                                           exclude_phones=_excl,
+                                           show_phone=show_phone_maps, show_rating=show_rating_maps)
                     prog.progress(1.0, text=f"Concluído! {len(res)} resultados.")
                     prog.empty()
                     st.session_state["maps_res"] = res
@@ -1136,8 +1169,8 @@ def pagina_busca():
                 except Exception as e:
                     prog.empty(); st.error(f"Erro: {e}"); st.session_state["maps_res"] = []
                 else:
-                    # Registra uso no pool
-                    if _pool_ativo and _pool_key_idx >= 0:
+                    # Registra uso no pool (somente se usou Google Maps)
+                    if not _used_apify and _pool_ativo and _pool_key_idx >= 0:
                         from modules.database import registrar_uso_maps, salvar_pool_maps_usuario
                         salvar_pool_maps_usuario(
                             registrar_uso_maps(_pool_ativo, _pool_key_idx, len(res))
@@ -2714,7 +2747,8 @@ def pagina_configuracoes():
         with st.expander("📸 Instagram (Apify API Key)", expanded=False):
             st.markdown(
                 "Insira sua própria chave Apify para usar a busca Instagram sem deduzir créditos da plataforma.  \n"
-                "Deixe em branco para usar a chave da plataforma (créditos serão debitados a cada extração)."
+                "Deixe em branco para usar a chave da plataforma (créditos serão debitados a cada extração).  \n"
+                "Esta chave também é usada como **fallback automático** na busca Google Maps quando a cota é esgotada ($4/1.000 resultados)."
             )
             _apify_cur = st.session_state.get("apify_api_key_user", "")
             apify_inp = st.text_input(
