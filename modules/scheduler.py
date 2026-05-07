@@ -190,10 +190,18 @@ def executar_automacao(auto: dict) -> None:
 
     # 3. API Keys
     if tipo == "maps":
-        if perfil.get("maps_credits_enabled"):
-            api_key = perfil.get("maps_api_key_admin", "")
-        else:
-            api_key = perfil.get("google_maps_api_key", "")
+        # Tenta pool primeiro, cai na chave única se não houver pool
+        from modules.database import selecionar_chave_maps, registrar_uso_maps, salvar_pool_maps_usuario
+        _pool_sched = perfil.get("maps_keys_pool") or []
+        _pool_idx   = -1
+        api_key     = ""
+        if _pool_sched:
+            api_key, _pool_idx, _pool_sched = selecionar_chave_maps(_pool_sched)
+        if not api_key:
+            if perfil.get("maps_credits_enabled"):
+                api_key = perfil.get("maps_api_key_admin", "")
+            else:
+                api_key = perfil.get("google_maps_api_key", "")
         if not api_key:
             registrar_execucao(auto_id, user_id, "error", erro="Chave Google Maps não configurada")
             _reagendar(auto)
@@ -225,7 +233,16 @@ def executar_automacao(auto: dict) -> None:
                 estado=filtros.get("estado", ""),
                 progress_callback=None,
                 exclude_phones=excl_tels,
+                show_phone=filtros.get("show_phone", True),
+                show_rating=filtros.get("show_rating", True),
             )
+            # Atualiza contador do pool
+            if _pool_sched and _pool_idx >= 0:
+                from modules.database import salvar_pool_maps_por_user_id
+                salvar_pool_maps_por_user_id(
+                    user_id,
+                    registrar_uso_maps(_pool_sched, _pool_idx, len(resultados)),
+                )
         else:  # cnpj
             from modules.casa_dos_dados import buscar as cdd_buscar
             resultados = cdd_buscar(

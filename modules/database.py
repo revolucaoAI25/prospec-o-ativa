@@ -455,3 +455,20 @@ def registrar_uso_maps(pool: list[dict], key_idx: int, calls: int) -> list[dict]
     if 0 <= key_idx < len(pool_copia):
         pool_copia[key_idx]["usage"] = int(pool_copia[key_idx].get("usage", 0)) + calls
     return pool_copia
+
+
+def salvar_pool_maps_por_user_id(user_id: str, pool: list[dict]) -> bool:
+    """Salva o pool de chaves Maps de um usuário específico (sem depender de session_state)."""
+    if not _OK:
+        return False
+    url = _get_secret("SUPABASE_URL")
+    key = _get_secret("SUPABASE_SERVICE_ROLE_KEY") or _get_secret("SUPABASE_ANON_KEY")
+    if not url or not key:
+        return False
+    try:
+        from supabase import create_client
+        sb = create_client(url, key)
+        sb.table("profiles").update({"maps_keys_pool": pool}).eq("id", user_id).execute()
+        return True
+    except Exception:
+        return False

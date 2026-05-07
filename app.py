@@ -2231,14 +2231,18 @@ def pagina_automacoes():
                             else cidade_auto or pais_final_auto
                         )
                     filtros_auto: dict = {
-                        "query_base": query_auto,
-                        "localidade": localidade_auto,
-                        "nicho":      nicho_auto if not is_custom_a else query_auto,
-                        "subnicho":   sub_auto,
-                        "cidade":     cidade_auto,
-                        "estado":     estado_auto,
-                        "pais":       pais_auto,
-                        "limite":     int(lim_auto_m),
+                        "query_base":  query_auto,
+                        "localidade":  localidade_auto,
+                        "nicho":       nicho_auto if not is_custom_a else query_auto,
+                        "subnicho":    sub_auto,
+                        "cidade":      cidade_auto,
+                        "estado":      estado_auto,
+                        "pais":        pais_auto,
+                        "limite":      int(lim_auto_m),
+                        "show_phone":  st.toggle("📞 Buscar telefone e site", value=True, key="an_show_phone",
+                                                  help="Chama Place Details (Contact Data). Com False: 5× mais buscas gratuitas/mês."),
+                        "show_rating": st.toggle("⭐ Incluir avaliações", value=True, key="an_show_rating",
+                                                  help="Vem do Text Search — sem custo adicional."),
                     }
 
                 else:  # cnpj
