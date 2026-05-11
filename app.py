@@ -1171,7 +1171,8 @@ def pagina_busca():
                 except ValueError as e:
                     prog.empty(); st.error(str(e)); st.session_state["maps_res"] = []
                 except Exception as e:
-                    prog.empty(); st.error(f"Erro: {e}"); st.session_state["maps_res"] = []
+                    logger.exception("Erro na busca Google Maps")
+                    prog.empty(); st.error("Ocorreu um erro inesperado na busca. Tente novamente."); st.session_state["maps_res"] = []
                 else:
                     # Registra uso no pool (somente se usou Google Maps)
                     if not _used_apify and _pool_ativo and _pool_key_idx >= 0:
@@ -1207,9 +1208,9 @@ def pagina_busca():
                     else:
                         st.error(_msg)
                 elif not st.session_state.get("sheets_creds"):
-                    st.warning("Auto-export: conta Google não vinculada.")
+                    st.warning("Exportação automática não realizada: conta Google não vinculada.")
                 else:
-                    st.warning("Auto-export: nenhuma planilha padrão ⭐ definida.")
+                    st.warning("Exportação automática não realizada: nenhuma planilha principal configurada.")
             st.success(f"✅ **{len(res)}** resultados")
             _stats(res); _dl_buttons(res, st.session_state.get("maps_prefix","prospecao"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
@@ -1420,8 +1421,9 @@ def pagina_busca():
                             st.session_state["rf_res"] = res_cdd
                             st.session_state["rf_prefix"] = f"cdd_{local_cdd.lower().replace(' ','_')}"
                         except Exception as e:
+                            logger.exception("Erro na busca CNPJ")
                             bar_cdd.empty()
-                            st.error(f"Erro: {e}")
+                            st.error("Ocorreu um erro inesperado na busca. Tente novamente.")
                             st.session_state["rf_res"] = []
                         else:
                             try:
@@ -1454,9 +1456,9 @@ def pagina_busca():
                         logger.exception("Falha no auto-export CNPJ para Sheets")
                         st.error("Exportação automática falhou. Seus resultados foram salvos — use o botão de download para baixar manualmente.")
                 elif not st.session_state.get("sheets_creds"):
-                    st.warning("Auto-export: conta Google não vinculada.")
+                    st.warning("Exportação automática não realizada: conta Google não vinculada.")
                 else:
-                    st.warning("Auto-export: nenhuma planilha padrão ⭐ definida.")
+                    st.warning("Exportação automática não realizada: nenhuma planilha principal configurada.")
             st.success(f"✅ **{len(res)}** resultados")
             _stats(res)
             if gmaps_ok and not st.session_state.get("_rf_enriched"):
@@ -1613,11 +1615,11 @@ def pagina_busca():
                             _alvo_slug = _alvo.strip().replace("/", "_").replace("@", "")[:20]
                             st.session_state["insta_prefix"] = f"instagram_{_tipo_val}_{_alvo_slug}"
                         except Exception as e:
+                            logger.exception("Erro na extração Instagram")
                             bar_insta.empty()
-                            _err = f"Erro na extração: {e}"
-                            st.session_state["_insta_error"] = _err
+                            st.session_state["_insta_error"] = "Não foi possível concluir a extração. Tente novamente."
                             st.session_state["insta_res"] = []
-                            st.toast(_err, icon="🚨")
+                            st.toast("Extração finalizada com erro.", icon="🚨")
                             st.rerun()
                         else:
                             try:
@@ -1654,9 +1656,9 @@ def pagina_busca():
                     else:
                         st.error(_msg)
                 elif not st.session_state.get("sheets_creds"):
-                    st.warning("Auto-export: conta Google não vinculada.")
+                    st.warning("Exportação automática não realizada: conta Google não vinculada.")
                 else:
-                    st.warning("Auto-export: nenhuma planilha padrão ⭐ definida.")
+                    st.warning("Exportação automática não realizada: nenhuma planilha principal configurada.")
             st.success(f"✅ **{len(res)}** resultados")
             _stats(res)
             _dl_buttons(
@@ -1823,7 +1825,8 @@ def _card_automacao(auto: dict) -> None:
                         _exec_auto(auto)
                         st.success("Execução concluída.")
                     except Exception as _exc:
-                        st.error(f"Erro: {_exc}")
+                        logger.exception("Erro ao executar automação manualmente")
+                        st.error("Não foi possível executar a automação. Tente novamente.")
                 st.rerun()
         with col_ed:
             _edit_key = f"_edit_aberto_{aid}"
@@ -2144,7 +2147,7 @@ def _card_automacao(auto: dict) -> None:
                         time.sleep(0.4)
                         st.rerun()
                     else:
-                        st.error("Erro ao salvar. Tente novamente.")
+                        st.error("Não foi possível salvar as alterações. Tente novamente.")
 
 
 def pagina_automacoes():
@@ -2462,7 +2465,7 @@ def pagina_automacoes():
                         time.sleep(0.5)
                         st.rerun()
                     else:
-                        st.error("Erro ao salvar a automação. Verifique as configurações do Supabase.")
+                        st.error("Não foi possível salvar a automação. Tente novamente.")
 
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -2569,7 +2572,7 @@ def pagina_configuracoes():
         else:
             # Exibe erro de OAuth persistente (não usa pop — sobrevive a reruns)
             if st.session_state.get("_oauth_err"):
-                st.error(f"Erro ao conectar conta Google:\n\n`{st.session_state['_oauth_err']}`", icon="❌")
+                st.error("Não foi possível conectar sua conta Google. Verifique as permissões e tente novamente.", icon="❌")
                 if st.button("✖ Fechar erro", key="clear_oauth_err"):
                     st.session_state.pop("_oauth_err", None)
                     st.rerun()
@@ -2833,7 +2836,8 @@ def pagina_admin():
     # ── Lista de usuários ────────────────────────────────────────────────────────
     ok, usuarios, err = listar_usuarios()
     if not ok:
-        st.error(f"Não foi possível carregar usuários: {err}")
+        logger.error("Erro ao carregar usuários: %s", err)
+        st.error("Não foi possível carregar a lista de usuários.")
         return
     if not usuarios:
         st.info("Nenhum usuário cadastrado.")
@@ -3231,7 +3235,7 @@ def main():
         if eh_admin():
             pagina_admin()
         else:
-            st.error("Acesso negado.")
+            st.error("Acesso não autorizado.")
     else:
         pagina_busca()
 
