@@ -29,23 +29,64 @@ A busca via Google Maps exige uma chave de API própria do Google. Essa chave é
 
 1. Acesse [console.cloud.google.com](https://console.cloud.google.com)
 2. Crie um projeto novo (ou use um existente)
-3. Ative a **Places API (New)** no menu de APIs e Serviços
-4. Vá em **Credenciais → Criar credencial → Chave de API**
-5. Copie a chave gerada
+3. No menu lateral, vá em **APIs e Serviços → Biblioteca**
+4. Pesquise por **"Places API"** (sem o "New") e ative-a
+5. Vá em **Credenciais → Criar credencial → Chave de API**
+6. Copie a chave gerada
+
+> **Atenção:** Ative a **Places API** (versão clássica), não a "Places API (New)". São produtos diferentes com preços e comportamentos distintos.
 
 **Como configurar no Lead Extractor:**
 
-1. Acesse a aba **Configurações** (ícone de engrenagem na sidebar)
-2. Cole a chave no campo **Chave API Google Maps**
-3. Clique em **Salvar configurações**
+1. Acesse **Configurações → Google Maps API**
+2. Cole a chave no campo correspondente
+3. Clique em **Salvar**
 
-> **Importante:** Guarde sua chave em local seguro e não a compartilhe. Ela é vinculada à sua conta no Google Cloud e controla seus limites de uso.
+**Pool de múltiplas chaves (opcional):**
+
+Você pode cadastrar várias chaves de API do Google Maps. O sistema usa cada uma automaticamente e alterna para a próxima quando o limite mensal de uma delas for atingido. Isso é útil para aumentar o volume de buscas sem custos extras imediatos.
+
+- Acesse **Configurações → Pool de Chaves Maps**
+- Adicione cada chave no campo e clique em **Adicionar**
+- O sistema mostra o uso atual de cada chave com indicadores 🟢 (livre) / 🟡 (perto do limite) / 🔴 (esgotada)
 
 > **Se o administrador da plataforma já configurou a chave:** o campo de API key não aparecerá para você — a chave já está ativa automaticamente na sua conta.
 
 ---
 
-### 1.2 Conectar Conta do Google (para exportação automática)
+### 1.2 Chave Apify (Fallback Automático para o Google Maps)
+
+O Apify é uma plataforma de extração de dados alternativa ao Google Maps. No Lead Extractor, ela funciona como **fallback automático**: quando a cota da sua chave do Google Maps é esgotada, ou se você não tem chave do Google Maps configurada, o sistema usa o Apify automaticamente para continuar a busca — sem interromper o fluxo e sem aviso ao usuário.
+
+**Custo:** $4 por 1.000 resultados (bem mais barato que o Google Maps quando a cota gratuita acaba).
+
+**Como criar uma conta no Apify:**
+
+1. Acesse [apify.com](https://apify.com) e clique em **Sign Up**
+2. Crie uma conta (pode usar Google ou e-mail)
+3. O plano gratuito inclui **$5 de crédito por mês** — suficiente para ~1.250 resultados mensais sem pagar nada
+4. Para volumes maiores, o plano **Starter** começa em $49/mês
+
+**Como obter sua chave de API:**
+
+1. Faça login em [console.apify.com](https://console.apify.com)
+2. No menu lateral esquerdo, clique em **Settings**
+3. Vá na aba **Integrations**
+4. Copie o **Personal API token** (começa com `apify_api_...`)
+
+**Como configurar no Lead Extractor:**
+
+1. Acesse **Configurações → 🤖 Apify API Key**
+2. Cole o token no campo
+3. Clique em **Salvar chave Apify**
+
+A partir daí o fallback está ativo. Se quiser usar **somente o Apify** (sem chave do Google Maps), basta não configurar a chave do Google Maps — o sistema detecta automaticamente e usa o Apify desde a primeira busca.
+
+---
+
+### 1.3 Conectar Conta do Google (para exportação automática)
+
+
 
 Para exportar resultados diretamente para o Google Sheets de forma automática, você precisa autorizar o Lead Extractor a acessar sua conta Google.
 
@@ -63,7 +104,7 @@ Após conectar, o Lead Extractor pode criar e atualizar planilhas automaticament
 
 ---
 
-### 1.3 Vincular Planilha Google
+### 1.4 Vincular Planilha Google
 
 Com a conta Google conectada, você pode escolher para qual planilha os leads serão exportados automaticamente.
 
@@ -142,30 +183,37 @@ Após a busca, você pode filtrar os resultados por:
 
 ---
 
-### 2.4 Limites de uso da API do Google Maps
+### 2.4 Limites de uso e custos
 
-Cada busca que você faz no Lead Extractor consome chamadas da sua API do Google.
+**Como o sistema faz as chamadas à API:**
 
-**Como as chamadas funcionam:**
-- **1 chamada** para fazer a busca de texto (encontrar os estabelecimentos)
-- **1 chamada por resultado** para buscar os detalhes (telefone, site, avaliações)
+Cada resultado retornado consome chamadas do Google Maps de acordo com o que você ativou:
 
-Ou seja: uma busca que retorna 20 leads = **21 chamadas** à API.
+| Configuração | Chamadas por resultado | Limite gratuito/mês |
+|---|---|---|
+| Telefone **ativado** | 2 (Text Search + Contact Data) | ~10.000 resultados |
+| Telefone **desativado** | 1 (só Text Search) | ~10.000 resultados |
 
-**Cota gratuita atual (a partir de março de 2025):**
-O Google oferece **10.000 chamadas gratuitas por mês** para a categoria de APIs que o Lead Extractor utiliza (Places API — categoria Essentials). Após esse limite, cada 1.000 chamadas adicionais custa entre **R$ 17 e R$ 32** (dependendo dos campos solicitados).
+A avaliação (estrelas e nº de reviews) vem embutida na primeira chamada — **sem custo adicional**.
 
-**Estimativa prática:**
-| Leads por busca | Buscas gratuitas/mês |
+**O que acontece quando a cota acaba:**
+
+Se todas as chaves do Google Maps atingirem o limite mensal e você tiver configurado uma chave Apify, o sistema troca automaticamente para o Apify e continua a busca normalmente. O custo no Apify é **$4 por 1.000 resultados** (valores em dólar, debitados do saldo da sua conta Apify).
+
+Se não houver chave Apify configurada, o sistema exibe um aviso e a busca é interrompida.
+
+**Custo além da cota gratuita do Google Maps:**
+
+| Tipo de chamada | Custo por 1.000 |
 |---|---|
-| 20 leads | ~476 buscas |
-| 50 leads | ~196 buscas |
-| 100 leads | ~99 buscas |
-| 300 leads | ~33 buscas |
+| Text Search (busca de texto) | US$ 32 |
+| Contact Data (telefone + site) | US$ 17 |
+| **Total com telefone ativado** | **US$ 49 / 1.000 resultados** |
+| **Total sem telefone** | **US$ 32 / 1.000 resultados** |
 
-> **Dica de economia:** Configure um limite de gastos diários no seu painel do Google Cloud Console para evitar cobranças inesperadas. Acesse **APIs e Serviços → Cotas** e defina um teto por dia.
+> **Dica de economia:** Configure um limite de gastos diários no Google Cloud Console para evitar cobranças inesperadas — acesse **Faturamento → Orçamentos e alertas**. Usar um pool de várias chaves também distribui o consumo e amplia a cota gratuita total.
 
-> **Importante:** Esses limites e valores são definidos pelo Google e podem mudar. Consulte sempre a [página oficial de preços do Google Maps Platform](https://mapsplatform.google.com/pricing/) para informações atualizadas.
+> **Importante:** Valores e limites são definidos pelo Google e podem mudar. Consulte a [página oficial de preços do Google Maps Platform](https://mapsplatform.google.com/pricing/) para informações atualizadas.
 
 ---
 
@@ -454,7 +502,7 @@ Antes de criar automações, certifique-se de que:
 
 - **Para automações Maps:** você tem uma chave de API do Google Maps configurada (ou o administrador configurou a chave da plataforma)
 - **Para automações CNPJ:** você tem créditos disponíveis na conta
-- **Para exportação:** sua conta Google está conectada e uma planilha está vinculada nas Configurações
+- **Para exportação:** sua conta Google está conectada e uma planilha está vinculada nas Configurações (seções 1.3 e 1.4)
 
 > **Importante:** As automações rodam em segundo plano no servidor enquanto a plataforma está ativa. Se você pausar uma automação e depois reativá-la, a próxima execução é recalculada automaticamente a partir do momento da reativação.
 
