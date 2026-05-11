@@ -857,13 +857,16 @@ def _export_to_planilha(rows, planilha: dict):
     if not creds:
         st.error("Conta Google não vinculada. Configure em ⚙️ Configurações.")
         return
-    with st.spinner(f"Exportando para {planilha['nome']}…"):
-        ok, msg = exportar(rows, creds, planilha["id"], planilha["aba"],
-                           planilha.get("modo", "substituir"))
-    if ok:
-        st.success(msg)
-    else:
-        st.error(msg)
+    try:
+        with st.spinner(f"Exportando para {planilha['nome']}…"):
+            ok, msg = exportar(rows, creds, planilha["id"], planilha["aba"],
+                               planilha.get("modo", "substituir"))
+        if ok:
+            st.success(msg)
+        else:
+            st.error(msg)
+    except Exception as e:
+        st.error(f"Erro ao exportar para Google Sheets: {e}")
 
 def _dl_buttons(rows, prefix, sheets_auth):
     ts = int(time.time())
@@ -1435,14 +1438,17 @@ def pagina_busca():
                 _padrao = next((p for p in _planilhas if p.get("padrao")), None)
                 if _padrao and st.session_state.get("sheets_creds"):
                     from modules.google_sheets import exportar
-                    with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
-                        _ok, _msg = exportar(res, st.session_state["sheets_creds"],
-                                             _padrao["id"], _padrao["aba"],
-                                             _padrao.get("modo","substituir"))
-                    if _ok:
-                        st.success(_msg)
-                    else:
-                        st.error(_msg)
+                    try:
+                        with st.spinner(f"Auto-exportando para {_padrao['nome']}…"):
+                            _ok, _msg = exportar(res, st.session_state["sheets_creds"],
+                                                 _padrao["id"], _padrao["aba"],
+                                                 _padrao.get("modo","substituir"))
+                        if _ok:
+                            st.success(_msg)
+                        else:
+                            st.error(_msg)
+                    except Exception as _ae:
+                        st.error(f"Auto-export falhou: {_ae}")
                 elif not st.session_state.get("sheets_creds"):
                     st.warning("Auto-export: conta Google não vinculada.")
                 else:
@@ -1490,7 +1496,10 @@ def pagina_busca():
                         except Exception as _enr_e:
                             _bar_enr.empty()
                             st.error(f"Erro no enriquecimento: {_enr_e}")
-            _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
+            try:
+                _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
+            except Exception as _dbe:
+                st.error(f"Erro ao gerar botões de exportação: {_dbe}")
             st.markdown("#### Prévia"); _tabela(res)
 
 
