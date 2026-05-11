@@ -1,8 +1,10 @@
 """Lead Extractor · Revolução AI"""
-import os, io, csv, time, json
+import os, io, csv, time, json, logging
 import streamlit as st
 from dotenv import load_dotenv
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 def _s(k, d=""):
     try:
@@ -866,7 +868,8 @@ def _export_to_planilha(rows, planilha: dict):
         else:
             st.error(msg)
     except Exception as e:
-        st.error(f"Erro ao exportar para Google Sheets: {e}")
+        logger.exception("Erro ao exportar para planilha '%s'", planilha.get("nome", ""))
+        st.error("Não foi possível exportar para o Google Sheets. Tente novamente ou reconecte sua conta Google em Configurações.")
 
 def _dl_buttons(rows, prefix, sheets_auth):
     ts = int(time.time())
@@ -1448,7 +1451,8 @@ def pagina_busca():
                         else:
                             st.error(_msg)
                     except Exception as _ae:
-                        st.error(f"Auto-export falhou: {_ae}")
+                        logger.exception("Falha no auto-export CNPJ para Sheets")
+                        st.error("Exportação automática falhou. Seus resultados foram salvos — use o botão de download para baixar manualmente.")
                 elif not st.session_state.get("sheets_creds"):
                     st.warning("Auto-export: conta Google não vinculada.")
                 else:
@@ -1499,7 +1503,8 @@ def pagina_busca():
             try:
                 _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             except Exception as _dbe:
-                st.error(f"Erro ao gerar botões de exportação: {_dbe}")
+                logger.exception("Erro ao renderizar botões de exportação CNPJ")
+                st.warning("Não foi possível gerar os arquivos de download. Tente recarregar a página.")
             st.markdown("#### Prévia"); _tabela(res)
 
 
