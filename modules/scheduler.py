@@ -279,6 +279,7 @@ def executar_automacao(auto: dict) -> None:
                 limite=limite,
                 exclude_phones=excl_tels,
                 exclude_cnpjs=excl_cnpjs,
+                cnae_tipo=filtros.get("cnae_tipo", "principal"),
             )
     except Exception as e:
         logger.error("Erro na busca da automação %s: %s", auto_id, e)

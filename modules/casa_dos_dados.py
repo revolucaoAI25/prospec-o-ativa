@@ -44,6 +44,7 @@ def buscar(
     exclude_phones: set | None = None,
     exclude_cnpjs: set | None = None,
     callback=None,
+    cnae_tipo: str = "principal",
 ) -> list[dict]:
     """
     Busca empresas na API da Casa dos Dados com filtros avançados.
@@ -82,6 +83,7 @@ def buscar(
 
         body = _montar_body(
             cnaes=cnaes,
+            cnae_tipo=cnae_tipo,
             uf=uf,
             municipio=municipio,
             porte=porte,
@@ -174,6 +176,7 @@ def _montar_body(
     data_abertura_inicio, data_abertura_fim,
     capital_min, capital_max,
     limite_pagina, pagina,
+    cnae_tipo: str = "principal",
 ) -> dict:
     body: dict = {
         "situacao_cadastral": ["ATIVA"],
@@ -182,7 +185,11 @@ def _montar_body(
     }
 
     if cnaes:
-        body["codigo_atividade_principal"] = [c.replace("-", "").replace("/", "").replace(".", "") for c in cnaes]
+        _cnaes_limpos = [c.replace("-", "").replace("/", "").replace(".", "") for c in cnaes]
+        if cnae_tipo in ("principal", "ambos"):
+            body["codigo_atividade_principal"] = _cnaes_limpos
+        if cnae_tipo in ("secundario", "ambos"):
+            body["codigo_atividade_secundaria"] = _cnaes_limpos
 
     if uf:
         body["uf"] = [uf.lower()]

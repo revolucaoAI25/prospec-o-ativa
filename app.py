@@ -1231,7 +1231,7 @@ def pagina_busca():
 
             with st.form("form_cdd"):
                 # ── CNAEs ──────────────────────────────────────────────────────
-                st.markdown("**CNAE(s) — Atividade principal**")
+                st.markdown("**CNAE(s)**")
                 cnaes_sel = st.multiselect(
                     "Selecione os CNAEs", OPCOES_MULTISELECT,
                     placeholder="Digite para buscar por código ou atividade…",
@@ -1241,6 +1241,11 @@ def pagina_busca():
                     "Ou adicione código CNAE manualmente (separe por vírgula)",
                     placeholder="Ex: 6911701, 6912500",
                     key="cdd_cnae_manual",
+                )
+                cnae_tipo_cdd = st.radio(
+                    "Considerar CNAE como",
+                    ["Primário", "Secundário", "Primário ou Secundário"],
+                    horizontal=True, key="cdd_cnae_tipo",
                 )
 
                 # ── Localização ───────────────────────────────────────────────
@@ -1378,6 +1383,7 @@ def pagina_busca():
                             v = min(a / max(t, 1), 1.0)
                             bar_cdd.progress(v, text=str(m)[:120])
 
+                        _cnae_tipo_map = {"Primário": "principal", "Secundário": "secundario", "Primário ou Secundário": "ambos"}
                         try:
                             res_cdd = cdd_buscar(
                                 api_key=cdd_key,
@@ -1403,6 +1409,7 @@ def pagina_busca():
                                 exclude_phones=excl_tels_cdd if apenas_novos_cdd else None,
                                 exclude_cnpjs=excl_cnpjs_cdd if apenas_novos_cdd else None,
                                 callback=_cb_cdd,
+                                cnae_tipo=_cnae_tipo_map.get(cnae_tipo_cdd, "principal"),
                             )
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
@@ -1958,6 +1965,14 @@ def _card_automacao(auto: dict) -> None:
                                               placeholder="Digite para buscar…", key=f"ed_{aid}_cnaes")
                     cnae_manual_ed = st.text_input("Ou adicione código manualmente (separado por vírgula)",
                                                     placeholder="6911701, 6912500", key=f"ed_{aid}_cnae_manual")
+                    _cnae_tipo_opts_e = ["Primário", "Secundário", "Primário ou Secundário"]
+                    _cnae_tipo_map_e  = {"principal": 0, "secundario": 1, "ambos": 2}
+                    _cnae_tipo_stored_e = filtros_e.get("cnae_tipo", "principal")
+                    cnae_tipo_ed = st.radio(
+                        "Considerar CNAE como", _cnae_tipo_opts_e,
+                        index=_cnae_tipo_map_e.get(_cnae_tipo_stored_e, 0),
+                        horizontal=True, key=f"ed_{aid}_cnae_tipo",
+                    )
                     fca, fcb, fcc = st.columns([2, 2, 2])
                     with fca:
                         _uf_stored = filtros_e.get("uf", "SP")
@@ -2100,8 +2115,10 @@ def _card_automacao(auto: dict) -> None:
                     if not _cnaes_cod_ed:
                         _erros_ed.append("Selecione ao menos um CNAE.")
                     _mfmap_ed = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
+                    _cnae_tipo_val_ed = {"Primário": "principal", "Secundário": "secundario", "Primário ou Secundário": "ambos"}.get(cnae_tipo_ed, "principal")
                     novos_filtros_ed = {
                         "cnaes":              _cnaes_cod_ed,
+                        "cnae_tipo":          _cnae_tipo_val_ed,
                         "uf":                 uf_ed,
                         "municipio":          mun_ed.strip(),
                         "limite":             int(lim_ed_c),
@@ -2304,6 +2321,11 @@ def pagina_automacoes():
                         "Ou adicione código manualmente (separado por vírgula)",
                         placeholder="6911701, 6912500", key="an_cnae_manual",
                     )
+                    cnae_tipo_a = st.radio(
+                        "Considerar CNAE como",
+                        ["Primário", "Secundário", "Primário ou Secundário"],
+                        horizontal=True, key="an_cnae_tipo",
+                    )
                     ca, cb, cc = st.columns([2, 2, 2])
                     with ca:
                         uf_a = st.selectbox("Estado *", SIGLAS_ESTADOS, index=SIGLAS_ESTADOS.index("SP"), key="an_uf")
@@ -2362,8 +2384,10 @@ def pagina_automacoes():
                     cnaes_codigos_a = list(dict.fromkeys(cnaes_codigos_a))
 
                     mf_map_a = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
+                    _cnae_tipo_val_a = {"Primário": "principal", "Secundário": "secundario", "Primário ou Secundário": "ambos"}.get(cnae_tipo_a, "principal")
                     filtros_auto = {
                         "cnaes":              cnaes_codigos_a,
+                        "cnae_tipo":          _cnae_tipo_val_a,
                         "uf":                 uf_a,
                         "municipio":          mun_a.strip(),
                         "limite":             int(lim_auto_c),
