@@ -885,28 +885,33 @@ def _dl_buttons(rows, prefix, sheets_auth):
     with c1:
         st.download_button("⬇️ Excel", _xlsx(rows), f"{prefix}_{ts}.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           use_container_width=True)
+                           use_container_width=True, key=f"dl_xlsx_{prefix}")
     with c2:
         st.download_button("⬇️ CSV", _csv(rows), f"{prefix}_{ts}.csv",
-                           "text/csv", use_container_width=True)
+                           "text/csv", use_container_width=True, key=f"dl_csv_{prefix}")
     with c3:
-        planilhas_cfg = st.session_state.get("sheets_planilhas", [])
-        if sheets_auth and planilhas_cfg:
-            with st.popover("📊 Google Sheets", use_container_width=True):
-                st.markdown("**Exportar para:**")
-                for p in planilhas_cfg:
-                    badge = " ⭐" if p.get("padrao") else ""
-                    lbl = f"{p['nome']}{badge} → {p['aba']} ({p.get('modo','substituir')})"
-                    if st.button(lbl, key=f"exp_{p['id'][:8]}_{prefix}", use_container_width=True):
-                        # Guarda flag — exportação roda fora do popover no próximo render
-                        st.session_state[f"_exp_req_{prefix}"] = p["id"]
-                        st.rerun()
-        elif sheets_auth:
+        try:
+            planilhas_cfg = st.session_state.get("sheets_planilhas", [])
+            if sheets_auth and planilhas_cfg:
+                with st.popover("📊 Google Sheets", use_container_width=True):
+                    st.markdown("**Exportar para:**")
+                    for p in planilhas_cfg:
+                        badge = " ⭐" if p.get("padrao") else ""
+                        lbl = f"{p['nome']}{badge} → {p['aba']} ({p.get('modo','substituir')})"
+                        if st.button(lbl, key=f"exp_{p['id'][:8]}_{prefix}", use_container_width=True):
+                            # Guarda flag — exportação roda fora do popover no próximo render
+                            st.session_state[f"_exp_req_{prefix}"] = p["id"]
+                            st.rerun()
+            elif sheets_auth:
+                st.button("📊 Google Sheets", use_container_width=True, disabled=True,
+                          help="Adicione uma planilha em ⚙️ Configurações.", key=f"dl_sheets_nop_{prefix}")
+            else:
+                st.button("📊 Google Sheets", use_container_width=True, disabled=True,
+                          help="Conecte sua conta Google em ⚙️ Configurações.", key=f"dl_sheets_dis_{prefix}")
+        except Exception:
+            logger.exception("Erro ao renderizar botão Google Sheets (prefix=%s)", prefix)
             st.button("📊 Google Sheets", use_container_width=True, disabled=True,
-                      help="Adicione uma planilha em ⚙️ Configurações.")
-        else:
-            st.button("📊 Google Sheets", use_container_width=True, disabled=True,
-                      help="Conecte sua conta Google em ⚙️ Configurações.")
+                      help="Erro ao carregar opções do Google Sheets.", key=f"dl_sheets_err_{prefix}")
 
 # ══════════════════════════════════════════════════════════════
 # PÁGINAS
@@ -1509,11 +1514,7 @@ def pagina_busca():
                         except Exception as _enr_e:
                             _bar_enr.empty()
                             st.error(f"Erro no enriquecimento: {_enr_e}")
-            try:
-                _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
-            except Exception as _dbe:
-                logger.exception("Erro ao renderizar botões de exportação CNPJ")
-                st.warning("Não foi possível gerar os arquivos de download. Tente recarregar a página.")
+            _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
 
 
