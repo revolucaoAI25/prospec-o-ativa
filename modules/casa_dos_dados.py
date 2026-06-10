@@ -46,6 +46,7 @@ def buscar(
     callback=None,
     cnae_tipo: str = "principal",
     busca_textual: list | None = None,
+    situacoes_cadastrais: list | None = None,
 ) -> list[dict]:
     """
     Busca empresas na API da Casa dos Dados com filtros avançados.
@@ -86,6 +87,7 @@ def buscar(
             cnaes=cnaes,
             cnae_tipo=cnae_tipo,
             busca_textual=busca_textual,
+            situacoes_cadastrais=situacoes_cadastrais,
             uf=uf,
             municipio=municipio,
             porte=porte,
@@ -180,9 +182,10 @@ def _montar_body(
     limite_pagina, pagina,
     cnae_tipo: str = "principal",
     busca_textual: list | None = None,
+    situacoes_cadastrais: list | None = None,
 ) -> dict:
     body: dict = {
-        "situacao_cadastral": ["ATIVA"],
+        "situacao_cadastral": situacoes_cadastrais or ["ATIVA"],
         "limite": limite_pagina,
         "pagina": pagina,
     }

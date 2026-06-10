@@ -1344,8 +1344,12 @@ def pagina_busca():
 
                 # Busca textual: modo Recuperação Judicial
                 _busca_textual_cdd = None
+                _situacoes_cdd = None
                 if rj_cdd:
                     _busca_textual_cdd = [{"texto": ["RECUPERACAO JUDICIAL"], "tipo_busca": "radical", "razao_social": True}]
+                    # Inclui SUSPENSA e INAPTA: empresas em RJ frequentemente perdem
+                    # o status ATIVA por atraso em obrigações fiscais
+                    _situacoes_cdd = ["ATIVA", "SUSPENSA", "INAPTA"]
 
                 if not cnaes_codigos and not rj_cdd:
                     st.error("Selecione ao menos um CNAE para buscar.")
@@ -1428,6 +1432,7 @@ def pagina_busca():
                                 callback=_cb_cdd,
                                 cnae_tipo=_cnae_tipo_map.get(cnae_tipo_cdd, "principal"),
                                 busca_textual=_busca_textual_cdd,
+                                situacoes_cadastrais=_situacoes_cdd,
                             )
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
@@ -1461,6 +1466,8 @@ def pagina_busca():
                             if st.session_state.get("auto_export_enabled"):
                                 st.session_state["_auto_exp_rf"] = True
 
+        if st.session_state.get("rf_res") is not None and not st.session_state.get("rf_res"):
+            st.info("Nenhuma empresa encontrada com os filtros aplicados. Tente ampliar os critérios de busca.")
         if st.session_state.get("rf_res"):
             res = st.session_state["rf_res"]
             if st.session_state.pop("_auto_exp_rf", False):

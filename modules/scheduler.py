@@ -261,8 +261,10 @@ def executar_automacao(auto: dict) -> None:
         else:  # cnpj
             from modules.casa_dos_dados import buscar as cdd_buscar
             _busca_txt = None
+            _sits_cdd = None
             if filtros.get("recuperacao_judicial"):
                 _busca_txt = [{"texto": ["RECUPERACAO JUDICIAL"], "tipo_busca": "radical", "razao_social": True}]
+                _sits_cdd = ["ATIVA", "SUSPENSA", "INAPTA"]
             resultados = cdd_buscar(
                 api_key=api_key,
                 cnaes=filtros.get("cnaes", []),
@@ -284,6 +286,7 @@ def executar_automacao(auto: dict) -> None:
                 exclude_cnpjs=excl_cnpjs,
                 cnae_tipo=filtros.get("cnae_tipo", "principal"),
                 busca_textual=_busca_txt,
+                situacoes_cadastrais=_sits_cdd,
             )
     except Exception as e:
         logger.error("Erro na busca da automação %s: %s", auto_id, e)
