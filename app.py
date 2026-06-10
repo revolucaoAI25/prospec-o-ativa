@@ -1346,10 +1346,10 @@ def pagina_busca():
                 _busca_textual_cdd = None
                 _situacoes_cdd = None
                 if rj_cdd:
-                    # Objeto único com tipo_busca "exata" (substring).
-                    # Múltiplos objetos no array são AND — usar apenas um.
+                    # Objeto único com tipo_busca "exata" = busca por substring.
+                    # Múltiplos objetos no array são AND — manter apenas um.
                     _busca_textual_cdd = [
-                        {"texto": ["recupera"], "tipo_busca": "exata", "razao_social": True, "nome_fantasia": True},
+                        {"texto": ["recuperacao judicial"], "tipo_busca": "exata", "razao_social": True, "nome_fantasia": True},
                     ]
                     # Inclui SUSPENSA e INAPTA: empresas em RJ frequentemente perdem
                     # o status ATIVA por atraso em obrigações fiscais
