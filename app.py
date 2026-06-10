@@ -1346,10 +1346,12 @@ def pagina_busca():
                 _busca_textual_cdd = None
                 _situacoes_cdd = None
                 if rj_cdd:
-                    # Único objeto — a API CDD normaliza acentos internamente.
-                    # tipo_busca "radical" busca pela raiz da palavra.
+                    # Testa variações de capitalização e radical curto.
+                    # Cada objeto é uma condição separada (OR entre eles).
                     _busca_textual_cdd = [
-                        {"texto": ["RECUPERACAO JUDICIAL"], "tipo_busca": "radical", "razao_social": True, "nome_fantasia": True},
+                        {"texto": ["recuperacao judicial"], "tipo_busca": "radical", "razao_social": True, "nome_fantasia": True},
+                        {"texto": ["recuperação judicial"], "tipo_busca": "radical", "razao_social": True, "nome_fantasia": True},
+                        {"texto": ["recupera"],             "tipo_busca": "radical", "razao_social": True, "nome_fantasia": True},
                     ]
                     # Inclui SUSPENSA e INAPTA: empresas em RJ frequentemente perdem
                     # o status ATIVA por atraso em obrigações fiscais
