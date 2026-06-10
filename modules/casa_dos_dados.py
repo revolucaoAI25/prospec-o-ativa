@@ -115,6 +115,7 @@ def buscar(
 
         if pagina == 1:
             logger.info("CDD request body: %s", json.dumps(body, ensure_ascii=False))
+            print(f"[CDD DEBUG] body pág 1: {json.dumps(body, ensure_ascii=False)}", flush=True)
 
         try:
             resp = requests.post(
@@ -144,6 +145,7 @@ def buscar(
             total_api = data.get("total", 0)
             if pagina == 1:
                 logger.info("CDD total na API: %s", total_api)
+                print(f"[CDD DEBUG] total na API: {total_api}", flush=True)
 
         if not itens:
             break
