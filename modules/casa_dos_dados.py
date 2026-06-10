@@ -114,7 +114,7 @@ def buscar(
         )
 
         if pagina == 1:
-            logger.debug("CDD body pág 1: %s", json.dumps(body, ensure_ascii=False))
+            logger.info("CDD request body: %s", json.dumps(body, ensure_ascii=False))
 
         try:
             resp = requests.post(
@@ -142,6 +142,8 @@ def buscar(
         itens = data.get("cnpjs", [])
         if total_api is None:
             total_api = data.get("total", 0)
+            if pagina == 1:
+                logger.info("CDD total na API: %s", total_api)
 
         if not itens:
             break

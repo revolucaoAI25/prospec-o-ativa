@@ -1346,12 +1346,10 @@ def pagina_busca():
                 _busca_textual_cdd = None
                 _situacoes_cdd = None
                 if rj_cdd:
-                    # Dois objetos separados = OR entre eles (com e sem acento).
-                    # Cada objeto usa um único texto para evitar AND implícito dentro do array.
-                    # tipo_busca "radical" captura variações de sufixo: RECUPERACAO, RECUPERAÇÃO, etc.
+                    # Único objeto — a API CDD normaliza acentos internamente.
+                    # tipo_busca "radical" busca pela raiz da palavra.
                     _busca_textual_cdd = [
                         {"texto": ["RECUPERACAO JUDICIAL"], "tipo_busca": "radical", "razao_social": True, "nome_fantasia": True},
-                        {"texto": ["RECUPERAÇÃO JUDICIAL"], "tipo_busca": "radical", "razao_social": True, "nome_fantasia": True},
                     ]
                     # Inclui SUSPENSA e INAPTA: empresas em RJ frequentemente perdem
                     # o status ATIVA por atraso em obrigações fiscais
@@ -1456,11 +1454,13 @@ def pagina_busca():
                                 st.session_state.pop("_rf_enriched", None)
                             st.session_state["rf_res"] = res_cdd
                             st.session_state["rf_prefix"] = f"cdd_{local_cdd.lower().replace(' ','_')}"
+                            st.session_state["_last_rj_mode"] = rj_cdd
                         except Exception as e:
                             logger.exception("Erro na busca CNPJ")
                             bar_cdd.empty()
                             st.error("Ocorreu um erro inesperado na busca. Tente novamente.")
                             st.session_state["rf_res"] = []
+                            st.session_state["_last_rj_mode"] = rj_cdd
                         else:
                             try:
                                 from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos
@@ -1473,7 +1473,10 @@ def pagina_busca():
                                 st.session_state["_auto_exp_rf"] = True
 
         if st.session_state.get("rf_res") is not None and not st.session_state.get("rf_res"):
-            st.info("Nenhuma empresa encontrada com os filtros aplicados. Tente ampliar os critérios de busca.")
+            _msg_vazio = "Nenhuma empresa encontrada com os filtros aplicados."
+            if st.session_state.get("_last_rj_mode"):
+                _msg_vazio += " No modo Recuperação Judicial, verifique se o filtro **Apenas com telefone** está desmarcado nos filtros da empresa."
+            st.info(_msg_vazio)
         if st.session_state.get("rf_res"):
             res = st.session_state["rf_res"]
             if st.session_state.pop("_auto_exp_rf", False):
