@@ -45,6 +45,7 @@ def buscar(
     exclude_cnpjs: set | None = None,
     callback=None,
     cnae_tipo: str = "principal",
+    busca_textual: list | None = None,
 ) -> list[dict]:
     """
     Busca empresas na API da Casa dos Dados com filtros avançados.
@@ -84,6 +85,7 @@ def buscar(
         body = _montar_body(
             cnaes=cnaes,
             cnae_tipo=cnae_tipo,
+            busca_textual=busca_textual,
             uf=uf,
             municipio=municipio,
             porte=porte,
@@ -177,12 +179,16 @@ def _montar_body(
     capital_min, capital_max,
     limite_pagina, pagina,
     cnae_tipo: str = "principal",
+    busca_textual: list | None = None,
 ) -> dict:
     body: dict = {
         "situacao_cadastral": ["ATIVA"],
         "limite": limite_pagina,
         "pagina": pagina,
     }
+
+    if busca_textual:
+        body["busca_textual"] = busca_textual
 
     if cnaes:
         _cnaes_limpos = [c.replace("-", "").replace("/", "").replace(".", "") for c in cnaes]
@@ -313,6 +319,13 @@ def _mapear_lead(item: dict) -> dict:
     simples_optante = "Sim" if simples_obj.get("optante") else "Não"
     mei_optante = "Sim" if mei_obj.get("optante") else "Não"
 
+    # Situação especial (ex: "EM RECUPERACAO JUDICIAL")
+    sit_esp = item.get("situacao_especial") or {}
+    if isinstance(sit_esp, dict):
+        situacao_especial = sit_esp.get("descricao", "") or ""
+    else:
+        situacao_especial = str(sit_esp) if sit_esp else ""
+
     return {
         "nome":             nome,
         "cnpj":             item.get("cnpj", ""),
@@ -337,6 +350,7 @@ def _mapear_lead(item: dict) -> dict:
         "capital_social":   str(item.get("capital_social", "") or ""),
         "simples_optante":  simples_optante,
         "mei_optante":      mei_optante,
+        "situacao_especial": situacao_especial,
         "socio_principal":  socio_principal,
         "cidade_busca":     end.get("municipio", ""),
         "estado_busca":     end.get("uf", "").upper(),

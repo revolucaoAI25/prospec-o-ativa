@@ -845,7 +845,7 @@ def _tabela(rows):
         "municipio","uf","endereco","cep",
         "cnpj","nicho_busca","cnae_codigo","subnicho_busca","matriz_filial",
         "natureza_juridica","data_abertura","capital_social",
-        "simples_optante","mei_optante","socio_principal",
+        "simples_optante","mei_optante","situacao_especial","socio_principal",
         "site","avaliacao","total_avaliacoes","maps_url",
     ]
     lm={c:l for c,l in ALL_COLS}; df=pd.DataFrame(rows)
@@ -1253,6 +1253,13 @@ def pagina_busca():
                     horizontal=True, key="cdd_cnae_tipo",
                 )
 
+                # ── Recuperação Judicial ───────────────────────────────────────
+                rj_cdd = st.checkbox(
+                    "🏛️ Apenas empresas em Recuperação Judicial",
+                    key="cdd_rj",
+                    help="Filtra pela razão social contendo 'RECUPERACAO JUDICIAL'. CNAE torna-se opcional.",
+                )
+
                 # ── Localização ───────────────────────────────────────────────
                 c1, c2 = st.columns(2)
                 with c1:
@@ -1335,7 +1342,12 @@ def pagina_busca():
                     cnaes_codigos += [c.strip() for c in cnae_manual.split(",") if c.strip()]
                 cnaes_codigos = list(dict.fromkeys(cnaes_codigos))  # deduplication mantendo ordem
 
-                if not cnaes_codigos:
+                # Busca textual: modo Recuperação Judicial
+                _busca_textual_cdd = None
+                if rj_cdd:
+                    _busca_textual_cdd = [{"texto": ["RECUPERACAO JUDICIAL"], "tipo_busca": "radical", "razao_social": True}]
+
+                if not cnaes_codigos and not rj_cdd:
                     st.error("Selecione ao menos um CNAE para buscar.")
                 else:
                     from modules.database import obter_creditos
@@ -1415,6 +1427,7 @@ def pagina_busca():
                                 exclude_cnpjs=excl_cnpjs_cdd if apenas_novos_cdd else None,
                                 callback=_cb_cdd,
                                 cnae_tipo=_cnae_tipo_map.get(cnae_tipo_cdd, "principal"),
+                                busca_textual=_busca_textual_cdd,
                             )
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
@@ -1974,6 +1987,12 @@ def _card_automacao(auto: dict) -> None:
                         index=_cnae_tipo_map_e.get(_cnae_tipo_stored_e, 0),
                         horizontal=True, key=f"ed_{aid}_cnae_tipo",
                     )
+                    rj_ed = st.checkbox(
+                        "🏛️ Apenas empresas em Recuperação Judicial",
+                        value=filtros_e.get("recuperacao_judicial", False),
+                        key=f"ed_{aid}_rj",
+                        help="Filtra pela razão social contendo 'RECUPERACAO JUDICIAL'. CNAE torna-se opcional.",
+                    )
                     fca, fcb, fcc = st.columns([2, 2, 2])
                     with fca:
                         _uf_stored = filtros_e.get("uf", "SP")
@@ -2113,13 +2132,14 @@ def _card_automacao(auto: dict) -> None:
                     if cnae_manual_ed.strip():
                         _cnaes_cod_ed += [c.strip() for c in cnae_manual_ed.split(",") if c.strip()]
                     _cnaes_cod_ed = list(dict.fromkeys(_cnaes_cod_ed))
-                    if not _cnaes_cod_ed:
+                    if not _cnaes_cod_ed and not rj_ed:
                         _erros_ed.append("Selecione ao menos um CNAE.")
                     _mfmap_ed = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
                     _cnae_tipo_val_ed = {"Primário": "principal", "Secundário": "secundario", "Primário ou Secundário": "ambos"}.get(cnae_tipo_ed, "principal")
                     novos_filtros_ed = {
                         "cnaes":              _cnaes_cod_ed,
                         "cnae_tipo":          _cnae_tipo_val_ed,
+                        "recuperacao_judicial": rj_ed,
                         "uf":                 uf_ed,
                         "municipio":          mun_ed.strip(),
                         "limite":             int(lim_ed_c),
@@ -2327,6 +2347,11 @@ def pagina_automacoes():
                         ["Primário", "Secundário", "Primário ou Secundário"],
                         horizontal=True, key="an_cnae_tipo",
                     )
+                    rj_a = st.checkbox(
+                        "🏛️ Apenas empresas em Recuperação Judicial",
+                        key="an_rj",
+                        help="Filtra pela razão social contendo 'RECUPERACAO JUDICIAL'. CNAE torna-se opcional.",
+                    )
                     ca, cb, cc = st.columns([2, 2, 2])
                     with ca:
                         uf_a = st.selectbox("Estado *", SIGLAS_ESTADOS, index=SIGLAS_ESTADOS.index("SP"), key="an_uf")
@@ -2389,6 +2414,7 @@ def pagina_automacoes():
                     filtros_auto = {
                         "cnaes":              cnaes_codigos_a,
                         "cnae_tipo":          _cnae_tipo_val_a,
+                        "recuperacao_judicial": rj_a,
                         "uf":                 uf_a,
                         "municipio":          mun_a.strip(),
                         "limite":             int(lim_auto_c),
@@ -2457,7 +2483,7 @@ def pagina_automacoes():
                     erros.append("Informe um nome para a automação.")
                 if tipo_val == "maps" and not localidade_auto:
                     erros.append("Informe ao menos a cidade ou o estado.")
-                if tipo_val == "cnpj" and not filtros_auto.get("cnaes"):
+                if tipo_val == "cnpj" and not filtros_auto.get("cnaes") and not filtros_auto.get("recuperacao_judicial"):
                     erros.append("Selecione ao menos um CNAE.")
                 if not dias_sel:
                     erros.append("Selecione ao menos um dia da semana.")

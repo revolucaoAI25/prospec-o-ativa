@@ -57,6 +57,7 @@ COLUNAS_EXPORT = [
     ("capital_social",   "Capital Social (R$)"),
     ("simples_optante",  "Simples Nacional"),
     ("mei_optante",      "MEI"),
+    ("situacao_especial", "Situação Especial"),
     ("tipo_telefone",    "Tipo Telefone"),
     ("socio_principal",  "Sócio Principal"),
     ("cidade_busca",     "Cidade Buscada"),
