@@ -10,7 +10,11 @@ Configuração necessária (Streamlit Secrets):
 
 from __future__ import annotations
 
+import json
+import logging
 import requests
+
+logger = logging.getLogger(__name__)
 
 _ENDPOINT = "https://api.casadosdados.com.br/v5/cnpj/pesquisa"
 _MAX_POR_PAGINA = 1000  # limite máximo aceito pela API por requisição
@@ -109,6 +113,9 @@ def buscar(
             pagina=pagina,
         )
 
+        if pagina == 1:
+            logger.debug("CDD body pág 1: %s", json.dumps(body, ensure_ascii=False))
+
         try:
             resp = requests.post(
                 _ENDPOINT,
@@ -117,6 +124,8 @@ def buscar(
                 json=body,
                 timeout=30,
             )
+            if not resp.ok:
+                logger.warning("CDD HTTP %s: %s", resp.status_code, resp.text[:500])
             resp.raise_for_status()
             data = resp.json()
         except requests.exceptions.HTTPError as e:

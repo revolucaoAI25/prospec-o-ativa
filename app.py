@@ -1346,13 +1346,13 @@ def pagina_busca():
                 _busca_textual_cdd = None
                 _situacoes_cdd = None
                 if rj_cdd:
-                    # Inclui variações com e sem acento; busca em razão social e nome fantasia
-                    _busca_textual_cdd = [{
-                        "texto": ["RECUPERACAO JUDICIAL", "RECUPERAÇÃO JUDICIAL"],
-                        "tipo_busca": "radical",
-                        "razao_social": True,
-                        "nome_fantasia": True,
-                    }]
+                    # Dois objetos separados = OR entre eles (com e sem acento).
+                    # Cada objeto usa um único texto para evitar AND implícito dentro do array.
+                    # tipo_busca "radical" captura variações de sufixo: RECUPERACAO, RECUPERAÇÃO, etc.
+                    _busca_textual_cdd = [
+                        {"texto": ["RECUPERACAO JUDICIAL"], "tipo_busca": "radical", "razao_social": True, "nome_fantasia": True},
+                        {"texto": ["RECUPERAÇÃO JUDICIAL"], "tipo_busca": "radical", "razao_social": True, "nome_fantasia": True},
+                    ]
                     # Inclui SUSPENSA e INAPTA: empresas em RJ frequentemente perdem
                     # o status ATIVA por atraso em obrigações fiscais
                     _situacoes_cdd = ["ATIVA", "SUSPENSA", "INAPTA"]
@@ -1423,12 +1423,10 @@ def pagina_busca():
                                 excluir_simples=excluir_simples,
                                 mei_optante=mei_optante,
                                 excluir_mei=excluir_mei,
-                                # No modo RJ ignora o filtro de telefone: empresas
-                                # em recuperação judicial costumam ter contato desatualizado
-                                com_telefone=False if rj_cdd else com_tel,
+                                com_telefone=com_tel,
                                 com_email=com_email_cdd,
-                                somente_celular=False if rj_cdd else so_cel,
-                                somente_fixo=False if rj_cdd else so_fix,
+                                somente_celular=so_cel,
+                                somente_fixo=so_fix,
                                 excluir_email_contab=excl_contab,
                                 data_abertura_inicio=dt_ini_str,
                                 data_abertura_fim=dt_fim_str,
