@@ -1437,6 +1437,7 @@ def pagina_busca():
                                 cnae_tipo=_cnae_tipo_map.get(cnae_tipo_cdd, "principal"),
                                 busca_textual=_busca_textual_cdd,
                                 situacoes_cadastrais=_situacoes_cdd,
+                                dedup_raiz=bool(rj_cdd),
                             )
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
@@ -1787,7 +1788,7 @@ def pagina_historico():
                         for _ph in _planilhas_h:
                             _badge = " ⭐" if _ph.get("padrao") else ""
                             _lbl = f"{_ph['nome']}{_badge} → {_ph['aba']} ({_ph.get('modo','substituir')})"
-                            if st.button(_lbl, key=f"hexp_{_ph['id'][:8]}_{p['id'][:8]}", use_container_width=True):
+                            if st.button(_lbl, key=f"hexp_{_ph['id']}_{p['id']}", use_container_width=True):
                                 st.session_state[f"_hexp_req_{p['id']}"] = _ph["id"]
                                 st.rerun()
                 else:

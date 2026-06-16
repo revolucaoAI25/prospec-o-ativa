@@ -185,6 +185,29 @@ def listar_abas(creds_dict: dict, sheet_id: str) -> list[str]:
     return [s["properties"]["title"] for s in meta.get("sheets", [])]
 
 
+def _garantir_linhas(service, sheet_id: str, meta: dict, aba_nome: str, linhas_necessarias: int) -> None:
+    """Expande a aba se ela não tiver linhas suficientes."""
+    for sheet in meta.get("sheets", []):
+        props = sheet.get("properties", {})
+        if props.get("title") != aba_nome:
+            continue
+        sheet_id_int = props.get("sheetId")
+        grid = props.get("gridProperties", {})
+        linhas_atuais = grid.get("rowCount", 1000)
+        if linhas_necessarias <= linhas_atuais:
+            return
+        adicionar = linhas_necessarias - linhas_atuais + 100  # margem extra
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={"requests": [{"appendDimension": {
+                "sheetId": sheet_id_int,
+                "dimension": "ROWS",
+                "length": adicionar,
+            }}]},
+        ).execute()
+        return
+
+
 def exportar(
     resultados: list[dict],
     creds_dict: dict,
@@ -233,6 +256,9 @@ def exportar(
 
     try:
         escaped_aba = aba_nome.replace("'", "''")
+
+        # Garante que a aba tem linhas suficientes para os dados
+        _garantir_linhas(service, sheet_id, meta, aba_nome, len(linhas) + 5)
 
         upd_resp = None
         if modo == "substituir":

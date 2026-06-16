@@ -51,6 +51,7 @@ def buscar(
     cnae_tipo: str = "principal",
     busca_textual: list | None = None,
     situacoes_cadastrais: list | None = None,
+    dedup_raiz: bool = False,
 ) -> list[dict]:
     """
     Busca empresas na API da Casa dos Dados com filtros avançados.
@@ -176,6 +177,18 @@ def buscar(
             break
 
         pagina += 1
+
+    if dedup_raiz:
+        seen_raiz: set = set()
+        deduped: list[dict] = []
+        for r in resultados:
+            raiz = (r.get("cnpj") or "")[:8]
+            if raiz and raiz in seen_raiz:
+                continue
+            if raiz:
+                seen_raiz.add(raiz)
+            deduped.append(r)
+        resultados = deduped
 
     return resultados[:limite]
 
