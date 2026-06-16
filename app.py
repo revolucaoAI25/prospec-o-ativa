@@ -1785,10 +1785,10 @@ def pagina_historico():
                 if "sheets_creds" in st.session_state and _planilhas_h:
                     with st.popover("📊 Google Sheets", use_container_width=True):
                         st.markdown("**Exportar para:**")
-                        for _ph in _planilhas_h:
+                        for _pi, _ph in enumerate(_planilhas_h):
                             _badge = " ⭐" if _ph.get("padrao") else ""
                             _lbl = f"{_ph['nome']}{_badge} → {_ph['aba']} ({_ph.get('modo','substituir')})"
-                            if st.button(_lbl, key=f"hexp_{_ph['id']}_{p['id']}", use_container_width=True):
+                            if st.button(_lbl, key=f"hexp_{_pi}_{_ph['id']}_{p['id']}", use_container_width=True):
                                 st.session_state[f"_hexp_req_{p['id']}"] = _ph["id"]
                                 st.rerun()
                 else:

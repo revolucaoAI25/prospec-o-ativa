@@ -257,11 +257,9 @@ def exportar(
     try:
         escaped_aba = aba_nome.replace("'", "''")
 
-        # Garante que a aba tem linhas suficientes para os dados
-        _garantir_linhas(service, sheet_id, meta, aba_nome, len(linhas) + 5)
-
         upd_resp = None
         if modo == "substituir":
+            _garantir_linhas(service, sheet_id, meta, aba_nome, len(linhas) + 1)
             # Limpa a aba inteira
             service.spreadsheets().values().clear(
                 spreadsheetId=sheet_id,
@@ -285,6 +283,7 @@ def exportar(
             next_row = len(col_a.get("values", [])) + 1  # 1-indexed
 
             if next_row == 1:
+                _garantir_linhas(service, sheet_id, meta, aba_nome, len(linhas) + 1)
                 # Aba vazia — escreve com cabeçalho + dados a partir de A1
                 upd_resp = service.spreadsheets().values().update(
                     spreadsheetId=sheet_id,
@@ -293,6 +292,7 @@ def exportar(
                     body={"values": [cabecalho] + linhas},
                 ).execute()
             else:
+                _garantir_linhas(service, sheet_id, meta, aba_nome, next_row + len(linhas) - 1)
                 # Há dados — escreve somente as linhas de dados abaixo da última
                 upd_resp = service.spreadsheets().values().update(
                     spreadsheetId=sheet_id,
