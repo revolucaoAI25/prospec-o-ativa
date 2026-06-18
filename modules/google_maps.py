@@ -82,7 +82,8 @@ def _coletar_places(
     vistos: set[str] = set()
     places: list[dict] = []
 
-    max_queries = min(len(_MODIFICADORES), -(-limite // 60))
+    # Sempre roda ao menos 3 variações de query para cobrir mais resultados
+    max_queries = min(len(_MODIFICADORES), max(3, -(-limite // 60)))
 
     for mod_idx in range(max_queries):
         if len(places) >= limite:
@@ -188,7 +189,12 @@ def buscar(
     if subnicho:
         query_completa = f"{query_base} {subnicho.lower()} em {localidade}"
 
-    fetch_limit = limite if not exclude_phones else min(len(_MODIFICADORES) * 60, limite * 3)
+    _max_pool = len(_MODIFICADORES) * 60
+    if exclude_phones:
+        fetch_limit = min(_max_pool, limite * 3)
+    else:
+        # Busca o dobro para compensar deduplicação entre queries, mínimo 60
+        fetch_limit = min(_max_pool, max(limite * 2, 60))
 
     log(0, limite, f"Coletando resultados para: {query_completa}")
     places = _coletar_places(query_completa, api_key, fetch_limit, log)
