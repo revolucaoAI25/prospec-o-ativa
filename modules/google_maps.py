@@ -47,9 +47,11 @@ _MODIFICADORES = [
 
 
 def _text_search(query: str, api_key: str, page_token: str = None) -> dict:
-    params = {"query": query, "language": "pt-BR", "key": api_key}
     if page_token:
-        params["pagetoken"] = page_token
+        # Google exige que pagetoken seja enviado sozinho (sem query/language)
+        params = {"pagetoken": page_token, "key": api_key}
+    else:
+        params = {"query": query, "language": "pt-BR", "key": api_key}
     resp = requests.get(PLACES_TEXT_SEARCH_URL, params=params, timeout=15)
     resp.raise_for_status()
     return resp.json()
@@ -112,6 +114,10 @@ def _coletar_places(
                 raise QuotaExceededError(
                     "Cota diária da API Google Maps esgotada."
                 )
+            if status == "INVALID_REQUEST":
+                # Geralmente ocorre quando o page_token ainda não está pronto
+                # ou a requisição tem parâmetros inválidos — encerra esta página
+                break
             if status != "OK":
                 raise RuntimeError(
                     f"Erro da API: {status} — {data.get('error_message', '')}"

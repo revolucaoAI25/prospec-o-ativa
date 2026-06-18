@@ -1177,7 +1177,7 @@ def pagina_busca():
                     prog.empty(); st.error(str(e)); st.session_state["maps_res"] = []
                 except Exception as e:
                     logger.exception("Erro na busca Google Maps")
-                    prog.empty(); st.error(f"Erro na busca: {e}"); st.session_state["maps_res"] = []
+                    prog.empty(); st.error("Ocorreu um erro inesperado na busca. Tente novamente."); st.session_state["maps_res"] = []
                 else:
                     # Registra uso no pool (somente se usou Google Maps)
                     if not _used_apify and _pool_ativo and _pool_key_idx >= 0:
