@@ -51,7 +51,11 @@ if st.session_state.get("_oauth_code_seen") and "sheets_creds" not in st.session
             st.session_state.pop("_oauth_exchange_done", None)  # limpa flag após sucesso
             if "user" in st.session_state:
                 from modules.database import salvar_configuracoes
-                salvar_configuracoes({"google_sheets_creds": creds})
+                salvar_configuracoes({"google_sheets_creds": {
+                    "oauth":       creds,
+                    "planilhas":   st.session_state.get("sheets_planilhas", []),
+                    "auto_export": st.session_state.get("auto_export_enabled", False),
+                }})
             else:
                 st.session_state["_pending_sheets_save"] = True
         except Exception as e:
@@ -2816,12 +2820,25 @@ def pagina_configuracoes():
                             st.rerun()
 
                 st.markdown("")
-                if st.button("🔓 Desconectar conta Google", key="disc_google"):
-                    for k in ["sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista"]:
-                        st.session_state.pop(k, None)
-                    salvar_configuracoes({"google_sheets_creds": None})
-                    st.rerun()
+                _bc1, _bc2 = st.columns(2)
+                with _bc1:
+                    if st.button("🔄 Renovar conexão", key="renew_google", use_container_width=True, help="Renova o token Google sem apagar suas planilhas"):
+                        _pl = st.session_state.get("sheets_planilhas", [])
+                        _ae = st.session_state.get("auto_export_enabled", False)
+                        for k in ["sheets_creds", "sheets_lista"]:
+                            st.session_state.pop(k, None)
+                        salvar_configuracoes({"google_sheets_creds": {"oauth": None, "planilhas": _pl, "auto_export": _ae}})
+                        st.rerun()
+                with _bc2:
+                    if st.button("🔓 Desconectar", key="disc_google", use_container_width=True, help="Remove a conta Google e todas as planilhas configuradas"):
+                        for k in ["sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista"]:
+                            st.session_state.pop(k, None)
+                        salvar_configuracoes({"google_sheets_creds": None})
+                        st.rerun()
             else:
+                _planilhas_salvas = st.session_state.get("sheets_planilhas", [])
+                if _planilhas_salvas:
+                    st.info(f"Suas {len(_planilhas_salvas)} planilha(s) configurada(s) serão restauradas automaticamente após reconectar.", icon="ℹ️")
                 url = gerar_url_auth(cid, cs, ru)
                 st.link_button("🔗 Conectar conta Google", url, use_container_width=True)
 

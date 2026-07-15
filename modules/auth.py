@@ -91,7 +91,8 @@ def _carregar_sheets_state(raw):
     if not raw:
         return
     if isinstance(raw, dict) and "oauth" in raw:
-        st.session_state["sheets_creds"]        = raw["oauth"]
+        if raw["oauth"]:  # só define sheets_creds se o token OAuth existe
+            st.session_state["sheets_creds"]    = raw["oauth"]
         st.session_state["sheets_planilhas"]    = raw.get("planilhas", [])
         st.session_state["auto_export_enabled"] = raw.get("auto_export", False)
     else:
