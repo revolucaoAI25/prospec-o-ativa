@@ -17,6 +17,10 @@ except ImportError:
     _OK = False
 
 
+def _apenas_digitos(s: str) -> str:
+    return "".join(c for c in (s or "") if c.isdigit())
+
+
 def _get_secret(key: str) -> str:
     try:
         v = st.secrets.get(key, "")
@@ -175,15 +179,23 @@ def buscar_identificadores_existentes() -> tuple[set, set]:
     """
     Retorna (set de telefones, set de CNPJs) já salvos pelo usuário.
     Usado para deduplicação: filtra leads repetidos entre pesquisas.
+    Telefones são normalizados para dígitos (sem formatação) para que a
+    comparação funcione entre fontes diferentes (Google Maps, Casa dos
+    Dados, Apify), que retornam o telefone formatado de jeitos distintos.
     Apenas valores não-vazios são incluídos nos sets.
     """
     sb = _client_autenticado()
     if not sb:
         return set(), set()
     try:
-        resp = sb.table("leads").select("telefone, cnpj").execute()
-        telefones = {r["telefone"] for r in (resp.data or []) if r.get("telefone")}
-        cnpjs     = {r["cnpj"]     for r in (resp.data or []) if r.get("cnpj")}
+        resp = sb.table("leads").select("telefone, telefone2, cnpj").execute()
+        telefones = set()
+        for r in (resp.data or []):
+            for campo in ("telefone", "telefone2"):
+                d = _apenas_digitos(r.get(campo, ""))
+                if d:
+                    telefones.add(d)
+        cnpjs = {r["cnpj"] for r in (resp.data or []) if r.get("cnpj")}
         return telefones, cnpjs
     except Exception:
         return set(), set()

@@ -32,6 +32,10 @@ DETAIL_FIELDS = (
     "formatted_address,website,url,business_status"
 )
 
+
+def _apenas_digitos(s: str) -> str:
+    return "".join(c for c in (s or "") if c.isdigit())
+
 _MODIFICADORES = [
     "",
     "centro",
@@ -226,7 +230,7 @@ def buscar(
             except requests.HTTPError:
                 pass
 
-        if exclude_phones and telefone and telefone in exclude_phones:
+        if exclude_phones and telefone and _apenas_digitos(telefone) in exclude_phones:
             pulados += 1
             log(len(resultados), limite,
                 f"{'Detalhes' if show_phone else 'Resultados'}: "
@@ -345,7 +349,7 @@ def enriquecer_com_maps(
                 if tel:
                     if not r.get("telefone"):
                         r["telefone"] = tel
-                    elif r.get("telefone") != tel and not r.get("telefone2"):
+                    elif _apenas_digitos(r.get("telefone")) != _apenas_digitos(tel) and not r.get("telefone2"):
                         r["telefone2"] = tel
 
                 if det.get("website") and not r.get("site"):

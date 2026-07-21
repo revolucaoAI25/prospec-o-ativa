@@ -13,6 +13,10 @@ _ACTOR_ID = "compass~crawler-google-places"
 _BASE      = "https://api.apify.com/v2"
 
 
+def _apenas_digitos(s: str) -> str:
+    return "".join(c for c in (s or "") if c.isdigit())
+
+
 def _iniciar_run(token: str, payload: dict) -> tuple[str, str]:
     """Inicia o run e retorna (run_id, dataset_id)."""
     resp = requests.post(
@@ -114,7 +118,7 @@ def buscar(
         tel  = item.get("phone", "") or ""
         teli = item.get("phoneUnformatted", "") or ""
 
-        if exclude_phones and tel and tel in exclude_phones:
+        if exclude_phones and tel and _apenas_digitos(tel) in exclude_phones:
             continue
 
         resultados.append({
