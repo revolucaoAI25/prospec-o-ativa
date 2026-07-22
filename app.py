@@ -993,7 +993,8 @@ def pagina_busca():
                 gmaps_key = _pool_usr_check[0].get("key", "")
     gmaps_ok        = bool(gmaps_key)
     _apify_maps_key = st.session_state.get("apify_api_key_user", "")
-    maps_ok         = gmaps_ok or bool(_apify_maps_key)
+    _apify_plat_ok  = bool(st.session_state.get("apify_api_key_admin") or st.session_state.get("apify_keys_pool"))
+    maps_ok         = gmaps_ok or bool(_apify_maps_key) or _apify_plat_ok
 
     _insta_visible = st.session_state.get("instagram_visible", True)
     _tab_labels = ["🗺️  Google Maps  ·  com telefone", "🏢  CNPJ + filtros avançados"]
@@ -1135,12 +1136,32 @@ def pagina_busca():
                         if _c:
                             _chave_busca = _c
                         elif not _chave_busca:
-                            if _apify_maps_key:
-                                _chave_busca = ""  # força fallback Apify
-                            else:
-                                prog.empty()
-                                st.error("Todas as chaves Maps atingiram o limite mensal. Adicione novas chaves ou configure uma chave Apify como fallback.")
-                                st.stop()
+                            _chave_busca = ""  # esgotado — tenta fallback Apify abaixo
+
+                # ── Seleção de chave Apify: pessoal (grátis) > pool do admin
+                # (rodízio, cobrado) > chave única do admin (cobrado) ──────────
+                _apify_key_resolvido = _apify_maps_key
+                _apify_platform_used = False
+                _apify_pool_ativo    = []
+                _apify_pool_idx      = -1
+                if not _apify_key_resolvido:
+                    from modules.database import obter_pool_apify_usuario, selecionar_chave_apify
+                    _apify_pool_ativo = obter_pool_apify_usuario()
+                    if _apify_pool_ativo:
+                        _ac, _apify_pool_idx, _apify_pool_ativo = selecionar_chave_apify(_apify_pool_ativo)
+                        if _ac:
+                            _apify_key_resolvido = _ac
+                            _apify_platform_used = True
+                    if not _apify_key_resolvido:
+                        _admin_single = st.session_state.get("apify_api_key_admin", "")
+                        if _admin_single:
+                            _apify_key_resolvido = _admin_single
+                            _apify_platform_used = True
+
+                if not _chave_busca and not _apify_key_resolvido:
+                    prog.empty()
+                    st.error("Todas as chaves Maps atingiram o limite mensal e nenhuma chave Apify está disponível como fallback.")
+                    st.stop()
 
                 _used_apify = False
                 _excl = excl_tels_maps if apenas_novos_maps else None
@@ -1154,13 +1175,13 @@ def pagina_busca():
                                               exclude_phones=_excl,
                                               show_phone=show_phone_maps, show_rating=show_rating_maps)
                         except QuotaExceededError:
-                            if not _apify_maps_key:
+                            if not _apify_key_resolvido:
                                 raise RuntimeError("Cota Google Maps esgotada e nenhuma chave Apify configurada como fallback.")
                             prog.progress(0, text="Cota Google Maps esgotada. Usando Apify como fallback…")
                             _used_apify = True
                             from modules.apify_maps import buscar as apify_buscar
                             res = apify_buscar(query_base=qbase, localidade=localidade, limite=lim,
-                                               api_key=_apify_maps_key, nicho=nicho_lbl, subnicho=sub_final,
+                                               api_key=_apify_key_resolvido, nicho=nicho_lbl, subnicho=sub_final,
                                                cidade=cv, estado=ev, progress_callback=_cb,
                                                exclude_phones=_excl,
                                                show_phone=show_phone_maps, show_rating=show_rating_maps)
@@ -1169,7 +1190,7 @@ def pagina_busca():
                         _used_apify = True
                         from modules.apify_maps import buscar as apify_buscar
                         res = apify_buscar(query_base=qbase, localidade=localidade, limite=lim,
-                                           api_key=_apify_maps_key, nicho=nicho_lbl, subnicho=sub_final,
+                                           api_key=_apify_key_resolvido, nicho=nicho_lbl, subnicho=sub_final,
                                            cidade=cv, estado=ev, progress_callback=_cb,
                                            exclude_phones=_excl,
                                            show_phone=show_phone_maps, show_rating=show_rating_maps)
@@ -1183,20 +1204,27 @@ def pagina_busca():
                     logger.exception("Erro na busca Google Maps")
                     prog.empty(); st.error("Ocorreu um erro inesperado na busca. Tente novamente."); st.session_state["maps_res"] = []
                 else:
-                    # Registra uso no pool (somente se usou Google Maps)
+                    # Registra uso no pool Maps (somente se usou Google Maps)
                     if not _used_apify and _pool_ativo and _pool_key_idx >= 0:
                         from modules.database import registrar_uso_maps, salvar_pool_maps_usuario
                         salvar_pool_maps_usuario(
                             registrar_uso_maps(_pool_ativo, _pool_key_idx, len(res))
+                        )
+                    # Registra uso no pool Apify (somente se usou a chave da plataforma, não a pessoal)
+                    if _used_apify and _apify_platform_used and _apify_pool_idx >= 0:
+                        from modules.database import registrar_uso_apify, salvar_pool_apify_usuario
+                        salvar_pool_apify_usuario(
+                            registrar_uso_apify(_apify_pool_ativo, _apify_pool_idx, len(res))
                         )
                     try:
                         from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos_maps
                         sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade, "maps", len(res))
                         if sid: salvar_leads(sid, res)
                         # Só debita créditos da plataforma se a busca de fato usou
-                        # o Google Maps API — quando cai no fallback Apify (com a
-                        # chave PESSOAL do usuário), o custo é dele, não da plataforma.
-                        if _maps_credits_enabled and not _used_apify:
+                        # um recurso da plataforma — Google Maps API, ou o fallback
+                        # Apify com chave do pool/admin. Quando o fallback usa a
+                        # chave PESSOAL do usuário, o custo é dele, não da plataforma.
+                        if _maps_credits_enabled and (not _used_apify or _apify_platform_used):
                             debitar_creditos_maps(len(res))
                     except Exception:
                         pass
@@ -3104,6 +3132,62 @@ def pagina_admin():
                         (st.success if ok12 else st.error)(msg12)
                         if ok12: time.sleep(0.3); st.rerun()
 
+            # ── Chaves de API Apify — sempre visível, igual ao Maps ─────
+            # Usada tanto no fallback da busca Google Maps quanto na busca
+            # Instagram, sempre que o usuário não tiver chave própria.
+            apify_adm_key = u.get("apify_api_key_admin") or ""
+            st.markdown("**🤖 Chaves de API Apify** (fallback Maps + busca Instagram, quando o usuário não tem chave própria)")
+            new_apify_key = st.text_input(
+                "Chave Apify única (usada se não houver pool abaixo)", value=apify_adm_key, type="password",
+                key=f"apify_key_{uid}", placeholder="apify_api_...",
+            )
+            if st.button("💾 Salvar chave Apify", key=f"apify_key_save_{uid}"):
+                ok_ak, msg_ak = configurar_creditos_admin(uid, apify_api_key_admin=new_apify_key)
+                (st.success if ok_ak else st.error)(msg_ak)
+                if ok_ak: time.sleep(0.3); st.rerun()
+
+            from modules.auth import obter_pool_apify_usuario_admin
+            _apool = obter_pool_apify_usuario_admin(uid)
+            st.markdown("Pool de chaves (rodízio automático por mês — usado antes da chave única acima)")
+            if _apool:
+                for _ai, _ae in enumerate(_apool):
+                    _apc1, _apc2, _apc3 = st.columns([3, 3, 1])
+                    with _apc1:
+                        st.caption(_ae.get("nickname") or f"Chave {_ai+1}")
+                    with _apc2:
+                        _ause = int(_ae.get("usage", 0))
+                        _alim = int(_ae.get("limit", 900))
+                        _amon = _ae.get("month", "—")
+                        _apct = min(_ause / max(_alim, 1), 1.0)
+                        _acor = "🔴" if _apct >= 1.0 else ("🟡" if _apct >= 0.8 else "🟢")
+                        st.caption(f"{_acor} {_amon}: **{_ause}/{_alim}**")
+                    with _apc3:
+                        if st.button("🗑️", key=f"del_ak_{uid}_{_ai}", help="Remover chave"):
+                            _nap = [k for j, k in enumerate(_apool) if j != _ai]
+                            _ok_ap, _msg_ap = configurar_creditos_admin(uid, apify_keys_pool=_nap)
+                            (st.success if _ok_ap else st.error)(_msg_ap)
+                            if _ok_ap: time.sleep(0.3); st.rerun()
+            else:
+                st.caption("Nenhuma chave no pool configurada.")
+            with st.form(f"add_ak_{uid}"):
+                _aac1, _aac2, _aac3 = st.columns([2, 4, 2])
+                with _aac1:
+                    _new_anick = st.text_input("Apelido", placeholder="Chave 1", key=f"ak_nick_{uid}")
+                with _aac2:
+                    _new_akval = st.text_input("Chave API", placeholder="apify_api_...", type="password", key=f"ak_val_{uid}")
+                with _aac3:
+                    _new_aklim = st.number_input("Limite/mês", min_value=100, value=900, step=100, key=f"ak_lim_{uid}")
+                if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
+                    if _new_akval:
+                        _nap = list(_apool) + [{
+                            "key": _new_akval,
+                            "nickname": _new_anick or f"Chave {len(_apool)+1}",
+                            "usage": 0, "month": "", "limit": int(_new_aklim),
+                        }]
+                        _ok_ap, _msg_ap = configurar_creditos_admin(uid, apify_keys_pool=_nap)
+                        (st.success if _ok_ap else st.error)(_msg_ap)
+                        if _ok_ap: time.sleep(0.3); st.rerun()
+
             # ── Instagram — visibilidade e créditos ────────────────────
             insta_visible = bool(u.get("instagram_visible", True))
             insta_vis_toggle = st.toggle(
@@ -3118,11 +3202,10 @@ def pagina_admin():
             insta_en     = bool(u.get("instagram_credits_enabled", False))
             insta_bal    = int(u.get("instagram_credits", 0) or 0)
             monthly_insta = int(u.get("monthly_instagram_credits", 0) or 0)
-            apify_adm_key = u.get("apify_api_key_admin") or ""
 
             st.markdown("**📸 Créditos Instagram**")
             insta_toggle = st.toggle(
-                "Habilitar créditos Instagram (usa chave Apify da plataforma)",
+                "Habilitar créditos Instagram (usa chave Apify da plataforma acima)",
                 value=insta_en, key=f"insta_en_{uid}",
             )
             if insta_toggle != insta_en:
@@ -3131,58 +3214,6 @@ def pagina_admin():
                 if ok_it: time.sleep(0.3); st.rerun()
 
             if insta_toggle:
-                new_apify_key = st.text_input(
-                    "Chave Apify única (usada se não houver pool abaixo)", value=apify_adm_key, type="password",
-                    key=f"apify_key_{uid}", placeholder="apify_api_...",
-                )
-                if st.button("💾 Salvar chave Apify", key=f"apify_key_save_{uid}"):
-                    ok_ak, msg_ak = configurar_creditos_admin(uid, apify_api_key_admin=new_apify_key)
-                    (st.success if ok_ak else st.error)(msg_ak)
-                    if ok_ak: time.sleep(0.3); st.rerun()
-
-                # ── Pool de chaves Apify ──────────────────────────────────
-                from modules.auth import obter_pool_apify_usuario_admin
-                _apool = obter_pool_apify_usuario_admin(uid)
-                st.markdown("**Chaves de API Apify** (rodízio automático por mês — usado antes da chave única acima)")
-                if _apool:
-                    for _ai, _ae in enumerate(_apool):
-                        _apc1, _apc2, _apc3 = st.columns([3, 3, 1])
-                        with _apc1:
-                            st.caption(_ae.get("nickname") or f"Chave {_ai+1}")
-                        with _apc2:
-                            _ause = int(_ae.get("usage", 0))
-                            _alim = int(_ae.get("limit", 900))
-                            _amon = _ae.get("month", "—")
-                            _apct = min(_ause / max(_alim, 1), 1.0)
-                            _acor = "🔴" if _apct >= 1.0 else ("🟡" if _apct >= 0.8 else "🟢")
-                            st.caption(f"{_acor} {_amon}: **{_ause}/{_alim}**")
-                        with _apc3:
-                            if st.button("🗑️", key=f"del_ak_{uid}_{_ai}", help="Remover chave"):
-                                _nap = [k for j, k in enumerate(_apool) if j != _ai]
-                                _ok_ap, _msg_ap = configurar_creditos_admin(uid, apify_keys_pool=_nap)
-                                (st.success if _ok_ap else st.error)(_msg_ap)
-                                if _ok_ap: time.sleep(0.3); st.rerun()
-                else:
-                    st.caption("Nenhuma chave no pool configurada.")
-                with st.form(f"add_ak_{uid}"):
-                    _aac1, _aac2, _aac3 = st.columns([2, 4, 2])
-                    with _aac1:
-                        _new_anick = st.text_input("Apelido", placeholder="Chave 1", key=f"ak_nick_{uid}")
-                    with _aac2:
-                        _new_akval = st.text_input("Chave API", placeholder="apify_api_...", type="password", key=f"ak_val_{uid}")
-                    with _aac3:
-                        _new_aklim = st.number_input("Limite/mês", min_value=100, value=900, step=100, key=f"ak_lim_{uid}")
-                    if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
-                        if _new_akval:
-                            _nap = list(_apool) + [{
-                                "key": _new_akval,
-                                "nickname": _new_anick or f"Chave {len(_apool)+1}",
-                                "usage": 0, "month": "", "limit": int(_new_aklim),
-                            }]
-                            _ok_ap, _msg_ap = configurar_creditos_admin(uid, apify_keys_pool=_nap)
-                            (st.success if _ok_ap else st.error)(_msg_ap)
-                            if _ok_ap: time.sleep(0.3); st.rerun()
-
                 st.markdown(f"Saldo Instagram atual: **{insta_bal}**  ·  Mensal: **{monthly_insta}**/mês")
                 ci1, ci2, ci3, ci4 = st.columns([2, 1, 1, 2])
                 with ci1:
