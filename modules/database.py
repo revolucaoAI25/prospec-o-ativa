@@ -522,11 +522,21 @@ def obter_pool_apify_usuario() -> list[dict]:
 
 def selecionar_chave_apify(pool: list[dict]) -> tuple[str, int, list[dict]]:
     """
-    Seleciona a primeira chave Apify disponível no mês atual.
+    Seleciona a primeira chave Apify disponível no mês atual (dentro do limite).
     Reseta o contador de chaves de meses anteriores automaticamente.
-    Retorna (api_key, index, pool_atualizado) ou ("", -1, pool) se todas esgotadas.
+
+    Se TODAS as chaves já estourarem o limite, não bloqueia a busca —
+    continua usando a ÚLTIMA chave do pool mesmo acima do limite (overflow
+    suave), já que o Apify é cobrado por uso e não corta o acesso como o
+    Google Maps. O contador só volta a respeitar o limite quando o mês
+    virar e os contadores forem resetados.
+
+    Retorna (api_key, index, pool_atualizado) ou ("", -1, pool) se o pool
+    estiver vazio.
     """
     from datetime import date
+    if not pool:
+        return "", -1, pool
     mes = date.today().strftime("%Y-%m")
     pool_copia = [dict(k) for k in pool]
     for i, entry in enumerate(pool_copia):
@@ -535,7 +545,9 @@ def selecionar_chave_apify(pool: list[dict]) -> tuple[str, int, list[dict]]:
             entry["month"] = mes
         if int(entry.get("usage", 0)) < int(entry.get("limit", 900)):
             return entry.get("key", ""), i, pool_copia
-    return "", -1, pool_copia
+    # Todas esgotadas — mantém overflow na última chave em vez de bloquear
+    ultimo = len(pool_copia) - 1
+    return pool_copia[ultimo].get("key", ""), ultimo, pool_copia
 
 
 def registrar_uso_apify(pool: list[dict], key_idx: int, calls: int) -> list[dict]:

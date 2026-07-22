@@ -993,7 +993,7 @@ def pagina_busca():
                 gmaps_key = _pool_usr_check[0].get("key", "")
     gmaps_ok        = bool(gmaps_key)
     _apify_maps_key = st.session_state.get("apify_api_key_user", "")
-    _apify_plat_ok  = bool(st.session_state.get("apify_api_key_admin") or st.session_state.get("apify_keys_pool"))
+    _apify_plat_ok  = bool(st.session_state.get("apify_keys_pool"))
     maps_ok         = gmaps_ok or bool(_apify_maps_key) or _apify_plat_ok
 
     _insta_visible = st.session_state.get("instagram_visible", True)
@@ -1139,7 +1139,8 @@ def pagina_busca():
                             _chave_busca = ""  # esgotado — tenta fallback Apify abaixo
 
                 # ── Seleção de chave Apify: pessoal (grátis) > pool do admin
-                # (rodízio, cobrado) > chave única do admin (cobrado) ──────────
+                # (rodízio por mês; se todas estourarem o limite, continua na
+                # última em vez de bloquear) ──────────────────────────────────
                 _apify_key_resolvido = _apify_maps_key
                 _apify_platform_used = False
                 _apify_pool_ativo    = []
@@ -1151,11 +1152,6 @@ def pagina_busca():
                         _ac, _apify_pool_idx, _apify_pool_ativo = selecionar_chave_apify(_apify_pool_ativo)
                         if _ac:
                             _apify_key_resolvido = _ac
-                            _apify_platform_used = True
-                    if not _apify_key_resolvido:
-                        _admin_single = st.session_state.get("apify_api_key_admin", "")
-                        if _admin_single:
-                            _apify_key_resolvido = _admin_single
                             _apify_platform_used = True
 
                 if not _chave_busca and not _apify_key_resolvido:
@@ -1606,9 +1602,9 @@ def pagina_busca():
      with aba_insta:
         _insta_credits_en = st.session_state.get("instagram_credits_enabled", False)
         _apify_key_user   = st.session_state.get("apify_api_key_user", "")
-        _apify_key_admin  = st.session_state.get("apify_api_key_admin", "")
 
-        # Seleciona chave a usar: usuário > pool admin (rodízio) > chave única admin > env
+        # Seleciona chave a usar: usuário (grátis) > pool do admin (rodízio por
+        # mês; se todas estourarem o limite, continua na última) > env (deploy)
         _apify_pool_ativo = []
         _apify_pool_idx   = -1
         if _apify_key_user:
@@ -1621,7 +1617,7 @@ def pagina_busca():
             if _apify_pool_ativo:
                 _apify_key, _apify_pool_idx, _apify_pool_ativo = selecionar_chave_apify(_apify_pool_ativo)
             if not _apify_key:
-                _apify_key = _apify_key_admin or _s("APIFY_API_KEY")
+                _apify_key = _s("APIFY_API_KEY")
             _usar_creditos_insta = _insta_credits_en
 
         if not _apify_key:
@@ -3133,22 +3129,13 @@ def pagina_admin():
                         if ok12: time.sleep(0.3); st.rerun()
 
             # ── Chaves de API Apify — sempre visível, igual ao Maps ─────
-            # Usada tanto no fallback da busca Google Maps quanto na busca
-            # Instagram, sempre que o usuário não tiver chave própria.
-            apify_adm_key = u.get("apify_api_key_admin") or ""
-            st.markdown("**🤖 Chaves de API Apify** (fallback Maps + busca Instagram, quando o usuário não tem chave própria)")
-            new_apify_key = st.text_input(
-                "Chave Apify única (usada se não houver pool abaixo)", value=apify_adm_key, type="password",
-                key=f"apify_key_{uid}", placeholder="apify_api_...",
-            )
-            if st.button("💾 Salvar chave Apify", key=f"apify_key_save_{uid}"):
-                ok_ak, msg_ak = configurar_creditos_admin(uid, apify_api_key_admin=new_apify_key)
-                (st.success if ok_ak else st.error)(msg_ak)
-                if ok_ak: time.sleep(0.3); st.rerun()
-
+            # Usada tanto no fallback da busca Google Maps (após esgotar o pool
+            # de Maps) quanto na busca Instagram, sempre que o usuário não
+            # tiver chave própria. Rodízio mensal por chave — se todas
+            # estourarem o limite, a busca continua na última em vez de travar.
+            st.markdown("**🤖 Chaves de API Apify** (rodízio automático por mês — fallback Maps + busca Instagram)")
             from modules.auth import obter_pool_apify_usuario_admin
             _apool = obter_pool_apify_usuario_admin(uid)
-            st.markdown("Pool de chaves (rodízio automático por mês — usado antes da chave única acima)")
             if _apool:
                 for _ai, _ae in enumerate(_apool):
                     _apc1, _apc2, _apc3 = st.columns([3, 3, 1])
