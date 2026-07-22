@@ -1152,7 +1152,10 @@ def pagina_busca():
                         _ac, _apify_pool_idx, _apify_pool_ativo = selecionar_chave_apify(_apify_pool_ativo)
                         if _ac:
                             _apify_key_resolvido = _ac
-                            _apify_platform_used = True
+                            # Só cobra créditos da plataforma se a conta for
+                            # gerenciada por ela — se o pool foi o próprio
+                            # usuário quem configurou, o uso é dele, de graça.
+                            _apify_platform_used = _maps_credits_enabled
 
                 if not _chave_busca and not _apify_key_resolvido:
                     prog.empty()
@@ -1206,8 +1209,10 @@ def pagina_busca():
                         salvar_pool_maps_usuario(
                             registrar_uso_maps(_pool_ativo, _pool_key_idx, len(res))
                         )
-                    # Registra uso no pool Apify (somente se usou a chave da plataforma, não a pessoal)
-                    if _used_apify and _apify_platform_used and _apify_pool_idx >= 0:
+                    # Registra uso no pool Apify sempre que uma chave do pool foi usada
+                    # (independente de ser cobrado ou não — o contador é o que faz o
+                    # rodízio funcionar corretamente pro dono das chaves).
+                    if _used_apify and _apify_pool_idx >= 0:
                         from modules.database import registrar_uso_apify, salvar_pool_apify_usuario
                         salvar_pool_apify_usuario(
                             registrar_uso_apify(_apify_pool_ativo, _apify_pool_idx, len(res))
@@ -2916,26 +2921,63 @@ def pagina_configuracoes():
 
     # ── Apify API Key ─────────────────────────────────────────────────────────────
     with st.expander("🤖 Apify API Key", expanded=False):
-        _apify_desc = "Usada como **fallback automático** na busca Google Maps quando a cota é esgotada ($4/1.000 resultados)."
-        if st.session_state.get("instagram_credits_enabled"):
-            _apify_desc += "  \nTambém usada na busca Instagram para não deduzir créditos da plataforma."
+        _apify_desc = "Usada como **fallback automático** na busca Google Maps (quando a cota é esgotada, $4/1.000 resultados) e na busca Instagram."
         st.markdown(_apify_desc)
-        _apify_cur = st.session_state.get("apify_api_key_user", "")
-        apify_inp = st.text_input(
-            "Apify API Key",
-            value=_apify_cur,
-            type="password",
-            placeholder="apify_api_...",
-            key="cfg_apify_key",
-        )
-        if st.button("💾 Salvar chave Apify", key="save_apify"):
-            from modules.database import salvar_configuracoes
-            ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
-            if ok_ap:
-                st.session_state["apify_api_key_user"] = apify_inp.strip()
-                st.success("Chave Apify salva com sucesso.")
-            else:
-                st.error(msg_ap)
+        st.markdown("Configure uma ou mais chaves Apify. O sistema usa rodízio automático quando uma chave atinge o limite mensal.")
+        from modules.database import obter_pool_apify_usuario, salvar_pool_apify_usuario
+        _cfg_apool = obter_pool_apify_usuario()
+        if _cfg_apool:
+            for _api, _ape in enumerate(_cfg_apool):
+                _apc1, _apc2, _apc3 = st.columns([3, 3, 1])
+                with _apc1:
+                    st.caption(_ape.get("nickname") or f"Chave {_api+1}")
+                with _apc2:
+                    _apuse = int(_ape.get("usage", 0))
+                    _aplim = int(_ape.get("limit", 900))
+                    _apmon = _ape.get("month", "—")
+                    _appct = min(_apuse / max(_aplim, 1), 1.0)
+                    _apcor = "🔴" if _appct >= 1.0 else ("🟡" if _appct >= 0.8 else "🟢")
+                    st.caption(f"{_apcor} {_apmon}: **{_apuse}/{_aplim}**")
+                with _apc3:
+                    if st.button("🗑️", key=f"del_cfg_ak_{_api}", help="Remover"):
+                        _nap = [k for j, k in enumerate(_cfg_apool) if j != _api]
+                        if salvar_pool_apify_usuario(_nap):
+                            st.rerun()
+        with st.form("add_cfg_ak"):
+            _afc1, _afc2, _afc3 = st.columns([2, 4, 2])
+            with _afc1:
+                _afn = st.text_input("Apelido", placeholder="Chave 1", key="cfg_ak_nick")
+            with _afc2:
+                _afk = st.text_input("Chave API", placeholder="apify_api_...", type="password", key="cfg_ak_val")
+            with _afc3:
+                _afl = st.number_input("Limite/mês", min_value=100, value=1000, step=100, key="cfg_ak_lim")
+            if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
+                if _afk:
+                    _nap = list(_cfg_apool) + [{
+                        "key": _afk, "nickname": _afn or f"Chave {len(_cfg_apool)+1}",
+                        "usage": 0, "month": "", "limit": int(_afl),
+                    }]
+                    if salvar_pool_apify_usuario(_nap):
+                        st.success("Chave adicionada!")
+                        st.rerun()
+        # Chave única (compatibilidade)
+        with st.expander("Ou use chave única (modo legado)"):
+            _apify_cur = st.session_state.get("apify_api_key_user", "")
+            apify_inp = st.text_input(
+                "Apify API Key",
+                value=_apify_cur,
+                type="password",
+                placeholder="apify_api_...",
+                key="cfg_apify_key",
+            )
+            if st.button("💾 Salvar chave única", key="save_apify"):
+                from modules.database import salvar_configuracoes
+                ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
+                if ok_ap:
+                    st.session_state["apify_api_key_user"] = apify_inp.strip()
+                    st.success("Chave Apify salva com sucesso.")
+                else:
+                    st.error(msg_ap)
 
     # ── Alterar senha ────────────────────────────────────────────────────────────
     with st.expander("🔑 Alterar senha", expanded=False):
