@@ -1472,6 +1472,18 @@ def pagina_busca():
                             )
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
+
+                            # Sets de deduplicação — reaproveita o que já foi buscado do
+                            # histórico (se "apenas leads novos" estiver ativo) e vai sendo
+                            # atualizado à medida que os leads do próprio lote são processados.
+                            _dedup_cnpjs = set(excl_cnpjs_cdd) if apenas_novos_cdd else set()
+                            _dedup_tels  = set(excl_tels_cdd) if apenas_novos_cdd else set()
+                            from modules.casa_dos_dados import remover_duplicados_lote
+                            # Remove duplicados ANTES de enriquecer — evita gastar créditos
+                            # Maps enriquecendo um lead que já é duplicado (do histórico ou
+                            # de outro lead dentro do mesmo lote).
+                            res_cdd = remover_duplicados_lote(res_cdd, _dedup_cnpjs, _dedup_tels)
+
                             if enriquecer_maps_cdd and res_cdd:
                                 # Seleciona a chave do pool com rodízio (mesma lógica da aba Maps),
                                 # em vez de sempre usar a primeira chave do pool sem registrar uso.
@@ -1501,6 +1513,10 @@ def pagina_busca():
                                 if _maps_credits_enabled:
                                     from modules.database import debitar_creditos_maps
                                     debitar_creditos_maps(len(res_cdd))
+                                # Remove duplicados que só ficaram visíveis DEPOIS do
+                                # enriquecimento — o Maps pode preencher um telefone que
+                                # bate com outro lead já salvo ou já presente neste lote.
+                                res_cdd = remover_duplicados_lote(res_cdd, _dedup_cnpjs, _dedup_tels)
                             else:
                                 st.session_state.pop("_rf_enriched", None)
                             st.session_state["rf_res"] = res_cdd

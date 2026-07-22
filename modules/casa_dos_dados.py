@@ -426,6 +426,36 @@ def _apenas_digitos(s: str) -> str:
     return "".join(c for c in (s or "") if c.isdigit())
 
 
+def remover_duplicados_lote(leads: list[dict], cnpjs_vistos: set, tels_vistos: set) -> list[dict]:
+    """
+    Remove leads cujo CNPJ ou telefone (1 ou 2) já apareceu antes — seja no
+    histórico (sets pré-populados com o que já foi salvo) ou dentro do
+    próprio lote sendo processado. Os sets são atualizados por referência,
+    então a mesma chamada pode ser reaplicada depois do enriquecimento com
+    Google Maps para pegar duplicatas que só ficaram visíveis quando o
+    telefone foi preenchido (a CDD não tinha, o Maps completou).
+    """
+    unicos: list[dict] = []
+    for lead in leads:
+        cnpj = lead.get("cnpj", "")
+        tel1 = _apenas_digitos(lead.get("telefone", ""))
+        tel2 = _apenas_digitos(lead.get("telefone2", ""))
+
+        if cnpj and cnpj in cnpjs_vistos:
+            continue
+        if (tel1 and tel1 in tels_vistos) or (tel2 and tel2 in tels_vistos):
+            continue
+
+        if cnpj:
+            cnpjs_vistos.add(cnpj)
+        if tel1:
+            tels_vistos.add(tel1)
+        if tel2:
+            tels_vistos.add(tel2)
+        unicos.append(lead)
+    return unicos
+
+
 def _normalizar_municipio(m: str) -> str:
     """Converte 'São Paulo' → 'sao paulo' (sem acento, minúsculas)."""
     import unicodedata
