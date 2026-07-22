@@ -1519,8 +1519,13 @@ def pagina_busca():
                                     from modules.database import debitar_creditos_maps
                                     debitar_creditos_maps(len(res_cdd))
                                 # Remove duplicados que só ficaram visíveis DEPOIS do
-                                # enriquecimento — o Maps pode preencher um telefone que
-                                # bate com outro lead já salvo ou já presente neste lote.
+                                # enriquecimento (o Maps pode preencher um telefone que bate
+                                # com outro lead já salvo ou já presente neste lote). Usa sets
+                                # NOVOS (só com o histórico) — reaproveitar os sets da passada
+                                # anterior faria cada lead "bater" com o próprio CNPJ/telefone
+                                # que ele mesmo registrou ali, zerando o resultado inteiro.
+                                _dedup_cnpjs = set(excl_cnpjs_cdd) if apenas_novos_cdd else set()
+                                _dedup_tels  = set(excl_tels_cdd) if apenas_novos_cdd else set()
                                 res_cdd = remover_duplicados_lote(res_cdd, _dedup_cnpjs, _dedup_tels)
                             else:
                                 st.session_state.pop("_rf_enriched", None)
