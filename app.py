@@ -1449,12 +1449,31 @@ def pagina_busca():
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
                             if enriquecer_maps_cdd and res_cdd:
+                                # Seleciona a chave do pool com rodízio (mesma lógica da aba Maps),
+                                # em vez de sempre usar a primeira chave do pool sem registrar uso.
+                                _enr_pool, _enr_pool_idx, _enr_key = [], -1, gmaps_key
+                                if _maps_credits_enabled:
+                                    from modules.auth import obter_pool_maps_usuario_admin
+                                    from modules.database import selecionar_chave_maps
+                                    _enr_pool = obter_pool_maps_usuario_admin(
+                                        st.session_state.get("user", {}).get("id", "")
+                                    )
+                                    if _enr_pool:
+                                        _c, _enr_pool_idx, _enr_pool = selecionar_chave_maps(_enr_pool)
+                                        if _c:
+                                            _enr_key = _c
                                 _bar_enr2 = st.progress(0, text="Enriquecendo com Google Maps…")
                                 def _cb_enr2(a, t, m): _bar_enr2.progress(min(a / max(t, 1), 1.0), text=str(m)[:100])
                                 from modules.google_maps import enriquecer_com_maps
-                                enriquecer_com_maps(res_cdd, gmaps_key, _cb_enr2)
+                                enriquecer_com_maps(res_cdd, _enr_key, _cb_enr2)
                                 _bar_enr2.empty()
                                 st.session_state["_rf_enriched"] = True
+                                if _enr_pool_idx >= 0:
+                                    from modules.database import registrar_uso_maps, salvar_pool_maps_por_user_id
+                                    salvar_pool_maps_por_user_id(
+                                        st.session_state.get("user", {}).get("id", ""),
+                                        registrar_uso_maps(_enr_pool, _enr_pool_idx, len(res_cdd)),
+                                    )
                                 if _maps_credits_enabled:
                                     from modules.database import debitar_creditos_maps
                                     debitar_creditos_maps(len(res_cdd))
