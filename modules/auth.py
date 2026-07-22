@@ -123,7 +123,8 @@ def restaurar_sessao(refresh_token: str) -> bool:
         perfil = sb.table("profiles").select(
             "role, google_maps_api_key, google_sheets_creds, "
             "maps_credits_enabled, maps_api_key_admin, "
-            "instagram_credits_enabled, apify_api_key_admin, apify_api_key, instagram_visible"
+            "instagram_credits_enabled, apify_api_key_admin, apify_api_key, "
+            "apify_keys_pool, instagram_visible"
         ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
         st.session_state["user"] = {
@@ -140,6 +141,7 @@ def restaurar_sessao(refresh_token: str) -> bool:
         st.session_state["instagram_credits_enabled"] = insta_enabled
         st.session_state["apify_api_key_admin"]       = dados.get("apify_api_key_admin") or ""
         st.session_state["apify_api_key_user"]        = dados.get("apify_api_key") or ""
+        st.session_state["apify_keys_pool"]           = dados.get("apify_keys_pool") or []
         st.session_state["instagram_visible"]         = bool(dados.get("instagram_visible", True))
         if maps_enabled:
             st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
@@ -171,7 +173,8 @@ def login(email: str, senha: str) -> tuple[bool, str]:
         perfil = sb.table("profiles").select(
             "role, google_maps_api_key, google_client_id, google_client_secret, "
             "google_sheets_creds, app_url, maps_credits_enabled, maps_api_key_admin, "
-            "instagram_credits_enabled, apify_api_key_admin, apify_api_key, instagram_visible"
+            "instagram_credits_enabled, apify_api_key_admin, apify_api_key, "
+            "apify_keys_pool, instagram_visible"
         ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
 
@@ -189,6 +192,7 @@ def login(email: str, senha: str) -> tuple[bool, str]:
         st.session_state["instagram_credits_enabled"] = insta_enabled
         st.session_state["apify_api_key_admin"]       = dados.get("apify_api_key_admin") or ""
         st.session_state["apify_api_key_user"]        = dados.get("apify_api_key") or ""
+        st.session_state["apify_keys_pool"]           = dados.get("apify_keys_pool") or []
         st.session_state["instagram_visible"]         = bool(dados.get("instagram_visible", True))
         if maps_enabled:
             st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
@@ -211,7 +215,8 @@ def logout():
     """Remove sessão do state e apaga o cookie."""
     limpar_cookie()
     for k in ["user", "user_gmaps_key", "maps_credits_enabled", "maps_api_key_admin",
-              "instagram_credits_enabled", "apify_api_key_admin", "apify_api_key_user", "instagram_visible",
+              "instagram_credits_enabled", "apify_api_key_admin", "apify_api_key_user",
+              "apify_keys_pool", "instagram_visible",
               "sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista",
               "maps_res", "rf_res", "page", "_cfg_cache", "_cookie_set",
               "_pesquisas_cache", "_sb_client", "_credits_renewed"]:
@@ -370,6 +375,18 @@ def obter_pool_maps_usuario_admin(user_id: str) -> list[dict]:
     try:
         resp = sb.table("profiles").select("maps_keys_pool").eq("id", user_id).single().execute()
         return (resp.data or {}).get("maps_keys_pool") or []
+    except Exception:
+        return []
+
+
+def obter_pool_apify_usuario_admin(user_id: str) -> list[dict]:
+    """Carrega apify_keys_pool de um usuário específico (requer service role)."""
+    sb = _admin_client()
+    if not sb:
+        return []
+    try:
+        resp = sb.table("profiles").select("apify_keys_pool").eq("id", user_id).single().execute()
+        return (resp.data or {}).get("apify_keys_pool") or []
     except Exception:
         return []
 
