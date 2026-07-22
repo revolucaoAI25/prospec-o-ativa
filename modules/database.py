@@ -183,22 +183,39 @@ def buscar_identificadores_existentes() -> tuple[set, set]:
     comparação funcione entre fontes diferentes (Google Maps, Casa dos
     Dados, Apify), que retornam o telefone formatado de jeitos distintos.
     Apenas valores não-vazios são incluídos nos sets.
+
+    Pagina a consulta em blocos de 1000 linhas — o Supabase/PostgREST
+    limita cada requisição a 1000 linhas por padrão, e sem paginação
+    contas com mais de 1000 leads salvos teriam parte do histórico
+    silenciosamente ignorada na deduplicação.
     """
     sb = _client_autenticado()
     if not sb:
         return set(), set()
+    telefones = set()
+    cnpjs = set()
     try:
-        resp = sb.table("leads").select("telefone, telefone2, cnpj").execute()
-        telefones = set()
-        for r in (resp.data or []):
-            for campo in ("telefone", "telefone2"):
-                d = _apenas_digitos(r.get(campo, ""))
-                if d:
-                    telefones.add(d)
-        cnpjs = {r["cnpj"] for r in (resp.data or []) if r.get("cnpj")}
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = (sb.table("leads")
+                      .select("telefone, telefone2, cnpj")
+                      .range(offset, offset + page_size - 1)
+                      .execute())
+            linhas = resp.data or []
+            for r in linhas:
+                for campo in ("telefone", "telefone2"):
+                    d = _apenas_digitos(r.get(campo, ""))
+                    if d:
+                        telefones.add(d)
+                if r.get("cnpj"):
+                    cnpjs.add(r["cnpj"])
+            if len(linhas) < page_size:
+                break
+            offset += page_size
         return telefones, cnpjs
     except Exception:
-        return set(), set()
+        return telefones, cnpjs
 
 
 def deletar_pesquisa(search_id: str) -> tuple[bool, str]:
