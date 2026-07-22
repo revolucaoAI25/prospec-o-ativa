@@ -185,43 +185,75 @@ def obter_ultimas_execucoes(auto_id: str, limit: int = 5) -> list[dict]:
 
 # ── Deduplicação ──────────────────────────────────────────────────────────────
 
+def _apenas_digitos(s: str) -> str:
+    return "".join(c for c in (s or "") if c.isdigit())
+
+
 def get_telefones_usuario(user_id: str) -> set:
-    """Retorna set de telefones já salvos para o usuário (deduplicação)."""
+    """
+    Retorna set de telefones (normalizados para dígitos) já salvos para o
+    usuário (deduplicação). Pagina em blocos de 1000 — o Supabase/PostgREST
+    limita cada requisição, e sem paginação usuários com mais de 1000 leads
+    salvos teriam parte do histórico ignorada na deduplicação.
+    """
     sb = _sb()
     if not sb:
         return set()
+    tels = set()
     try:
-        resp = (sb.table("leads")
-                  .select("telefone, telefone2")
-                  .eq("user_id", user_id)
-                  .execute())
-        tels = set()
-        for r in (resp.data or []):
-            if r.get("telefone"):
-                tels.add(r["telefone"])
-            if r.get("telefone2"):
-                tels.add(r["telefone2"])
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = (sb.table("leads")
+                      .select("telefone, telefone2")
+                      .eq("user_id", user_id)
+                      .range(offset, offset + page_size - 1)
+                      .execute())
+            linhas = resp.data or []
+            for r in linhas:
+                d1 = _apenas_digitos(r.get("telefone", ""))
+                d2 = _apenas_digitos(r.get("telefone2", ""))
+                if d1:
+                    tels.add(d1)
+                if d2:
+                    tels.add(d2)
+            if len(linhas) < page_size:
+                break
+            offset += page_size
         return tels
     except Exception as e:
         logger.error("get_telefones_usuario: %s", e)
-        return set()
+        return tels
 
 
 def get_cnpjs_usuario(user_id: str) -> set:
-    """Retorna set de CNPJs já salvos para o usuário (deduplicação)."""
+    """Retorna set de CNPJs já salvos para o usuário (deduplicação). Pagina em
+    blocos de 1000 pelo mesmo motivo de get_telefones_usuario()."""
     sb = _sb()
     if not sb:
         return set()
+    cnpjs = set()
     try:
-        resp = (sb.table("leads")
-                  .select("cnpj")
-                  .eq("user_id", user_id)
-                  .not_.is_("cnpj", "null")
-                  .execute())
-        return {r["cnpj"] for r in (resp.data or []) if r.get("cnpj")}
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = (sb.table("leads")
+                      .select("cnpj")
+                      .eq("user_id", user_id)
+                      .not_.is_("cnpj", "null")
+                      .range(offset, offset + page_size - 1)
+                      .execute())
+            linhas = resp.data or []
+            for r in linhas:
+                if r.get("cnpj"):
+                    cnpjs.add(r["cnpj"])
+            if len(linhas) < page_size:
+                break
+            offset += page_size
+        return cnpjs
     except Exception as e:
         logger.error("get_cnpjs_usuario: %s", e)
-        return set()
+        return cnpjs
 
 
 # ── Persistência de pesquisa + leads (via service role) ───────────────────────

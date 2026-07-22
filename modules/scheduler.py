@@ -262,8 +262,14 @@ def executar_automacao(auto: dict) -> None:
             from modules.casa_dos_dados import buscar as cdd_buscar
             _busca_txt = None
             _sits_cdd = None
-            if filtros.get("recuperacao_judicial"):
-                _busca_txt = [{"texto": ["RECUPERACAO JUDICIAL"], "tipo_busca": "radical", "razao_social": True}]
+            _rj_auto = bool(filtros.get("recuperacao_judicial"))
+            if _rj_auto:
+                # tipo_busca "radical" não funciona na API da CDD (sempre
+                # retorna 0) — "exata" funciona como busca por substring.
+                _busca_txt = [{
+                    "texto": ["recuperacao judicial"], "tipo_busca": "exata",
+                    "razao_social": True, "nome_fantasia": True,
+                }]
                 _sits_cdd = ["ATIVA", "SUSPENSA", "INAPTA"]
             resultados = cdd_buscar(
                 api_key=api_key,
@@ -287,6 +293,7 @@ def executar_automacao(auto: dict) -> None:
                 cnae_tipo=filtros.get("cnae_tipo", "principal"),
                 busca_textual=_busca_txt,
                 situacoes_cadastrais=_sits_cdd,
+                dedup_raiz=_rj_auto,
             )
     except Exception as e:
         logger.error("Erro na busca da automação %s: %s", auto_id, e)
@@ -315,7 +322,10 @@ def executar_automacao(auto: dict) -> None:
     # 7. Debitar créditos CNPJ
     if tipo == "cnpj" and total > 0:
         debit_credits_scheduler(user_id, total, "cdd")
-    elif tipo == "maps" and perfil.get("maps_credits_enabled") and total > 0:
+    elif tipo == "maps" and perfil.get("maps_credits_enabled") and total > 0 and not _sched_used_apify:
+        # Só cobra créditos Maps da plataforma se o Google Maps foi de fato
+        # usado — quando cai no fallback Apify (chave pessoal do usuário),
+        # o custo é dele, não da plataforma.
         debit_credits_scheduler(user_id, total, "maps")
 
     # 8. Exportar para Google Sheets

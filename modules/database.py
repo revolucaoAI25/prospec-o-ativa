@@ -160,19 +160,35 @@ def listar_pesquisas(limite: int = 50) -> list[dict]:
 
 
 def buscar_leads_da_pesquisa(search_id: str) -> list[dict]:
-    """Retorna todos os leads de uma pesquisa específica."""
+    """
+    Retorna todos os leads de uma pesquisa específica.
+    Pagina em blocos de 1000 — buscas grandes (o limite de resultados vai
+    até 2000) ultrapassam o limite padrão de linhas por requisição do
+    Supabase/PostgREST, e sem paginação os leads do Histórico além da
+    linha 1000 seriam perdidos na exportação.
+    """
     sb = _client_autenticado()
     if not sb:
         return []
+    leads: list[dict] = []
     try:
-        resp = (sb.table("leads")
-                  .select("nome, telefone, telefone2, email, endereco, municipio, uf, cep, site, maps_url, avaliacao, total_avaliacoes, cnpj, nicho, subnicho, fonte")
-                  .eq("search_id", search_id)
-                  .order("nome")
-                  .execute())
-        return resp.data or []
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = (sb.table("leads")
+                      .select("nome, telefone, telefone2, email, endereco, municipio, uf, cep, site, maps_url, avaliacao, total_avaliacoes, cnpj, nicho, subnicho, fonte")
+                      .eq("search_id", search_id)
+                      .order("nome")
+                      .range(offset, offset + page_size - 1)
+                      .execute())
+            linhas = resp.data or []
+            leads.extend(linhas)
+            if len(linhas) < page_size:
+                break
+            offset += page_size
+        return leads
     except Exception:
-        return []
+        return leads
 
 
 def buscar_identificadores_existentes() -> tuple[set, set]:
@@ -328,15 +344,30 @@ def buscar_instagram_ids_existentes() -> set:
     """
     Retorna set de instagram_ids já salvos pelo usuário.
     Usado para deduplicação em buscas Instagram subsequentes.
+    Pagina em blocos de 1000 pelo mesmo motivo de buscar_identificadores_existentes().
     """
     sb = _client_autenticado()
     if not sb:
         return set()
+    ids = set()
     try:
-        resp = sb.table("leads").select("instagram_id").execute()
-        return {r["instagram_id"] for r in (resp.data or []) if r.get("instagram_id")}
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = (sb.table("leads")
+                      .select("instagram_id")
+                      .range(offset, offset + page_size - 1)
+                      .execute())
+            linhas = resp.data or []
+            for r in linhas:
+                if r.get("instagram_id"):
+                    ids.add(r["instagram_id"])
+            if len(linhas) < page_size:
+                break
+            offset += page_size
+        return ids
     except Exception:
-        return set()
+        return ids
 
 
 def renovar_creditos_se_necessario() -> None:
