@@ -3836,6 +3836,17 @@ def pagina_admin():
                 (st.success if ok_iv else st.error)(msg_iv)
                 if ok_iv: time.sleep(0.3); st.rerun()
 
+            # ── Disparos — liberação individual (desativado por padrão) ─
+            disparo_hab = bool(u.get("disparo_habilitado", False))
+            disparo_hab_toggle = st.toggle(
+                "Habilitar Disparos (WhatsApp) para este usuário",
+                value=disparo_hab, key=f"disparo_hab_{uid}",
+            )
+            if disparo_hab_toggle != disparo_hab:
+                ok_dh, msg_dh = configurar_creditos_admin(uid, disparo_habilitado=disparo_hab_toggle)
+                (st.success if ok_dh else st.error)(msg_dh)
+                if ok_dh: time.sleep(0.3); st.rerun()
+
             insta_en     = bool(u.get("instagram_credits_enabled", False))
             insta_bal    = int(u.get("instagram_credits", 0) or 0)
             monthly_insta = int(u.get("monthly_instagram_credits", 0) or 0)
@@ -4882,8 +4893,10 @@ def _tab_disparo_pedidos_oficial():
 
 def pagina_disparo():
     from modules import evolution_api
+    from modules.auth import eh_admin
 
     user_id = st.session_state.get("user", {}).get("id")
+    _admin_disparo = eh_admin()
 
     st.markdown(
         '<div class="page-header">'
@@ -4901,19 +4914,21 @@ def pagina_disparo():
             icon="⚠️",
         )
 
-    tab_inst, tab_camp, tab_tpl, tab_rel, tab_pedidos = st.tabs(
-        ["📱 Instâncias", "📣 Campanhas", "📝 Templates", "📊 Relatórios", "🔧 Pedidos (Oficial)"]
-    )
-    with tab_inst:
+    _nomes_abas = ["📱 Instâncias", "📣 Campanhas", "📝 Templates", "📊 Relatórios"]
+    if _admin_disparo:
+        _nomes_abas.append("🔧 Pedidos (Oficial)")
+    _abas = st.tabs(_nomes_abas)
+    with _abas[0]:
         _tab_disparo_instancias(user_id)
-    with tab_camp:
+    with _abas[1]:
         _tab_disparo_campanhas(user_id)
-    with tab_tpl:
+    with _abas[2]:
         _tab_disparo_templates(user_id)
-    with tab_rel:
+    with _abas[3]:
         _tab_disparo_relatorios(user_id)
-    with tab_pedidos:
-        _tab_disparo_pedidos_oficial()
+    if _admin_disparo:
+        with _abas[4]:
+            _tab_disparo_pedidos_oficial()
 
 
 # ── Sidebar & roteamento principal ────────────────────────────────────────────
@@ -4991,7 +5006,7 @@ def _sidebar():
             ("historico",     "Histórico"),
             ("automacoes",    "Automações"),
         ]
-        if eh_admin():
+        if eh_admin() or st.session_state.get("disparo_habilitado"):
             nav_items.append(("disparo", "Disparos"))
         nav_items.append(("configuracoes", "Configurações"))
         if eh_admin():
@@ -5116,7 +5131,7 @@ def main():
         else:
             st.error("Acesso não autorizado.")
     elif page == "disparo":
-        if eh_admin():
+        if eh_admin() or st.session_state.get("disparo_habilitado"):
             pagina_disparo()
         else:
             st.error("Acesso não autorizado.")

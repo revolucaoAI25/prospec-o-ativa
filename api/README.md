@@ -45,6 +45,7 @@ Requisições sem essa chave ou com chave errada retornam `401 Unauthorized`.
 | `instagram_credits_enabled` | bool | não | `false` | `true` = usuário usa a chave Apify da plataforma |
 | `instagram_credits` | int | não | `0` | Saldo inicial de créditos Instagram |
 | `monthly_instagram_credits` | int | não | `0` | Renovação mensal de créditos Instagram |
+| `disparo_habilitado` | bool | não | `false` | `true` = usuário vê e pode usar a página de Disparos (campanhas WhatsApp). Fica desativado por padrão para todo mundo — libere aqui na criação ou depois manualmente em Admin → usuário → "Habilitar Disparos" |
 
 ---
 
@@ -129,4 +130,5 @@ Retorna `{"status": "ok"}` — útil para monitorar se o serviço está no ar, n
 - O usuário criado por esta API já pode fazer login imediatamente na plataforma (e-mail já vem confirmado automaticamente).
 - Os campos de crédito (`cdd_credits`, `maps_credits`, `instagram_credits`) definem o **saldo inicial**. Os campos `monthly_*` definem quanto esse saldo é **renovado automaticamente todo mês** — se quiser que o cliente só tenha o pacote comprado sem renovação, deixe os campos `monthly_*` como `0`.
 - Se `maps_credits_enabled` ou `instagram_credits_enabled` forem `false` (padrão), o usuário precisa cadastrar suas próprias chaves de API (Google Maps / Apify) dentro da plataforma, em Configurações.
+- `disparo_habilitado` fica `false` por padrão para todo mundo, inclusive se você não enviar esse campo — a página de Disparos só aparece pra quem for admin ou tiver essa liberação individual ativada.
 - A `X-API-Key` dá poder de criar usuários na plataforma — trate como segredo, nunca exponha no front-end da LP (a chamada para esta API deve ser feita pelo backend/servidor da automação de venda, nunca direto do navegador do cliente).

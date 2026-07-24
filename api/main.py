@@ -51,6 +51,9 @@ class CriarUsuarioRequest(BaseModel):
     instagram_credits: int = Field(default=0, ge=0)
     monthly_instagram_credits: int = Field(default=0, ge=0)
 
+    # Disparos (WhatsApp)
+    disparo_habilitado: bool = Field(default=False, description="Se True, o usuário vê e pode usar a página de Disparos WhatsApp. Desativado por padrão — libere manualmente pelo Admin ou aqui na criação.")
+
 
 class CriarUsuarioResponse(BaseModel):
     success: bool
@@ -96,6 +99,7 @@ def criar_usuario(payload: CriarUsuarioRequest, x_api_key: Optional[str] = Heade
         "instagram_credits_enabled":  payload.instagram_credits_enabled,
         "instagram_credits":          payload.instagram_credits,
         "monthly_instagram_credits":  payload.monthly_instagram_credits,
+        "disparo_habilitado":         payload.disparo_habilitado,
         "credits_renewed_at":         date.today().isoformat(),
     }
 

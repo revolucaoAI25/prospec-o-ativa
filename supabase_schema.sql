@@ -310,6 +310,46 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS maps_keys_pool JSONB DEFAULT '[]':
 -- Execute no SQL Editor do Supabase se o banco já existia.
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS apify_keys_pool JSONB DEFAULT '[]'::jsonb;
 
+-- ── Disparos habilitado por usuário (liberação individual, admin sempre tem acesso) ──
+-- Execute no SQL Editor do Supabase se o banco já existia.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS disparo_habilitado BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Recria user_stats incluindo disparo_habilitado — de quebra, corrige um bug:
+-- instagram_visible foi adicionado como coluna bem depois da última vez que
+-- essa view foi definida, então listar_usuarios() nunca enxergava o valor
+-- real (sempre caía no default True do .get() no app.py).
+CREATE OR REPLACE VIEW user_stats AS
+SELECT
+    p.id,
+    p.email,
+    p.role,
+    p.cdd_credits,
+    p.maps_credits,
+    p.maps_credits_enabled,
+    p.maps_api_key_admin,
+    p.monthly_cdd_credits,
+    p.monthly_maps_credits,
+    p.credits_renewed_at,
+    p.instagram_credits,
+    p.instagram_credits_enabled,
+    p.instagram_visible,
+    p.apify_api_key_admin,
+    p.monthly_instagram_credits,
+    p.disparo_habilitado,
+    p.created_at,
+    COUNT(DISTINCT s.id)  AS total_searches,
+    COUNT(DISTINCT l.id)  AS total_leads,
+    MAX(s.created_at)     AS last_search_at
+FROM profiles p
+LEFT JOIN searches s ON s.user_id = p.id
+LEFT JOIN leads    l ON l.user_id = p.id
+GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
+         p.maps_credits_enabled, p.maps_api_key_admin,
+         p.monthly_cdd_credits, p.monthly_maps_credits,
+         p.credits_renewed_at, p.instagram_credits, p.instagram_credits_enabled,
+         p.instagram_visible, p.apify_api_key_admin, p.monthly_instagram_credits,
+         p.disparo_habilitado, p.created_at;
+
 -- ============================================================
 -- Ferramenta de Disparo WhatsApp (admin-only)
 -- Canal inicial: Evolution API (não-oficial). Deixa espaço pro
