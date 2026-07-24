@@ -1173,29 +1173,72 @@ def pagina_busca():
             pais_sel = st.selectbox("País", _pais_opts, index=0, label_visibility="collapsed", key="maps_pais")
         is_brasil = pais_sel == "Brasil"
 
-        with st.form("form_maps"):
-            st.markdown('<div class="sec">Localidade</div>', unsafe_allow_html=True)
+        # Cidade(s) e Estado(s) — FORA do form pra permitir tags reativas
+        # (adicionar/remover cidade sem precisar submeter) e bloquear a cidade
+        # na hora, ao vivo, quando mais de um estado estiver selecionado.
+        st.markdown('<div class="sec">Localidade</div>', unsafe_allow_html=True)
 
-            cc, ce, cl = st.columns([3, 1, 2])
-            with cc:
-                if pais_sel == "Outro…":
-                    cidade = st.text_input("País / Cidade", placeholder="Ex: Dubai, Singapura…", label_visibility="collapsed")
-                elif is_brasil:
-                    cidade = st.text_input("Cidade", placeholder="Ex: São Paulo, Campinas, Santos…", label_visibility="collapsed",
-                                            help="Pode informar mais de uma cidade separando por vírgula. Nesse caso, escolha só um estado.")
-                else:
-                    cidade = st.text_input("Cidade / Região (opcional)", placeholder="Ex: Miami, Los Angeles…", label_visibility="collapsed")
-            with ce:
-                if is_brasil:
-                    estados_sel = st.multiselect(
-                        "Estado", SIGLAS_ESTADOS, default=["SP"], label_visibility="collapsed",
-                        help="Selecione vários estados só quando o campo Cidade estiver vazio (busca ampla, sem cidade específica).",
-                    )
-                else:
-                    estados_sel = []
-            with cl:
-                lim = st.slider("Resultados", 20, 500, 60, 20, label_visibility="collapsed")
-                st.caption(f"Máx. **{lim}** resultados")
+        if "_maps_cidades" not in st.session_state:
+            st.session_state["_maps_cidades"] = []
+        if "_maps_cidade_input_n" not in st.session_state:
+            st.session_state["_maps_cidade_input_n"] = 0
+
+        ce0, cl0 = st.columns([3, 2])
+        with ce0:
+            if is_brasil:
+                estados_sel = st.multiselect(
+                    "Estado", SIGLAS_ESTADOS, default=["SP"],
+                    help="Selecione vários estados só quando não houver cidade informada (busca ampla, sem cidade específica).",
+                )
+            else:
+                estados_sel = []
+        with cl0:
+            lim = st.slider("Máx. resultados", 20, 500, 60, 20)
+
+        _cidade_bloqueada = is_brasil and len(estados_sel) > 1
+        if pais_sel == "Outro…":
+            _cidade_label = "País / Cidade"
+            _cidade_ph = "Ex: Dubai, Singapura…"
+        elif is_brasil:
+            _cidade_label = "Cidade"
+            _cidade_ph = "Digite uma cidade e clique em Adicionar…"
+        else:
+            _cidade_label = "Cidade / Região (opcional)"
+            _cidade_ph = "Ex: Miami, Los Angeles…"
+
+        cc1, cc2 = st.columns([4, 1])
+        with cc1:
+            _nova_cidade = st.text_input(
+                _cidade_label, placeholder=_cidade_ph,
+                key=f"maps_cidade_input_{st.session_state['_maps_cidade_input_n']}",
+                disabled=_cidade_bloqueada,
+            )
+        with cc2:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            if st.button("+ Adicionar", key="maps_add_cidade_btn", use_container_width=True, disabled=_cidade_bloqueada):
+                _c = _nova_cidade.strip()
+                if _c and _c not in st.session_state["_maps_cidades"]:
+                    st.session_state["_maps_cidades"].append(_c)
+                    st.session_state["_maps_cidade_input_n"] += 1
+                    st.rerun()
+
+        if _cidade_bloqueada:
+            st.caption("⚠️ Com mais de um estado selecionado, a busca é feita sem cidade específica. Escolha só um estado pra informar cidade(s).")
+        elif st.session_state["_maps_cidades"]:
+            for _chunk_ini in range(0, len(st.session_state["_maps_cidades"]), 6):
+                _chunk = st.session_state["_maps_cidades"][_chunk_ini:_chunk_ini + 6]
+                _tag_cols = st.columns(len(_chunk))
+                for _ci, _city in enumerate(_chunk):
+                    _idx_real = _chunk_ini + _ci
+                    with _tag_cols[_ci]:
+                        st.markdown(f'<div class="badge b-ok" style="justify-content:center;width:100%;margin-bottom:4px">{_city}</div>', unsafe_allow_html=True)
+                        if st.button("✕ remover", key=f"maps_rm_cidade_{_idx_real}", use_container_width=True):
+                            st.session_state["_maps_cidades"].pop(_idx_real)
+                            st.rerun()
+
+        st.markdown('<hr class="hr">', unsafe_allow_html=True)
+
+        with st.form("form_maps"):
             apenas_novos_maps = st.toggle(
                 "🔄 Apenas leads novos (remover repetidos de buscas anteriores)",
                 value=True,
@@ -1217,13 +1260,13 @@ def pagina_busca():
             buscar_btn = st.form_submit_button("🔍 Buscar no Google Maps", disabled=not maps_ok, use_container_width=True, type="primary")
 
         if buscar_btn:
-            cidades_lista = [c.strip() for c in cidade.split(",") if c.strip()]
+            cidades_lista = [] if _cidade_bloqueada else list(st.session_state["_maps_cidades"])
             pais_final = "" if pais_sel in ("Brasil", "Outro…") else pais_sel
             _maps_err = None
             if is_brasil and not cidades_lista and not estados_sel:
                 _maps_err = "Informe ao menos uma cidade ou um estado."
-            elif is_brasil and len(cidades_lista) > 1 and len(estados_sel) > 1:
-                _maps_err = "Ao informar mais de uma cidade, selecione apenas um estado (todas as cidades são buscadas dentro dele)."
+            elif is_brasil and cidades_lista and len(estados_sel) > 1:
+                _maps_err = "Ao informar cidade, selecione apenas um estado (a cidade é buscada dentro dele)."
             elif not is_brasil and not cidades_lista:
                 _maps_err = "Informe o país ou cidade."
             elif is_custom and not query_custom.strip():
@@ -2398,8 +2441,8 @@ def _card_automacao(auto: dict) -> None:
                         )
                     if not _loc_ed:
                         _erros_ed.append("Informe ao menos a cidade ou o estado.")
-                    if len(_cidades_ed_lista) > 1 and len(estados_ed_sel) > 1:
-                        _erros_ed.append("Ao informar mais de uma cidade, selecione apenas um estado.")
+                    if _cidades_ed_lista and len(estados_ed_sel) > 1:
+                        _erros_ed.append("Ao informar cidade, selecione apenas um estado.")
                     _sub_val_ed = sub_ed if isinstance(sub_ed, str) and sub_ed != "—" else ""
                     novos_filtros_ed = {
                         "query_base": query_ed if _is_custom_e else query_ed,
@@ -2774,8 +2817,8 @@ def pagina_automacoes():
                     erros.append("Informe um nome para a automação.")
                 if tipo_val == "maps" and not localidade_auto:
                     erros.append("Informe ao menos a cidade ou o estado.")
-                if tipo_val == "maps" and len(_cidades_auto_lista) > 1 and len(estados_auto_sel) > 1:
-                    erros.append("Ao informar mais de uma cidade, selecione apenas um estado.")
+                if tipo_val == "maps" and _cidades_auto_lista and len(estados_auto_sel) > 1:
+                    erros.append("Ao informar cidade, selecione apenas um estado.")
                 if tipo_val == "cnpj" and not filtros_auto.get("cnaes") and not filtros_auto.get("recuperacao_judicial"):
                     erros.append("Selecione ao menos um CNAE.")
                 if tipo_val == "cnpj" and not filtros_auto.get("uf"):

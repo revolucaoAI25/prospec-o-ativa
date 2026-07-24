@@ -169,21 +169,20 @@ def buscar(
     resultados: list[dict] = []
     multiplas = len(localidades) > 1
 
-    for idx, loc in enumerate(localidades):
-        if len(resultados) >= limite:
-            break
-        if multiplas:
-            log(len(resultados), limite, f"[Apify] [{idx+1}/{len(localidades)}] Buscando em {loc}…")
-
+    def _localizar(loc: str) -> tuple[str, str]:
         if not multiplas and (cidade or estado):
-            _cidade_loc, _estado_loc = cidade, estado
-        elif "," in loc:
-            _cidade_loc, _estado_loc = [p.strip() for p in loc.split(",", 1)]
-        else:
-            _cidade_loc, _estado_loc = "", loc
+            return cidade, estado
+        if "," in loc:
+            partes = [p.strip() for p in loc.split(",", 1)]
+            return partes[0], partes[1]
+        return "", loc
 
+    def _buscar_loc(loc: str, cota: int) -> None:
+        if cota <= 0:
+            return
+        _cidade_loc, _estado_loc = _localizar(loc)
         parcial = _buscar_uma_localidade(
-            query_base=query_base, localidade=loc, limite=limite - len(resultados), api_key=api_key,
+            query_base=query_base, localidade=loc, limite=cota, api_key=api_key,
             nicho=nicho, subnicho=subnicho, cidade=_cidade_loc, estado=_estado_loc,
             log=log, exclude_phones=vistos_tel, show_phone=show_phone, show_rating=show_rating,
         )
@@ -192,6 +191,24 @@ def buscar(
             if tel_d:
                 vistos_tel.add(tel_d)
         resultados.extend(parcial)
+
+    if multiplas:
+        # 1ª passada: cota igual pra cada localidade, garante que todas sejam
+        # pesquisadas (senão a primeira da lista podia preencher tudo sozinha).
+        cota_base = max(1, limite // len(localidades))
+        for idx, loc in enumerate(localidades):
+            if len(resultados) >= limite:
+                break
+            log(len(resultados), limite, f"[Apify] [{idx+1}/{len(localidades)}] Buscando em {loc}…")
+            _buscar_loc(loc, min(cota_base, limite - len(resultados)))
+
+        # 2ª passada: completa a vaga que sobrou nas mesmas localidades.
+        for loc in localidades:
+            if len(resultados) >= limite:
+                break
+            _buscar_loc(loc, limite - len(resultados))
+    else:
+        _buscar_loc(localidades[0], limite)
 
     log(len(resultados), limite, f"[Apify] Concluído: {len(resultados)} resultados.")
     return resultados[:limite]
