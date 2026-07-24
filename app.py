@@ -2593,7 +2593,11 @@ def pagina_automacoes():
 
     autos = listar_automacoes_usuario(user_id)
 
-    col_info, col_btn = st.columns([3, 1])
+    if _admin:
+        col_info, col_btn, col_btn_disp = st.columns([2, 1.4, 1.4])
+    else:
+        col_info, col_btn = st.columns([3, 1])
+        col_btn_disp = None
     with col_info:
         ativas = sum(1 for a in autos if a.get("ativa"))
         if autos:
@@ -2603,9 +2607,14 @@ def pagina_automacoes():
                 unsafe_allow_html=True,
             )
     with col_btn:
-        if st.button("+ Nova Automação", type="primary", use_container_width=True, key="btn_nova_auto"):
+        if st.button("+ Nova Automação de Extração", type="primary", use_container_width=True, key="btn_nova_auto"):
             st.session_state["_auto_form_aberto"] = not st.session_state.get("_auto_form_aberto", False)
             st.rerun()
+    if col_btn_disp is not None:
+        with col_btn_disp:
+            if st.button("+ Nova Automação de Disparo", type="primary", use_container_width=True, key="btn_nova_auto_disparo_top"):
+                st.session_state["_auto_disp_form_aberto"] = not st.session_state.get("_auto_disp_form_aberto", False)
+                st.rerun()
 
     # ── Formulário de criação ─────────────────────────────────────────────────
     if st.session_state.get("_auto_form_aberto"):
@@ -3010,14 +3019,8 @@ def pagina_automacoes():
 
         st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
         st.markdown('<hr class="hr">', unsafe_allow_html=True)
-        col_info2, col_btn2 = st.columns([3, 1])
-        with col_info2:
-            st.markdown("### Automações de disparo (WhatsApp)")
-            st.caption("Campanhas que rodam sozinhas: disparam sempre que um lead seu bater com um filtro, ou quando uma planilha monitorada ganhar linhas novas.")
-        with col_btn2:
-            if st.button("+ Nova Automação de Disparo", type="primary", use_container_width=True, key="btn_nova_auto_disparo"):
-                st.session_state["_auto_disp_form_aberto"] = not st.session_state.get("_auto_disp_form_aberto", False)
-                st.rerun()
+        st.markdown("### Automações de disparo (WhatsApp)")
+        st.caption("Campanhas que rodam sozinhas: disparam sempre que um lead seu bater com um filtro, ou quando uma planilha monitorada ganhar linhas novas.")
 
         if st.session_state.get("_auto_disp_form_aberto"):
             st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
@@ -3916,6 +3919,7 @@ _ORIGEM_CAMPANHA_LBL = {
     "auto_trigger":    "🎯 Gatilho por filtro",
     "sheet_watch":     "📊 Monitorando planilha",
     "automacao_busca": "🔗 Vinculada à automação",
+    "planilha_google": "📄 Planilha Google (pontual)",
 }
 
 _CANDIDATOS_COL_NOME = ["nome", "name", "empresa", "razao", "razão", "contato"]
@@ -4015,6 +4019,71 @@ def _ui_planilha_watch(key_prefix: str):
             leads_iniciais.append(lead)
 
     return cfg, leads_iniciais, variaveis_disp
+
+
+def _ui_planilha_selecionar(key_prefix: str):
+    """
+    UI pra escolher uma planilha Google e disparar (uma vez só) pra todo
+    mundo que estiver nela agora — sem continuar monitorando (isso é feito
+    em Automações → Automação de disparo). Retorna (leads, variaveis_disp).
+    """
+    from modules import google_sheets
+    vazio = ([], ["nome", "telefone"])
+    creds_sheet = st.session_state.get("sheets_creds")
+    if not creds_sheet:
+        st.info("Conecte sua conta Google em ⚙️ Configurações antes de selecionar uma planilha.", icon="ℹ️")
+        return vazio
+    try:
+        planilhas_drive = google_sheets.listar_planilhas(creds_sheet)
+    except Exception as e:
+        st.error(f"Erro ao listar planilhas: {e}")
+        return vazio
+    if not planilhas_drive:
+        st.caption("Nenhuma planilha encontrada na sua conta Google.")
+        return vazio
+
+    sheet_opts = {p["name"]: p["id"] for p in planilhas_drive}
+    sheet_sel_nome = st.selectbox("Planilha", list(sheet_opts.keys()), key=f"{key_prefix}_sheet")
+    sheet_id_sel = sheet_opts.get(sheet_sel_nome)
+    try:
+        abas_disp = google_sheets.listar_abas(creds_sheet, sheet_id_sel) if sheet_id_sel else []
+    except Exception as e:
+        st.error(f"Erro ao listar abas: {e}")
+        return vazio
+    if not abas_disp:
+        return vazio
+
+    aba_sel = st.selectbox("Aba", abas_disp, key=f"{key_prefix}_aba")
+    try:
+        valores_sheet = google_sheets.ler_valores(creds_sheet, sheet_id_sel, aba_sel)
+    except Exception as e:
+        st.error(f"Erro ao ler a planilha: {e}")
+        return vazio
+    if not valores_sheet:
+        st.caption("A aba está vazia (ou só tem cabeçalho).")
+        return vazio
+
+    cabecalho_sheet = [str(c) for c in valores_sheet[0]]
+    linhas_sheet = valores_sheet[1:]
+    idx_nome_sw = _detectar_col(cabecalho_sheet, _CANDIDATOS_COL_NOME, 0)
+    idx_tel_sw = _detectar_col(cabecalho_sheet, _CANDIDATOS_COL_TEL, min(1, len(cabecalho_sheet) - 1))
+    scc1, scc2 = st.columns(2)
+    with scc1:
+        col_nome_sw = st.selectbox("Coluna do nome", cabecalho_sheet, index=idx_nome_sw, key=f"{key_prefix}_col_nome")
+    with scc2:
+        col_tel_sw = st.selectbox("Coluna do telefone", cabecalho_sheet, index=idx_tel_sw, key=f"{key_prefix}_col_tel")
+    st.caption(f"{len(linhas_sheet)} linha(s) na planilha agora — todas serão consideradas (dá pra excluir individualmente na pré-visualização abaixo).")
+
+    idx_t = cabecalho_sheet.index(col_tel_sw)
+    idx_n = cabecalho_sheet.index(col_nome_sw)
+    leads = []
+    for linha in linhas_sheet:
+        lead = {cabecalho_sheet[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho_sheet))}
+        lead["telefone"] = linha[idx_t] if idx_t < len(linha) else ""
+        lead["nome"] = linha[idx_n] if idx_n < len(linha) else ""
+        leads.append(lead)
+    variaveis_disp = sorted({"nome", "telefone"} | set(cabecalho_sheet))
+    return leads, variaveis_disp
 
 
 def _poll_conexao_disparo(inst_id: str, evolution_name: str, segundos: int = 40) -> bool:
@@ -4201,14 +4270,13 @@ def _tab_disparo_campanhas(user_id: str):
                 "Origem dos contatos",
                 [
                     "Busca existente (Histórico)", "Upload de planilha",
-                    "Digitar números manualmente", "Monitorar Planilha Google",
+                    "Digitar números manualmente", "Selecionar planilha Google",
                 ],
                 key="disparo_camp_origem",
             )
 
             leads_prontos: list[dict] = []
             origem_search_id = None
-            sheet_watch_cfg = None
             preview_key = "geral"
             variaveis_disp = ["nome", "telefone"]
 
@@ -4274,10 +4342,10 @@ def _tab_disparo_campanhas(user_id: str):
                     st.caption(f"{len(leads_prontos)} número(s) detectado(s).")
                     preview_key = f"manual_{len(numeros)}"
 
-            else:  # Monitorar Planilha Google
-                sheet_watch_cfg, leads_prontos, variaveis_disp = _ui_planilha_watch("disparo_sw")
-                if sheet_watch_cfg:
-                    preview_key = f"sheet_{sheet_watch_cfg['sheet_id']}_{sheet_watch_cfg['aba_nome']}"
+            else:  # Selecionar planilha Google
+                leads_prontos, variaveis_disp = _ui_planilha_selecionar("disparo_sw")
+                if leads_prontos:
+                    preview_key = f"sheetsel_{st.session_state.get('disparo_sw_sheet','')}_{st.session_state.get('disparo_sw_aba','')}"
 
             # ── Pré-visualizar e excluir leads antes de ativar (todas as origens) ──
             if leads_prontos:
@@ -4355,14 +4423,14 @@ def _tab_disparo_campanhas(user_id: str):
                     st.warning("Suba uma planilha com nome e telefone.")
                 elif origem == "Digitar números manualmente" and not leads_prontos:
                     st.warning("Digite ao menos um número.")
-                elif origem == "Monitorar Planilha Google" and not sheet_watch_cfg:
+                elif origem == "Selecionar planilha Google" and not leads_prontos:
                     st.warning("Selecione a planilha, a aba e as colunas de telefone.")
                 else:
                     tipo_origem = {
                         "Busca existente (Histórico)": "busca_existente",
                         "Upload de planilha": "upload",
                         "Digitar números manualmente": "manual",
-                        "Monitorar Planilha Google": "sheet_watch",
+                        "Selecionar planilha Google": "planilha_google",
                     }[origem]
                     camp_id = dispatch_db.criar_campanha(
                         user_id=user_id, nome=nome_camp.strip(),
@@ -4376,13 +4444,6 @@ def _tab_disparo_campanhas(user_id: str):
                         for i, s in enumerate(steps, start=1):
                             dispatch_db.criar_etapa(camp_id, i, s["atraso_horas"], s["corpo_mensagem"])
 
-                        if tipo_origem == "sheet_watch":
-                            dispatch_db.criar_sheet_watcher(
-                                camp_id, sheet_watch_cfg["sheet_id"], sheet_watch_cfg["aba_nome"],
-                                sheet_watch_cfg["coluna_telefone"], sheet_watch_cfg["coluna_nome"],
-                                ultima_linha_processada=sheet_watch_cfg["linhas_existentes"],
-                            )
-
                         if leads_prontos:
                             resultado_enroll = dispatch_db.enroll_targets(camp_id, leads_prontos)
                         else:
@@ -4391,8 +4452,6 @@ def _tab_disparo_campanhas(user_id: str):
                         st.session_state["_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
                         st.session_state["_camp_form_aberto"] = False
                         msg = f"Campanha criada e ativada com {resultado_enroll['inscritos']} contato(s) inscrito(s)!"
-                        if tipo_origem == "sheet_watch":
-                            msg += " A planilha continua sendo monitorada — novas linhas entram automaticamente."
                         _extras = []
                         if resultado_enroll["invalidos"]:
                             _extras.append(f"{resultado_enroll['invalidos']} com telefone inválido")
@@ -4593,11 +4652,12 @@ def _sidebar():
             ("busca",         "Busca"),
             ("historico",     "Histórico"),
             ("automacoes",    "Automações"),
-            ("configuracoes", "Configurações"),
         ]
         if eh_admin():
-            nav_items.append(("admin", "Admin"))
             nav_items.append(("disparo", "Disparos"))
+        nav_items.append(("configuracoes", "Configurações"))
+        if eh_admin():
+            nav_items.append(("admin", "Admin"))
 
         st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
         for key, label in nav_items:

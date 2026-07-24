@@ -336,7 +336,7 @@ CREATE TABLE IF NOT EXISTS dispatch_campaigns (
     nome              TEXT NOT NULL,
     instance_id       UUID REFERENCES whatsapp_instances(id),
     status            TEXT NOT NULL DEFAULT 'rascunho' CHECK (status IN ('rascunho', 'ativa', 'pausada', 'concluida')),
-    tipo_origem       TEXT NOT NULL CHECK (tipo_origem IN ('busca_existente', 'upload', 'manual', 'auto_trigger', 'sheet_watch', 'automacao_busca')),
+    tipo_origem       TEXT NOT NULL CHECK (tipo_origem IN ('busca_existente', 'upload', 'manual', 'auto_trigger', 'sheet_watch', 'automacao_busca', 'planilha_google')),
     origem_search_id  UUID REFERENCES searches(id),   -- só p/ busca_existente
     filtro_nicho      TEXT,                           -- só p/ auto_trigger
     filtro_subnicho   TEXT,
@@ -427,7 +427,7 @@ ALTER TABLE automations ADD COLUMN IF NOT EXISTS dispatch_campaign_id UUID REFER
 ALTER TABLE dispatch_campaigns ADD COLUMN IF NOT EXISTS ultimo_trigger_em TIMESTAMPTZ;
 ALTER TABLE dispatch_campaigns DROP CONSTRAINT IF EXISTS dispatch_campaigns_tipo_origem_check;
 ALTER TABLE dispatch_campaigns ADD CONSTRAINT dispatch_campaigns_tipo_origem_check
-    CHECK (tipo_origem IN ('busca_existente', 'upload', 'manual', 'auto_trigger', 'sheet_watch', 'automacao_busca'));
+    CHECK (tipo_origem IN ('busca_existente', 'upload', 'manual', 'auto_trigger', 'sheet_watch', 'automacao_busca', 'planilha_google'));
 
 -- Reivindicação atômica de 1 alvo pronto pra envio por instância —
 -- evita corrida entre ticks/threads furando o intervalo anti-banimento.
