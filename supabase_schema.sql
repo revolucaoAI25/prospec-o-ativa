@@ -508,11 +508,14 @@ ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS token_oficial   TEXT;
 ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS phone_number_id TEXT;
 ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS waba_id         TEXT;
 
-ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS nome_meta   TEXT;               -- nome exato registrado na Meta (minúsculo, underscore)
-ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS idioma      TEXT DEFAULT 'pt_BR';
-ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS componentes JSONB DEFAULT '[]'::jsonb;  -- header/body/footer/buttons no formato da Meta
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS nome_meta       TEXT;           -- nome exato registrado na Meta (minúsculo, underscore)
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS idioma          TEXT DEFAULT 'pt_BR';
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS componentes     JSONB DEFAULT '[]'::jsonb;  -- header/body/footer/buttons no formato da Meta
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS meta_template_id TEXT;          -- id retornado pela Meta na criação, usado pra consultar status
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS instance_id     UUID REFERENCES whatsapp_instances(id);  -- instância oficial dona do template
 
 ALTER TABLE dispatch_cadence_steps ADD COLUMN IF NOT EXISTS template_id UUID REFERENCES message_templates(id);
+ALTER TABLE dispatch_cadence_steps ADD COLUMN IF NOT EXISTS parametros_template JSONB DEFAULT '[]'::jsonb;  -- 1 string por variável {{n}} do template, aceita {{campo}} do lead
 
 CREATE TABLE IF NOT EXISTS oficial_connection_requests (
     id             UUID DEFAULT uuid_generate_v4() PRIMARY KEY,

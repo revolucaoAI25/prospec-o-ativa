@@ -2663,43 +2663,24 @@ def pagina_automacoes():
                     "Disparar automaticamente para quem for extraído", key="_auto_disparo_ativo",
                 )
                 if disparo_auto_ativo:
-                    _instancias_a = [i for i in _ddb_a.listar_instancias(user_id) if i.get("canal") != "oficial"]
+                    _instancias_a = _ddb_a.listar_instancias(user_id)
                     if not _instancias_a:
-                        st.warning("Conecte uma instância WhatsApp não-oficial em Disparos → Instâncias antes de ativar isso (canal oficial ainda não disponível pra disparo).")
+                        st.warning("Conecte uma instância WhatsApp em Disparos → Instâncias antes de ativar isso.")
                     else:
-                        _inst_opts_a = {i["nome"]: i["id"] for i in _instancias_a}
-                        _inst_sel_a = st.selectbox("Instância WhatsApp", list(_inst_opts_a.keys()), key="_auto_disparo_inst")
-                        disparo_auto_inst_id = _inst_opts_a.get(_inst_sel_a)
+                        _inst_por_nome_a = {i["nome"]: i for i in _instancias_a}
+                        _inst_sel_a = st.selectbox("Instância WhatsApp", list(_inst_por_nome_a.keys()), key="_auto_disparo_inst")
+                        _inst_selecionada_a = _inst_por_nome_a.get(_inst_sel_a) or {}
+                        disparo_auto_inst_id = _inst_selecionada_a.get("id")
 
-                        if "_auto_disparo_steps" not in st.session_state:
-                            st.session_state["_auto_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
                         _dac1, _dac2 = st.columns(2)
                         with _dac1:
                             disparo_auto_int_min = st.number_input("Intervalo mínimo (s)", min_value=5, value=30, step=5, key="_auto_disparo_int_min")
                         with _dac2:
                             disparo_auto_int_max = st.number_input("Intervalo máximo (s)", min_value=5, value=90, step=5, key="_auto_disparo_int_max")
-                        st.caption("Variáveis disponíveis: {{nome}}, {{telefone}}, {{email}}, {{endereco}}, {{municipio}}, {{uf}}, {{site}} etc.")
-                        for i, step in enumerate(st.session_state["_auto_disparo_steps"]):
-                            _asc1, _asc2, _asc3 = st.columns([2, 6, 1])
-                            with _asc1:
-                                step["atraso_horas"] = st.number_input(
-                                    "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
-                                    min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
-                                    key=f"_auto_disparo_step_atraso_{i}",
-                                )
-                            with _asc2:
-                                step["corpo_mensagem"] = st.text_area(
-                                    "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
-                                    value=step["corpo_mensagem"], key=f"_auto_disparo_step_corpo_{i}", height=80,
-                                )
-                            with _asc3:
-                                st.markdown("<br>", unsafe_allow_html=True)
-                                if len(st.session_state["_auto_disparo_steps"]) > 1 and st.button("🗑️", key=f"_auto_disparo_step_del_{i}"):
-                                    st.session_state["_auto_disparo_steps"].pop(i)
-                                    st.rerun()
-                        if st.button("➕ Adicionar etapa à cadência", key="_auto_disparo_add_step"):
-                            st.session_state["_auto_disparo_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
-                            st.rerun()
+                        _ui_cadence_step_builder(
+                            "_auto_disparo_steps", "_auto_disparo_step", user_id, _inst_selecionada_a,
+                            ["nome", "telefone", "telefone2", "email", "endereco", "municipio", "uf", "cep", "site", "nicho", "subnicho"],
+                        )
                         st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
             with st.form("form_nova_automacao", clear_on_submit=True):
@@ -2968,7 +2949,10 @@ def pagina_automacoes():
                         )
                         if dispatch_campaign_id_novo:
                             for i, s in enumerate(st.session_state["_auto_disparo_steps"], start=1):
-                                _ddb_b.criar_etapa(dispatch_campaign_id_novo, i, s["atraso_horas"], s["corpo_mensagem"])
+                                _ddb_b.criar_etapa(
+                                    dispatch_campaign_id_novo, i, s["atraso_horas"], s["corpo_mensagem"],
+                                    template_id=s.get("template_id"), parametros_template=s.get("parametros_template"),
+                                )
                             _ddb_b.atualizar_campanha(dispatch_campaign_id_novo, status="ativa")
                         else:
                             st.warning("Não foi possível criar a campanha de disparo — a automação foi criada sem ela.")
@@ -3027,13 +3011,14 @@ def pagina_automacoes():
             with st.container(key="form_card_nova_auto_disparo"):
                 st.markdown("#### Nova Automação de Disparo")
                 nome_ad = st.text_input("Nome", key="ad_nome", placeholder="Ex: Recuperação judicial SP")
-                _instancias_ad = [i for i in _ddb_disp_auto.listar_instancias(user_id) if i.get("canal") != "oficial"]
+                _instancias_ad = _ddb_disp_auto.listar_instancias(user_id)
                 if not _instancias_ad:
-                    st.warning("Conecte uma instância WhatsApp não-oficial em Disparos → Instâncias antes de criar isso (canal oficial ainda não disponível pra disparo).")
+                    st.warning("Conecte uma instância WhatsApp em Disparos → Instâncias antes de criar isso.")
                 else:
-                    _inst_opts_ad = {i["nome"]: i["id"] for i in _instancias_ad}
-                    inst_sel_ad = st.selectbox("Instância WhatsApp", list(_inst_opts_ad.keys()), key="ad_inst")
-                    inst_id_ad = _inst_opts_ad.get(inst_sel_ad)
+                    _inst_por_nome_ad = {i["nome"]: i for i in _instancias_ad}
+                    inst_sel_ad = st.selectbox("Instância WhatsApp", list(_inst_por_nome_ad.keys()), key="ad_inst")
+                    _inst_selecionada_ad = _inst_por_nome_ad.get(inst_sel_ad) or {}
+                    inst_id_ad = _inst_selecionada_ad.get("id")
 
                     gatilho_ad = st.radio("Gatilho", ["Filtro específico", "Monitorar Planilha Google"], key="ad_gatilho")
 
@@ -3062,35 +3047,12 @@ def pagina_automacoes():
                     else:
                         sheet_watch_cfg_ad, leads_iniciais_ad, variaveis_ad = _ui_planilha_watch("ad_sw")
 
-                    if "_ad_steps" not in st.session_state:
-                        st.session_state["_ad_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
                     dac1, dac2 = st.columns(2)
                     with dac1:
                         int_min_ad = st.number_input("Intervalo mínimo (s)", min_value=5, value=30, step=5, key="ad_int_min")
                     with dac2:
                         int_max_ad = st.number_input("Intervalo máximo (s)", min_value=5, value=90, step=5, key="ad_int_max")
-                    st.caption("Variáveis disponíveis: " + ", ".join(f"{{{{{v}}}}}" for v in variaveis_ad))
-                    for i, step in enumerate(st.session_state["_ad_steps"]):
-                        asc1, asc2, asc3 = st.columns([2, 6, 1])
-                        with asc1:
-                            step["atraso_horas"] = st.number_input(
-                                "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
-                                min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
-                                key=f"ad_step_atraso_{i}",
-                            )
-                        with asc2:
-                            step["corpo_mensagem"] = st.text_area(
-                                "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
-                                value=step["corpo_mensagem"], key=f"ad_step_corpo_{i}", height=80,
-                            )
-                        with asc3:
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            if len(st.session_state["_ad_steps"]) > 1 and st.button("🗑️", key=f"ad_step_del_{i}"):
-                                st.session_state["_ad_steps"].pop(i)
-                                st.rerun()
-                    if st.button("➕ Adicionar etapa à cadência", key="ad_add_step"):
-                        st.session_state["_ad_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
-                        st.rerun()
+                    _ui_cadence_step_builder("_ad_steps", "ad_step", user_id, _inst_selecionada_ad, variaveis_ad)
 
                     st.markdown('<hr class="hr">', unsafe_allow_html=True)
                     if st.button("✅ Criar Automação de Disparo", type="primary", key="ad_criar", use_container_width=True):
@@ -3125,7 +3087,10 @@ def pagina_automacoes():
                                 st.error("Erro ao criar a automação de disparo.")
                             else:
                                 for i, s in enumerate(_steps_ad, start=1):
-                                    _ddb_disp_auto.criar_etapa(camp_id_ad, i, s["atraso_horas"], s["corpo_mensagem"])
+                                    _ddb_disp_auto.criar_etapa(
+                                        camp_id_ad, i, s["atraso_horas"], s["corpo_mensagem"],
+                                        template_id=s.get("template_id"), parametros_template=s.get("parametros_template"),
+                                    )
                                 if tipo_origem_ad == "sheet_watch":
                                     _ddb_disp_auto.criar_sheet_watcher(
                                         camp_id_ad, sheet_watch_cfg_ad["sheet_id"], sheet_watch_cfg_ad["aba_nome"],
@@ -3925,6 +3890,29 @@ _ORIGEM_CAMPANHA_LBL = {
 _CANDIDATOS_COL_NOME = ["nome", "name", "empresa", "razao", "razão", "contato"]
 _CANDIDATOS_COL_TEL = ["telefone", "phone", "celular", "whatsapp", "fone", "numero", "número"]
 
+_STATUS_TEMPLATE_LBL = {
+    "rascunho": ("b-warn", "Rascunho"),
+    "pendente": ("b-warn", "Pendente (Meta)"),
+    "aprovado": ("b-ok",   "Aprovado"),
+    "rejeitado": ("b-err", "Rejeitado"),
+}
+
+
+def _extrair_partes_template(componentes: list) -> tuple[str, str, str]:
+    """(cabeçalho, corpo, rodapé) a partir do JSONB `componentes` no formato
+    da Meta — fonte única de verdade pro conteúdo do template, evita perder
+    cabeçalho/rodapé ao reenviar um rascunho salvo antes pra aprovação."""
+    cabecalho = corpo = rodape = ""
+    for c in componentes or []:
+        tipo = (c.get("type") or "").upper()
+        if tipo == "HEADER":
+            cabecalho = c.get("text", "") or ""
+        elif tipo == "BODY":
+            corpo = c.get("text", "") or ""
+        elif tipo == "FOOTER":
+            rodape = c.get("text", "") or ""
+    return cabecalho, corpo, rodape
+
 
 def _detectar_col(colunas: list, candidatos: list[str], padrao_idx: int) -> int:
     for i, c in enumerate(colunas):
@@ -4217,8 +4205,9 @@ def _tab_disparo_instancias(user_id: str):
             )
             st.info(f"Você já tem uma solicitação em aberto ({_status_lbl}). Em breve você receberá as instruções.", icon="⏳")
         else:
+            _email_of = (st.session_state.get("user", {}) or {}).get("email", "")
             with st.form("form_solicitar_oficial"):
-                nome_desejado_of = st.text_input("Nome (identificação interna)", key="of_nome", placeholder="Ex: WhatsApp Comercial")
+                st.caption(f"Conta: **{_email_of}** — já sabemos quem é você, só falta o número.")
                 telefone_contato_of = st.text_input("Número de telefone a conectar", key="of_telefone", placeholder="(11) 99999-9999")
                 pedir_of = st.form_submit_button("📨 Solicitar conexão oficial", type="primary", use_container_width=True)
             if pedir_of:
@@ -4226,17 +4215,15 @@ def _tab_disparo_instancias(user_id: str):
                     st.warning("Informe o número de telefone.")
                 else:
                     req_id = dispatch_db.criar_solicitacao_oficial(
-                        user_id, nome_desejado_of.strip(), telefone_contato_of.strip(),
+                        user_id, _email_of, telefone_contato_of.strip(),
                     )
                     if req_id:
                         from modules import notificacoes
-                        _usuario_atual = st.session_state.get("user", {}) or {}
                         notificacoes.notificar_pedido_conexao_oficial({
                             "tipo": "pedido_conexao_oficial",
                             "request_id": req_id,
                             "user_id": user_id,
-                            "email": _usuario_atual.get("email", ""),
-                            "nome_desejado": nome_desejado_of.strip(),
+                            "email": _email_of,
                             "telefone_contato": telefone_contato_of.strip(),
                         })
                         st.success("Solicitação enviada! Em breve você receberá as instruções pra conectar.")
@@ -4290,22 +4277,96 @@ def _tab_disparo_instancias(user_id: str):
                 st.rerun()
 
 
+def _ui_cadence_step_builder(steps_key: str, key_prefix: str, user_id: str, inst_selecionada: dict, variaveis_disp: list) -> None:
+    """
+    Construtor de cadência compartilhado entre Disparos → Campanhas e as
+    duas telas de Automações — evita a mesma lógica (com o branch canal
+    oficial vs. não-oficial) divergindo entre os três lugares. Edita
+    st.session_state[steps_key] (lista de dicts) in-place.
+    """
+    from modules import dispatch_db
+
+    if steps_key not in st.session_state:
+        st.session_state[steps_key] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
+
+    inst_eh_oficial = (inst_selecionada or {}).get("canal") == "oficial"
+    templates_aprovados = []
+    if inst_eh_oficial:
+        templates_aprovados = [
+            t for t in dispatch_db.listar_templates(user_id)
+            if t.get("status_aprovacao") == "aprovado" and t.get("instance_id") == inst_selecionada.get("id")
+        ]
+        if not templates_aprovados:
+            st.warning(
+                "Essa instância é do canal oficial e não tem nenhum template aprovado ainda — "
+                "crie e aguarde a aprovação na aba **Templates** (em Disparos) antes de montar a cadência.",
+            )
+    else:
+        st.caption("Variáveis disponíveis: " + ", ".join(f"{{{{{v}}}}}" for v in variaveis_disp))
+
+    for i, step in enumerate(st.session_state[steps_key]):
+        sc1, sc2, sc3 = st.columns([2, 6, 1])
+        with sc1:
+            step["atraso_horas"] = st.number_input(
+                "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
+                min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
+                key=f"{key_prefix}_atraso_{i}",
+                help="Horas após a inscrição (etapa 1) ou após a etapa anterior ser enviada.",
+            )
+        with sc2:
+            if inst_eh_oficial:
+                if templates_aprovados:
+                    _tpl_opts_step = {t["nome"]: t for t in templates_aprovados}
+                    _tpl_nome_atual = next(
+                        (n for n, t in _tpl_opts_step.items() if t["id"] == step.get("template_id")),
+                        list(_tpl_opts_step.keys())[0],
+                    )
+                    _tpl_sel_step = st.selectbox(
+                        "Template" if i == 0 else f"Template etapa {i+1}",
+                        list(_tpl_opts_step.keys()),
+                        index=list(_tpl_opts_step.keys()).index(_tpl_nome_atual),
+                        key=f"{key_prefix}_tpl_{i}",
+                    )
+                    _tpl_obj_step = _tpl_opts_step[_tpl_sel_step]
+                    step["template_id"] = _tpl_obj_step["id"]
+                    _cab_step, _corpo_step, _rod_step = _extrair_partes_template(_tpl_obj_step.get("componentes") or [])
+                    st.caption(f"Prévia: {_corpo_step}")
+                    _n_vars_step = len(_tpl_obj_step.get("variaveis") or [])
+                    _params_atuais = step.get("parametros_template") or []
+                    _novos_params = []
+                    for vi in range(_n_vars_step):
+                        _val_atual = _params_atuais[vi] if vi < len(_params_atuais) else ""
+                        _novos_params.append(st.text_input(
+                            f"Variável {{{{{vi + 1}}}}}", value=_val_atual,
+                            key=f"{key_prefix}_tplvar_{i}_{vi}",
+                            placeholder="Ex: {{nome}} ou texto fixo",
+                        ))
+                    step["parametros_template"] = _novos_params
+                    step["corpo_mensagem"] = _corpo_step
+                else:
+                    st.caption("— sem template aprovado —")
+            else:
+                step["corpo_mensagem"] = st.text_area(
+                    "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
+                    value=step["corpo_mensagem"], key=f"{key_prefix}_corpo_{i}", height=80,
+                    placeholder="Use {{nome}}, {{telefone}} etc. — veja as variáveis disponíveis acima.",
+                )
+        with sc3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if len(st.session_state[steps_key]) > 1 and st.button("🗑️", key=f"{key_prefix}_del_{i}"):
+                st.session_state[steps_key].pop(i)
+                st.rerun()
+
+    if st.button("➕ Adicionar etapa à cadência", key=f"{key_prefix}_add_step"):
+        st.session_state[steps_key].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
+        st.rerun()
+
+
 def _tab_disparo_campanhas(user_id: str):
     from modules import dispatch_db
     from modules.database import listar_pesquisas, buscar_leads_da_pesquisa
 
-    # Canal oficial ainda só conecta (Instâncias) — disparo por template pro
-    # canal oficial é a próxima etapa. Até lá, só instâncias não-oficiais
-    # entram aqui pra não deixar criar uma campanha que nunca vai enviar.
-    todas_instancias = dispatch_db.listar_instancias(user_id)
-    instancias = [i for i in todas_instancias if i.get("canal") != "oficial"]
-    if any(i.get("canal") == "oficial" for i in todas_instancias) and not instancias:
-        st.info(
-            "Sua instância oficial está conectada, mas o disparo por template pra ela ainda "
-            "não está disponível — em breve. Por enquanto, campanhas usam o canal não-oficial.",
-            icon="ℹ️",
-        )
-        return
+    instancias = dispatch_db.listar_instancias(user_id)
     if not instancias:
         st.info("Conecte uma instância WhatsApp na aba **Instâncias** antes de criar uma campanha.", icon="ℹ️")
         return
@@ -4327,8 +4388,10 @@ def _tab_disparo_campanhas(user_id: str):
             st.markdown("#### Nova campanha")
 
             nome_camp = st.text_input("Nome da campanha", key="disparo_camp_nome")
-            inst_opts = {i["nome"]: i["id"] for i in instancias}
+            inst_por_nome = {i["nome"]: i for i in instancias}
+            inst_opts = {nome: inst["id"] for nome, inst in inst_por_nome.items()}
             inst_sel = st.selectbox("Instância WhatsApp", list(inst_opts.keys()), key="disparo_camp_inst")
+            inst_selecionada = inst_por_nome.get(inst_sel) or {}
 
             origem = st.radio(
                 "Origem dos contatos",
@@ -4446,31 +4509,7 @@ def _tab_disparo_campanhas(user_id: str):
                 intervalo_max = st.number_input("Máximo (segundos)", min_value=5, value=90, step=5, key="disparo_int_max")
 
             st.markdown('<div class="sec">Cadência de mensagens</div>', unsafe_allow_html=True)
-            st.caption("Variáveis disponíveis nesta origem: " + ", ".join(f"{{{{{v}}}}}" for v in variaveis_disp))
-            for i, step in enumerate(st.session_state["_disparo_steps"]):
-                sc1, sc2, sc3 = st.columns([2, 6, 1])
-                with sc1:
-                    step["atraso_horas"] = st.number_input(
-                        "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
-                        min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
-                        key=f"disparo_step_atraso_{i}",
-                        help="Horas após a inscrição (etapa 1) ou após a etapa anterior ser enviada.",
-                    )
-                with sc2:
-                    step["corpo_mensagem"] = st.text_area(
-                        "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
-                        value=step["corpo_mensagem"], key=f"disparo_step_corpo_{i}", height=80,
-                        placeholder="Use {{nome}}, {{telefone}} etc. — veja as variáveis disponíveis acima.",
-                    )
-                with sc3:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if len(st.session_state["_disparo_steps"]) > 1 and st.button("🗑️", key=f"disparo_step_del_{i}"):
-                        st.session_state["_disparo_steps"].pop(i)
-                        st.rerun()
-
-            if st.button("➕ Adicionar etapa à cadência", key="disparo_add_step"):
-                st.session_state["_disparo_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
-                st.rerun()
+            _ui_cadence_step_builder("_disparo_steps", "disparo_step", user_id, inst_selecionada, variaveis_disp)
 
             st.markdown('<hr class="hr">', unsafe_allow_html=True)
             if st.button("✅ Criar campanha", type="primary", key="disparo_criar_campanha", use_container_width=True):
@@ -4506,7 +4545,11 @@ def _tab_disparo_campanhas(user_id: str):
                         st.error("Erro ao criar a campanha.")
                     else:
                         for i, s in enumerate(steps, start=1):
-                            dispatch_db.criar_etapa(camp_id, i, s["atraso_horas"], s["corpo_mensagem"])
+                            dispatch_db.criar_etapa(
+                                camp_id, i, s["atraso_horas"], s["corpo_mensagem"],
+                                template_id=s.get("template_id"),
+                                parametros_template=s.get("parametros_template"),
+                            )
 
                         if leads_prontos:
                             resultado_enroll = dispatch_db.enroll_targets(camp_id, leads_prontos)
@@ -4612,6 +4655,163 @@ def _tab_disparo_relatorios(user_id: str):
         st.dataframe(df_t, use_container_width=True, height=320)
 
 
+def _tab_disparo_templates(user_id: str):
+    from modules import dispatch_db, whatsapp_oficial
+
+    instancias_oficiais = [i for i in dispatch_db.listar_instancias(user_id) if i.get("canal") == "oficial"]
+    if not instancias_oficiais:
+        st.info("Conecte uma instância do canal oficial (aba Instâncias) pra gerenciar templates.", icon="ℹ️")
+        return
+
+    col_info, col_btn = st.columns([3, 1])
+    with col_info:
+        st.caption("Templates precisam ser aprovados pela Meta antes de entrar numa campanha do canal oficial.")
+    with col_btn:
+        if st.button("+ Novo template", type="primary", use_container_width=True, key="btn_novo_template"):
+            st.session_state["_tpl_form_aberto"] = not st.session_state.get("_tpl_form_aberto", False)
+            st.rerun()
+
+    if st.session_state.get("_tpl_form_aberto"):
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+        with st.container(key="form_card_novo_template"):
+            st.markdown("#### Novo template")
+            _inst_opts_tpl = {i["nome"]: i["id"] for i in instancias_oficiais}
+            inst_sel_tpl = st.selectbox("Instância oficial", list(_inst_opts_tpl.keys()), key="tpl_inst")
+            inst_id_tpl = _inst_opts_tpl.get(inst_sel_tpl)
+
+            nome_tpl = st.text_input("Nome interno", key="tpl_nome", placeholder="Ex: Confirmação de agendamento")
+            nc1, nc2, nc3 = st.columns(3)
+            with nc1:
+                nome_meta_tpl = st.text_input(
+                    "Nome técnico (Meta)", key="tpl_nome_meta", placeholder="confirmacao_agendamento",
+                    help="Minúsculo, só letras/números/underscore — como a Meta identifica o template.",
+                )
+            with nc2:
+                categoria_tpl = st.selectbox("Categoria", ["UTILITY", "MARKETING", "AUTHENTICATION"], key="tpl_categoria")
+            with nc3:
+                idioma_tpl = st.selectbox("Idioma", ["pt_BR", "en_US", "es_ES"], key="tpl_idioma")
+            cabecalho_tpl = st.text_input("Cabeçalho (opcional)", key="tpl_cabecalho")
+            corpo_tpl = st.text_area(
+                "Corpo *", key="tpl_corpo", height=120,
+                placeholder="Olá {{1}}, seu pedido {{2}} foi confirmado!",
+                help="Use {{1}}, {{2}}... pras variáveis — na hora de disparar, cada uma é mapeada pra um campo do lead.",
+            )
+            rodape_tpl = st.text_input("Rodapé (opcional)", key="tpl_rodape")
+
+            st.markdown('<hr class="hr">', unsafe_allow_html=True)
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                salvar_rascunho = st.button("💾 Salvar rascunho", key="tpl_salvar_rascunho", use_container_width=True)
+            with bc2:
+                enviar_aprovacao = st.button("📤 Salvar e enviar pra aprovação", type="primary", key="tpl_enviar", use_container_width=True)
+
+            if salvar_rascunho or enviar_aprovacao:
+                import re as _re_tpl
+                _nome_meta_norm = _re_tpl.sub(r"[^a-z0-9_]+", "_", nome_meta_tpl.strip().lower()).strip("_")
+                if not nome_tpl.strip():
+                    st.warning("Dê um nome interno pro template.")
+                elif not corpo_tpl.strip():
+                    st.warning("Preencha o corpo da mensagem.")
+                elif enviar_aprovacao and not _nome_meta_norm:
+                    st.warning("Preencha o nome técnico (Meta) pra enviar pra aprovação.")
+                else:
+                    _numeros_var = sorted(set(int(n) for n in _re_tpl.findall(r"\{\{(\d+)\}\}", corpo_tpl)))
+                    tpl_id = dispatch_db.criar_template(
+                        user_id=user_id, instance_id=inst_id_tpl, nome=nome_tpl.strip(),
+                        categoria=categoria_tpl, corpo=corpo_tpl.strip(), nome_meta=_nome_meta_norm,
+                        idioma=idioma_tpl, cabecalho=cabecalho_tpl.strip(), rodape=rodape_tpl.strip(),
+                        variaveis=[f"var{n}" for n in _numeros_var],
+                    )
+                    if not tpl_id:
+                        st.error("Erro ao salvar o template.")
+                    elif salvar_rascunho:
+                        st.success(f"Template **{nome_tpl}** salvo como rascunho.")
+                        st.session_state["_tpl_form_aberto"] = False
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:  # enviar_aprovacao
+                        inst_tpl = dispatch_db.obter_instancia(inst_id_tpl)
+                        try:
+                            resp_meta = whatsapp_oficial.criar_template(
+                                token=inst_tpl["token_oficial"], waba_id=inst_tpl.get("waba_id") or "",
+                                nome_meta=_nome_meta_norm, categoria=categoria_tpl, idioma=idioma_tpl,
+                                corpo=corpo_tpl.strip(), cabecalho=cabecalho_tpl.strip(), rodape=rodape_tpl.strip(),
+                            )
+                            dispatch_db.atualizar_template(tpl_id, status_aprovacao="pendente", meta_template_id=resp_meta.get("id", ""))
+                            st.success("Template salvo e enviado pra aprovação da Meta! Status: pendente.")
+                            st.session_state["_tpl_form_aberto"] = False
+                            time.sleep(0.4)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Template salvo como rascunho, mas o envio pra Meta falhou: {e}")
+
+    st.markdown("### Seus templates")
+    templates = dispatch_db.listar_templates(user_id)
+    if not templates:
+        st.caption("Nenhum template criado ainda.")
+        return
+
+    for tpl in templates:
+        status = tpl.get("status_aprovacao", "rascunho")
+        badge_cls, badge_lbl = _STATUS_TEMPLATE_LBL.get(status, ("b-err", status))
+        with st.expander(f"{tpl['nome']} — {badge_lbl}"):
+            st.markdown(f'<span class="badge {badge_cls}">{badge_lbl}</span>', unsafe_allow_html=True)
+            st.caption(
+                f"Categoria: {tpl.get('categoria','—')} · Idioma: {tpl.get('idioma','—')} · "
+                f"Nome técnico: `{tpl.get('nome_meta') or '—'}`"
+            )
+            _cab_tpl, _corpo_tpl, _rod_tpl = _extrair_partes_template(tpl.get("componentes") or [])
+            if _cab_tpl:
+                st.caption(f"**Cabeçalho:** {_cab_tpl}")
+            st.text(_corpo_tpl or tpl.get("corpo", ""))
+            if _rod_tpl:
+                st.caption(f"**Rodapé:** {_rod_tpl}")
+
+            bc1, bc2, bc3 = st.columns(3)
+            with bc1:
+                if tpl.get("meta_template_id"):
+                    if st.button("🔄 Atualizar status", key=f"tpl_refresh_{tpl['id']}", use_container_width=True):
+                        inst_tpl2 = dispatch_db.obter_instancia(tpl["instance_id"]) if tpl.get("instance_id") else None
+                        if not inst_tpl2:
+                            st.error("Instância vinculada não encontrada.")
+                        else:
+                            try:
+                                resp_status = whatsapp_oficial.obter_template(inst_tpl2["token_oficial"], tpl["meta_template_id"])
+                                novo_status_meta = resp_status.get("status", "")
+                                _map_status = {"APPROVED": "aprovado", "PENDING": "pendente", "REJECTED": "rejeitado"}
+                                dispatch_db.atualizar_template(
+                                    tpl["id"], status_aprovacao=_map_status.get(novo_status_meta, status),
+                                )
+                                st.success(f"Status atualizado: {novo_status_meta}")
+                            except Exception as e:
+                                st.error(f"Erro ao consultar status: {e}")
+                            st.rerun()
+                elif st.button("📤 Enviar pra aprovação", key=f"tpl_send_{tpl['id']}", use_container_width=True):
+                    inst_tpl3 = dispatch_db.obter_instancia(tpl["instance_id"]) if tpl.get("instance_id") else None
+                    if not inst_tpl3:
+                        st.error("Instância vinculada não encontrada.")
+                    elif not tpl.get("nome_meta"):
+                        st.error("Esse template não tem nome técnico — exclua e crie de novo preenchendo esse campo.")
+                    else:
+                        try:
+                            resp_meta2 = whatsapp_oficial.criar_template(
+                                token=inst_tpl3["token_oficial"], waba_id=inst_tpl3.get("waba_id") or "",
+                                nome_meta=tpl["nome_meta"], categoria=tpl.get("categoria", "UTILITY"),
+                                idioma=tpl.get("idioma", "pt_BR"), corpo=_corpo_tpl, cabecalho=_cab_tpl, rodape=_rod_tpl,
+                            )
+                            dispatch_db.atualizar_template(
+                                tpl["id"], status_aprovacao="pendente", meta_template_id=resp_meta2.get("id", ""),
+                            )
+                            st.success("Enviado pra aprovação!")
+                        except Exception as e:
+                            st.error(f"Erro ao enviar: {e}")
+                        st.rerun()
+            with bc3:
+                if st.button("🗑️ Excluir", key=f"tpl_del_{tpl['id']}", use_container_width=True):
+                    dispatch_db.deletar_template(tpl["id"])
+                    st.rerun()
+
+
 def _tab_disparo_pedidos_oficial():
     from modules import dispatch_db
 
@@ -4629,13 +4829,14 @@ def _tab_disparo_pedidos_oficial():
         st.caption("Nenhuma solicitação pendente.")
     for s in pendentes:
         sid = s["id"]
-        titulo = f"{s.get('nome_desejado') or 'Sem nome'} — {s.get('telefone_contato') or '—'} · {s.get('status','').upper()}"
+        titulo = f"{s.get('nome_desejado') or 'Cliente sem e-mail'} — {s.get('telefone_contato') or '—'} · {s.get('status','').upper()}"
         with st.expander(titulo):
             st.caption(f"Solicitado em {(s.get('criado_em') or '')[:16].replace('T',' ')} · user_id: `{s['user_id']}`")
 
             with st.form(f"form_provisionar_{sid}"):
                 nome_inst_of = st.text_input(
-                    "Nome da instância", value=s.get("nome_desejado") or "WhatsApp Oficial", key=f"prov_nome_{sid}",
+                    "Nome da instância", value=f"WhatsApp Oficial — {s.get('telefone_contato') or ''}".strip(" —"),
+                    key=f"prov_nome_{sid}",
                 )
                 token_of = st.text_input("Token (DatafyAPI)", key=f"prov_token_{sid}", type="password")
                 fc1, fc2 = st.columns(2)
@@ -4700,13 +4901,15 @@ def pagina_disparo():
             icon="⚠️",
         )
 
-    tab_inst, tab_camp, tab_rel, tab_pedidos = st.tabs(
-        ["📱 Instâncias", "📣 Campanhas", "📊 Relatórios", "🔧 Pedidos (Oficial)"]
+    tab_inst, tab_camp, tab_tpl, tab_rel, tab_pedidos = st.tabs(
+        ["📱 Instâncias", "📣 Campanhas", "📝 Templates", "📊 Relatórios", "🔧 Pedidos (Oficial)"]
     )
     with tab_inst:
         _tab_disparo_instancias(user_id)
     with tab_camp:
         _tab_disparo_campanhas(user_id)
+    with tab_tpl:
+        _tab_disparo_templates(user_id)
     with tab_rel:
         _tab_disparo_relatorios(user_id)
     with tab_pedidos:

@@ -437,20 +437,111 @@ def buscar_leads_filtro(
         return []
 
 
-# ── Etapas da cadência ────────────────────────────────────────────────────────
+# ── Templates (canal oficial) ─────────────────────────────────────────────
 
-def criar_etapa(campaign_id: str, ordem: int, atraso_horas: float, corpo_mensagem: str, midia_url: str = "") -> Optional[str]:
+def criar_template(
+    user_id: str, instance_id: str, nome: str, categoria: str, corpo: str,
+    nome_meta: str = "", idioma: str = "pt_BR", cabecalho: str = "", rodape: str = "",
+    variaveis: Optional[list] = None,
+) -> Optional[str]:
+    sb = _sb()
+    if not sb:
+        return None
+    componentes = [{"type": "BODY", "text": corpo}]
+    if cabecalho:
+        componentes.insert(0, {"type": "HEADER", "format": "TEXT", "text": cabecalho})
+    if rodape:
+        componentes.append({"type": "FOOTER", "text": rodape})
+    try:
+        resp = sb.table("message_templates").insert({
+            "user_id": user_id,
+            "instance_id": instance_id,
+            "nome": nome,
+            "categoria": categoria,
+            "corpo": corpo,
+            "nome_meta": nome_meta or None,
+            "idioma": idioma,
+            "componentes": componentes,
+            "variaveis": variaveis or [],
+            "canal": "oficial",
+            "status_aprovacao": "rascunho",
+        }).execute()
+        return resp.data[0]["id"] if resp.data else None
+    except Exception as e:
+        logger.error("criar_template: %s", e)
+        return None
+
+
+def listar_templates(user_id: str) -> list[dict]:
+    sb = _sb()
+    if not sb:
+        return []
+    try:
+        resp = (sb.table("message_templates").select("*")
+                  .eq("user_id", user_id).order("criado_em", desc=True).execute())
+        return resp.data or []
+    except Exception as e:
+        logger.error("listar_templates: %s", e)
+        return []
+
+
+def obter_template(template_id: str) -> Optional[dict]:
     sb = _sb()
     if not sb:
         return None
     try:
-        resp = sb.table("dispatch_cadence_steps").insert({
+        resp = sb.table("message_templates").select("*").eq("id", template_id).single().execute()
+        return resp.data
+    except Exception:
+        return None
+
+
+def atualizar_template(template_id: str, **campos) -> bool:
+    sb = _sb()
+    if not sb:
+        return False
+    try:
+        sb.table("message_templates").update(campos).eq("id", template_id).execute()
+        return True
+    except Exception as e:
+        logger.error("atualizar_template: %s", e)
+        return False
+
+
+def deletar_template(template_id: str) -> bool:
+    sb = _sb()
+    if not sb:
+        return False
+    try:
+        sb.table("message_templates").delete().eq("id", template_id).execute()
+        return True
+    except Exception as e:
+        logger.error("deletar_template: %s", e)
+        return False
+
+
+# ── Etapas da cadência ────────────────────────────────────────────────────────
+
+def criar_etapa(
+    campaign_id: str, ordem: int, atraso_horas: float, corpo_mensagem: str,
+    midia_url: str = "", template_id: Optional[str] = None,
+    parametros_template: Optional[list] = None,
+) -> Optional[str]:
+    sb = _sb()
+    if not sb:
+        return None
+    try:
+        payload = {
             "campaign_id": campaign_id,
             "ordem": ordem,
             "atraso_horas": atraso_horas,
             "corpo_mensagem": corpo_mensagem,
             "midia_url": midia_url or None,
-        }).execute()
+        }
+        if template_id:
+            payload["template_id"] = template_id
+            payload["parametros_template"] = parametros_template or []
+        resp = sb.table("dispatch_cadence_steps").insert(payload).execute()
         return resp.data[0]["id"] if resp.data else None
     except Exception as e:
         logger.error("criar_etapa: %s", e)

@@ -53,8 +53,37 @@ def _etapa_atual_ordem(campaign_id: str, target: dict, etapas: list[dict]) -> in
     return atual["ordem"] if atual else 0
 
 
+def _enviar_etapa_evolution(instance: dict, target: dict, step: dict) -> tuple[str, str]:
+    """Retorna (evolution_message_id, texto_enviado) — lança em caso de erro."""
+    from modules import evolution_api
+    texto = _renderizar_mensagem(step["corpo_mensagem"], target.get("lead_snapshot") or {})
+    resp = evolution_api.enviar_texto(instance["evolution_instance_name"], target["telefone"], texto)
+    return (resp.get("key") or {}).get("id", ""), texto
+
+
+def _enviar_etapa_oficial(instance: dict, target: dict, step: dict) -> tuple[str, str]:
+    """Retorna (message_id, parametros_renderizados_como_texto) — lança em caso de erro."""
+    from modules import dispatch_db, whatsapp_oficial
+    if not step.get("template_id"):
+        raise RuntimeError("Etapa sem template configurado — instância é do canal oficial.")
+    template = dispatch_db.obter_template(step["template_id"])
+    if not template:
+        raise RuntimeError("Template da etapa não encontrado (pode ter sido excluído).")
+    if template.get("status_aprovacao") != "aprovado":
+        raise RuntimeError(f"Template '{template.get('nome')}' não está aprovado (status: {template.get('status_aprovacao')}).")
+
+    lead_snapshot = target.get("lead_snapshot") or {}
+    parametros = [_renderizar_mensagem(p, lead_snapshot) for p in (step.get("parametros_template") or [])]
+    resp = whatsapp_oficial.enviar_template(
+        instance["token_oficial"], instance["phone_number_id"], target["telefone"],
+        template["nome_meta"], template.get("idioma", "pt_BR"), parametros,
+    )
+    msg_id = (resp.get("messages") or [{}])[0].get("id", "")
+    return msg_id, " | ".join(parametros)
+
+
 def _processar_instancia(instance: dict) -> None:
-    from modules import dispatch_db, evolution_api
+    from modules import dispatch_db
 
     if instance.get("status") != "conectado" or not _instancia_liberada(instance):
         return
@@ -82,15 +111,15 @@ def _processar_instancia(instance: dict) -> None:
         dispatch_db.atualizar_target(target["id"], status="concluido", atualizado_em=datetime.now(timezone.utc).isoformat())
         return
 
-    texto = _renderizar_mensagem(step["corpo_mensagem"], target.get("lead_snapshot") or {})
-
     try:
-        resp = evolution_api.enviar_texto(instance["evolution_instance_name"], target["telefone"], texto)
-        msg_id = (resp.get("key") or {}).get("id", "")
-        dispatch_db.marcar_enviado(target, campaign_id, step, msg_id, texto)
+        if instance.get("canal") == "oficial":
+            msg_id, corpo_log = _enviar_etapa_oficial(instance, target, step)
+        else:
+            msg_id, corpo_log = _enviar_etapa_evolution(instance, target, step)
+        dispatch_db.marcar_enviado(target, campaign_id, step, msg_id, corpo_log)
     except Exception as e:
         logger.error("Falha ao enviar mensagem (target=%s): %s", target["id"], e)
-        dispatch_db.marcar_falha(target, campaign_id, step, str(e), texto)
+        dispatch_db.marcar_falha(target, campaign_id, step, str(e), "")
 
     dispatch_db.liberar_proximo_envio(
         instance_id,
