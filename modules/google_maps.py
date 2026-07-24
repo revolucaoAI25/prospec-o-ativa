@@ -16,6 +16,7 @@ Estratégia de custo:
 
 import time
 import os
+import random
 import requests
 from typing import Callable, Optional
 
@@ -108,14 +109,28 @@ def _coletar_places(
     vistos: set[str] = set()
     places: list[dict] = []
 
+    # Embaralha a ordem dos modificadores (menos o "" sem modificador, que
+    # sempre roda primeiro por ser a busca mais confiável). Sem isso, buscas
+    # com poucas variações (limite pequeno) sempre pegavam as mesmas
+    # primeiras da lista (ex: sempre "centro"/"zona norte") e nunca
+    # chegavam nas últimas (ex: "zona oeste") — resultado repetitivo em
+    # buscas sucessivas na mesma cidade.
+    _mods = list(modificadores)
+    if _mods and _mods[0] == "":
+        _resto = _mods[1:]
+        random.shuffle(_resto)
+        _mods = [""] + _resto
+    else:
+        random.shuffle(_mods)
+
     # Sempre roda ao menos 3 variações de query para cobrir mais resultados
-    max_queries = min(len(modificadores), max(3, -(-limite // 60)))
+    max_queries = min(len(_mods), max(3, -(-limite // 60)))
 
     for mod_idx in range(max_queries):
         if len(places) >= limite:
             break
 
-        mod   = modificadores[mod_idx]
+        mod   = _mods[mod_idx]
         query = f"{nicho_query} em {mod} de {localidade}" if mod else f"{nicho_query} em {localidade}"
         log(0, 0, f"Buscando: {query}")
 
