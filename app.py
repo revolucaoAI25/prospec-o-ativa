@@ -1996,29 +1996,30 @@ def pagina_historico():
         return [e.strip() for e in (p.get("estado", "") or "").split(",") if e.strip()]
 
     _FONTE_LBL = {"maps": "Google Maps", "receita_federal": "CNPJ", "instagram": "Instagram"}
-    with st.expander("🔍 Filtrar e ordenar", expanded=False):
-        fc1, fc2, fc3, fc4 = st.columns([3, 2, 2, 2])
-        with fc1:
-            hist_busca = st.text_input(
-                "Buscar", placeholder="Nicho, subnicho ou localidade…",
-                key="hist_busca", label_visibility="collapsed",
-            )
-        with fc2:
-            _fontes_disp = sorted({p.get("fonte", "") for p in pesquisas if p.get("fonte")})
-            hist_fonte = st.multiselect(
-                "Fonte", _fontes_disp, format_func=lambda f: _FONTE_LBL.get(f, f),
-                key="hist_fonte", placeholder="Todas as fontes",
-            )
-        with fc3:
-            _estados_disp = sorted({e for p in pesquisas for e in _estados_de(p)})
-            hist_estado = st.multiselect(
-                "Estado", _estados_disp, key="hist_estado", placeholder="Todos os estados",
-            )
-        with fc4:
-            hist_ordenar = st.selectbox(
-                "Ordenar por", ["Mais recente", "Mais antigo", "Mais leads", "Menos leads"],
-                key="hist_ordenar",
-            )
+    fc1, fc2, fc3, fc4 = st.columns([3, 2, 2, 2])
+    with fc1:
+        hist_busca = st.text_input(
+            "Buscar", placeholder="🔍 Nicho, subnicho ou localidade…",
+            key="hist_busca", label_visibility="collapsed",
+        )
+    with fc2:
+        _fontes_disp = sorted({p.get("fonte", "") for p in pesquisas if p.get("fonte")})
+        hist_fonte = st.multiselect(
+            "Fonte", _fontes_disp, format_func=lambda f: _FONTE_LBL.get(f, f),
+            key="hist_fonte", placeholder="Todas as fontes", label_visibility="collapsed",
+        )
+    with fc3:
+        _estados_disp = sorted({e for p in pesquisas for e in _estados_de(p)})
+        hist_estado = st.multiselect(
+            "Estado", _estados_disp, key="hist_estado", placeholder="Todos os estados",
+            label_visibility="collapsed",
+        )
+    with fc4:
+        hist_ordenar = st.selectbox(
+            "Ordenar por", ["Mais recente", "Mais antigo", "Mais leads", "Menos leads"],
+            key="hist_ordenar", label_visibility="collapsed",
+        )
+    st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
     pesquisas_filtradas = pesquisas
     if hist_busca.strip():
