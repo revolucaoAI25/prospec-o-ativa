@@ -72,14 +72,51 @@ def obter_qrcode(nome_instancia: str) -> dict:
 
 def status_conexao(nome_instancia: str) -> str:
     """Retorna o estado da conexão: 'open' (conectado), 'connecting', 'close' (desconectado)."""
-    resp = requests.get(
-        f"{_base_url()}/instance/connectionState/{nome_instancia}",
-        headers=_headers(),
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return (data.get("instance") or {}).get("state", "close")
+    estado, _ = status_e_numero(nome_instancia)
+    return estado
+
+
+def status_e_numero(nome_instancia: str) -> tuple[str, str]:
+    """
+    Retorna (estado, numero_conectado).
+
+    `connectionState` é o endpoint oficial, mas tem um bug conhecido na
+    Evolution API onde fica preso em "connecting" mesmo já pareado
+    (github.com/EvolutionAPI/evolution-api/issues/1512). Por isso também
+    consulta `fetchInstances`, que reflete o estado real mais rápido e,
+    de quebra, traz o número do WhatsApp conectado.
+    """
+    estado_cs = ""
+    try:
+        resp = requests.get(
+            f"{_base_url()}/instance/connectionState/{nome_instancia}",
+            headers=_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        estado_cs = (resp.json().get("instance") or {}).get("state", "") or ""
+    except Exception:
+        pass
+
+    estado_fi, numero = "", ""
+    try:
+        resp2 = requests.get(
+            f"{_base_url()}/instance/fetchInstances",
+            headers=_headers(),
+            params={"instanceName": nome_instancia},
+            timeout=15,
+        )
+        resp2.raise_for_status()
+        itens = resp2.json()
+        item = itens[0] if isinstance(itens, list) and itens else {}
+        inst = item.get("instance", item) if isinstance(item, dict) else {}
+        estado_fi = inst.get("connectionStatus") or inst.get("state") or ""
+        numero = inst.get("number") or (inst.get("ownerJid") or "").split("@")[0]
+    except Exception:
+        pass
+
+    estado = "open" if "open" in (estado_cs, estado_fi) else (estado_cs or estado_fi or "close")
+    return estado, numero
 
 
 def desconectar_instancia(nome_instancia: str) -> None:

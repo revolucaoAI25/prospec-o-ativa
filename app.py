@@ -3639,6 +3639,27 @@ def pagina_admin():
 
 # ── Disparo WhatsApp (admin-only) ───────────────────────────────────────────
 
+def _poll_conexao_disparo(inst_id: str, evolution_name: str, segundos: int = 40) -> bool:
+    """Fica checando a conexão ativamente por até `segundos` (a cada 2.5s),
+    em vez de depender do usuário clicar em "Verificar conexão" toda hora.
+    Retorna True se conectou dentro do prazo."""
+    from modules import dispatch_db, evolution_api
+    deadline = time.time() + segundos
+    while time.time() < deadline:
+        try:
+            estado, numero = evolution_api.status_e_numero(evolution_name)
+        except Exception:
+            estado, numero = "", ""
+        if estado == "open":
+            campos = {"status": "conectado"}
+            if numero:
+                campos["numero_conectado"] = numero
+            dispatch_db.atualizar_instancia(inst_id, **campos)
+            return True
+        time.sleep(2.5)
+    return False
+
+
 def _tab_disparo_instancias(user_id: str):
     from modules import dispatch_db, evolution_api
 
@@ -3658,9 +3679,12 @@ def _tab_disparo_instancias(user_id: str):
             with qc1:
                 if st.button("🔄 Verificar conexão", key="disparo_check_conn", use_container_width=True):
                     try:
-                        estado = evolution_api.status_conexao(inst["evolution_instance_name"])
+                        estado, numero = evolution_api.status_e_numero(inst["evolution_instance_name"])
                         if estado == "open":
-                            dispatch_db.atualizar_instancia(inst["id"], status="conectado")
+                            campos = {"status": "conectado"}
+                            if numero:
+                                campos["numero_conectado"] = numero
+                            dispatch_db.atualizar_instancia(inst["id"], **campos)
                             st.session_state.pop("_disparo_conectando", None)
                             st.session_state.pop("_disparo_qr_b64", None)
                             st.success("Conectado!")
@@ -3677,6 +3701,13 @@ def _tab_disparo_instancias(user_id: str):
                         st.session_state["_disparo_qr_b64"] = novo_b64
                     except Exception as e:
                         st.error(f"Erro ao gerar QR: {e}")
+                        st.rerun()
+                    with st.spinner("Aguardando leitura do QR code…"):
+                        conectou = _poll_conexao_disparo(inst["id"], inst["evolution_instance_name"])
+                    if conectou:
+                        st.session_state.pop("_disparo_conectando", None)
+                        st.session_state.pop("_disparo_qr_b64", None)
+                        st.success("Conectado!")
                     st.rerun()
             with qc3:
                 if st.button("✖ Cancelar", key="disparo_cancel_conn", use_container_width=True):
@@ -3708,6 +3739,12 @@ def _tab_disparo_instancias(user_id: str):
                             pass
                     st.session_state["_disparo_conectando"] = inst_id
                     st.session_state["_disparo_qr_b64"] = b64
+                    with st.spinner("QR gerado. Aguardando leitura…"):
+                        conectou = _poll_conexao_disparo(inst_id, evolution_name)
+                    if conectou:
+                        st.session_state.pop("_disparo_conectando", None)
+                        st.session_state.pop("_disparo_qr_b64", None)
+                        st.success("Conectado!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao criar instância na Evolution API: {e}")
@@ -3734,9 +3771,12 @@ def _tab_disparo_instancias(user_id: str):
         with c3:
             if st.button("🔄 Status", key=f"disparo_refresh_{inst['id']}", use_container_width=True):
                 try:
-                    estado = evolution_api.status_conexao(inst["evolution_instance_name"])
+                    estado, numero = evolution_api.status_e_numero(inst["evolution_instance_name"])
                     novo_status = "conectado" if estado == "open" else ("conectando" if estado == "connecting" else "desconectado")
-                    dispatch_db.atualizar_instancia(inst["id"], status=novo_status)
+                    campos = {"status": novo_status}
+                    if numero:
+                        campos["numero_conectado"] = numero
+                    dispatch_db.atualizar_instancia(inst["id"], **campos)
                 except Exception as e:
                     st.error(f"Erro: {e}")
                 st.rerun()
@@ -3762,113 +3802,182 @@ def _tab_disparo_campanhas(user_id: str):
     if "_disparo_steps" not in st.session_state:
         st.session_state["_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
 
-    with st.expander("➕ Nova campanha", expanded=False):
-        nome_camp = st.text_input("Nome da campanha", key="disparo_camp_nome")
-        inst_opts = {i["nome"]: i["id"] for i in instancias}
-        inst_sel = st.selectbox("Instância WhatsApp", list(inst_opts.keys()), key="disparo_camp_inst")
-
-        origem = st.radio("Origem dos contatos", ["Busca existente (Histórico)", "Upload de planilha"], key="disparo_camp_origem")
-
-        leads_prontos: list[dict] = []
-        origem_search_id = None
-
-        if origem == "Busca existente (Histórico)":
-            pesquisas = listar_pesquisas()
-            if not pesquisas:
-                st.caption("Nenhuma pesquisa salva no Histórico ainda.")
-            else:
-                opts = {f"{p['nicho']} · {p['localidade']} ({p['total_results']} leads)": p["id"] for p in pesquisas}
-                sel = st.selectbox("Pesquisa", list(opts.keys()), key="disparo_camp_busca")
-                origem_search_id = opts.get(sel)
-        else:
-            arquivo = st.file_uploader("Planilha (CSV ou Excel)", type=["csv", "xlsx"], key="disparo_camp_upload")
-            if arquivo is not None:
-                import pandas as pd
-                try:
-                    df_up = pd.read_csv(arquivo) if arquivo.name.endswith(".csv") else pd.read_excel(arquivo)
-                except Exception as e:
-                    st.error(f"Erro ao ler o arquivo: {e}")
-                    df_up = None
-                if df_up is not None and not df_up.empty:
-                    cols = list(df_up.columns)
-                    cc1, cc2 = st.columns(2)
-                    with cc1:
-                        col_nome = st.selectbox("Coluna do nome", cols, key="disparo_up_col_nome")
-                    with cc2:
-                        col_tel = st.selectbox("Coluna do telefone", cols, key="disparo_up_col_tel")
-                    st.caption(f"{len(df_up)} linhas na planilha.")
-                    leads_prontos = [
-                        {"nome": str(r.get(col_nome, "") or ""), "telefone": str(r.get(col_tel, "") or "")}
-                        for _, r in df_up.iterrows()
-                    ]
-
-        st.markdown('<div class="sec">Ritmo de disparo (intervalo aleatório entre mensagens, anti-banimento)</div>', unsafe_allow_html=True)
-        rc1, rc2 = st.columns(2)
-        with rc1:
-            intervalo_min = st.number_input("Mínimo (segundos)", min_value=5, value=30, step=5, key="disparo_int_min")
-        with rc2:
-            intervalo_max = st.number_input("Máximo (segundos)", min_value=5, value=90, step=5, key="disparo_int_max")
-
-        st.markdown('<div class="sec">Cadência de mensagens</div>', unsafe_allow_html=True)
-        for i, step in enumerate(st.session_state["_disparo_steps"]):
-            sc1, sc2, sc3 = st.columns([2, 6, 1])
-            with sc1:
-                step["atraso_horas"] = st.number_input(
-                    "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
-                    min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
-                    key=f"disparo_step_atraso_{i}",
-                    help="Horas após a inscrição (etapa 1) ou após a etapa anterior ser enviada.",
-                )
-            with sc2:
-                step["corpo_mensagem"] = st.text_area(
-                    "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
-                    value=step["corpo_mensagem"], key=f"disparo_step_corpo_{i}", height=80,
-                    placeholder="Use {{nome}} para inserir o nome do lead.",
-                )
-            with sc3:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if len(st.session_state["_disparo_steps"]) > 1 and st.button("🗑️", key=f"disparo_step_del_{i}"):
-                    st.session_state["_disparo_steps"].pop(i)
-                    st.rerun()
-
-        if st.button("➕ Adicionar etapa à cadência", key="disparo_add_step"):
-            st.session_state["_disparo_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
+    col_info, col_btn = st.columns([3, 1])
+    with col_info:
+        st.markdown("### Campanhas")
+    with col_btn:
+        if st.button("+ Nova campanha", type="primary", use_container_width=True, key="btn_nova_campanha"):
+            st.session_state["_camp_form_aberto"] = not st.session_state.get("_camp_form_aberto", False)
             st.rerun()
 
-        st.markdown('<hr class="hr">', unsafe_allow_html=True)
-        if st.button("✅ Criar campanha", type="primary", key="disparo_criar_campanha", use_container_width=True):
-            steps = st.session_state["_disparo_steps"]
-            if not nome_camp.strip():
-                st.warning("Dê um nome pra campanha.")
-            elif not any(s["corpo_mensagem"].strip() for s in steps):
-                st.warning("Preencha ao menos a mensagem da primeira etapa.")
-            elif origem == "Busca existente (Histórico)" and not origem_search_id:
-                st.warning("Selecione uma pesquisa.")
-            elif origem == "Upload de planilha" and not leads_prontos:
-                st.warning("Suba uma planilha com nome e telefone.")
-            else:
-                tipo_origem = "busca_existente" if origem == "Busca existente (Histórico)" else "upload"
-                camp_id = dispatch_db.criar_campanha(
-                    user_id=user_id, nome=nome_camp.strip(),
-                    instance_id=inst_opts[inst_sel], tipo_origem=tipo_origem,
-                    origem_search_id=origem_search_id,
-                    intervalo_min_seg=int(intervalo_min), intervalo_max_seg=int(intervalo_max),
-                )
-                if not camp_id:
-                    st.error("Erro ao criar a campanha.")
-                else:
-                    for i, s in enumerate(steps, start=1):
-                        dispatch_db.criar_etapa(camp_id, i, s["atraso_horas"], s["corpo_mensagem"])
-                    if tipo_origem == "busca_existente":
-                        leads_prontos = buscar_leads_da_pesquisa(origem_search_id)
-                    n = dispatch_db.enroll_targets(camp_id, leads_prontos)
-                    dispatch_db.atualizar_campanha(camp_id, status="ativa")
-                    st.session_state["_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
-                    st.success(f"Campanha criada e ativada com {n} contato(s) inscrito(s)!")
-                    time.sleep(0.5)
-                    st.rerun()
+    if st.session_state.get("_camp_form_aberto"):
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+        with st.container():
+            st.markdown(
+                '<div style="background:rgba(0,217,126,0.05);border:1px solid rgba(0,217,126,0.2);'
+                'border-radius:16px;padding:20px 24px">',
+                unsafe_allow_html=True,
+            )
+            st.markdown("#### Nova campanha")
 
-    st.markdown("### Campanhas")
+            nome_camp = st.text_input("Nome da campanha", key="disparo_camp_nome")
+            inst_opts = {i["nome"]: i["id"] for i in instancias}
+            inst_sel = st.selectbox("Instância WhatsApp", list(inst_opts.keys()), key="disparo_camp_inst")
+
+            origem = st.radio(
+                "Origem dos contatos",
+                ["Busca existente (Histórico)", "Upload de planilha", "Digitar números manualmente"],
+                key="disparo_camp_origem",
+            )
+
+            leads_prontos: list[dict] = []
+            origem_search_id = None
+            variaveis_disp = ["nome", "telefone"]
+
+            if origem == "Busca existente (Histórico)":
+                pesquisas = listar_pesquisas()
+                if not pesquisas:
+                    st.caption("Nenhuma pesquisa salva no Histórico ainda.")
+                else:
+                    opts = {f"{p['nicho']} · {p['localidade']} ({p['total_results']} leads)": p["id"] for p in pesquisas}
+                    sel = st.selectbox("Pesquisa", list(opts.keys()), key="disparo_camp_busca")
+                    origem_search_id = opts.get(sel)
+                    variaveis_disp = [
+                        "nome", "telefone", "telefone2", "email", "endereco", "municipio",
+                        "uf", "cep", "site", "maps_url", "avaliacao", "total_avaliacoes",
+                        "cnpj", "nicho", "subnicho", "fonte",
+                    ]
+
+            elif origem == "Upload de planilha":
+                arquivo = st.file_uploader("Planilha (CSV ou Excel)", type=["csv", "xlsx"], key="disparo_camp_upload")
+                if arquivo is not None:
+                    import pandas as pd
+                    try:
+                        df_up = pd.read_csv(arquivo) if arquivo.name.endswith(".csv") else pd.read_excel(arquivo)
+                    except Exception as e:
+                        st.error(f"Erro ao ler o arquivo: {e}")
+                        df_up = None
+                    if df_up is not None and not df_up.empty:
+                        cols = list(df_up.columns)
+
+                        def _detectar_col(candidatos: list[str], padrao_idx: int) -> int:
+                            for i, c in enumerate(cols):
+                                cl = str(c).strip().lower()
+                                if any(k in cl for k in candidatos):
+                                    return i
+                            return padrao_idx
+
+                        idx_nome = _detectar_col(["nome", "name", "empresa", "razao", "razão", "contato"], 0)
+                        idx_tel = _detectar_col(
+                            ["telefone", "phone", "celular", "whatsapp", "fone", "numero", "número"],
+                            min(1, len(cols) - 1),
+                        )
+                        cc1, cc2 = st.columns(2)
+                        with cc1:
+                            col_nome = st.selectbox("Coluna do nome", cols, index=idx_nome, key="disparo_up_col_nome")
+                        with cc2:
+                            col_tel = st.selectbox("Coluna do telefone", cols, index=idx_tel, key="disparo_up_col_tel")
+                        st.caption(f"{len(df_up)} linhas na planilha. Colunas detectadas automaticamente — confira antes de continuar.")
+                        leads_prontos = []
+                        for _, r in df_up.iterrows():
+                            lead = {str(c): str(r.get(c, "") or "") for c in cols}
+                            lead["nome"] = str(r.get(col_nome, "") or "")
+                            lead["telefone"] = str(r.get(col_tel, "") or "")
+                            leads_prontos.append(lead)
+                        variaveis_disp = sorted({"nome", "telefone"} | {str(c) for c in cols})
+
+            else:  # Digitar números manualmente
+                manual_nome = st.text_input(
+                    "Nome (opcional, vale pra todos os números abaixo)",
+                    key="disparo_camp_manual_nome", placeholder="Ex: Lead",
+                )
+                manual_txt = st.text_area(
+                    "Números — um por linha ou separados por vírgula, sem formatação (ex: 5511999999999)",
+                    key="disparo_camp_manual", height=120,
+                    placeholder="5511999999999\n5511988888888",
+                )
+                if manual_txt.strip():
+                    import re as _re_manual
+                    numeros = [n.strip() for n in _re_manual.split(r"[,;\n]+", manual_txt) if n.strip()]
+                    leads_prontos = [{"nome": manual_nome.strip(), "telefone": n} for n in numeros]
+                    st.caption(f"{len(leads_prontos)} número(s) detectado(s).")
+
+            st.markdown('<div class="sec">Ritmo de disparo (intervalo aleatório entre mensagens, anti-banimento)</div>', unsafe_allow_html=True)
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                intervalo_min = st.number_input("Mínimo (segundos)", min_value=5, value=30, step=5, key="disparo_int_min")
+            with rc2:
+                intervalo_max = st.number_input("Máximo (segundos)", min_value=5, value=90, step=5, key="disparo_int_max")
+
+            st.markdown('<div class="sec">Cadência de mensagens</div>', unsafe_allow_html=True)
+            st.caption("Variáveis disponíveis nesta origem: " + ", ".join(f"{{{{{v}}}}}" for v in variaveis_disp))
+            for i, step in enumerate(st.session_state["_disparo_steps"]):
+                sc1, sc2, sc3 = st.columns([2, 6, 1])
+                with sc1:
+                    step["atraso_horas"] = st.number_input(
+                        "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
+                        min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
+                        key=f"disparo_step_atraso_{i}",
+                        help="Horas após a inscrição (etapa 1) ou após a etapa anterior ser enviada.",
+                    )
+                with sc2:
+                    step["corpo_mensagem"] = st.text_area(
+                        "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
+                        value=step["corpo_mensagem"], key=f"disparo_step_corpo_{i}", height=80,
+                        placeholder="Use {{nome}}, {{telefone}} etc. — veja as variáveis disponíveis acima.",
+                    )
+                with sc3:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if len(st.session_state["_disparo_steps"]) > 1 and st.button("🗑️", key=f"disparo_step_del_{i}"):
+                        st.session_state["_disparo_steps"].pop(i)
+                        st.rerun()
+
+            if st.button("➕ Adicionar etapa à cadência", key="disparo_add_step"):
+                st.session_state["_disparo_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
+                st.rerun()
+
+            st.markdown('<hr class="hr">', unsafe_allow_html=True)
+            if st.button("✅ Criar campanha", type="primary", key="disparo_criar_campanha", use_container_width=True):
+                steps = st.session_state["_disparo_steps"]
+                if not nome_camp.strip():
+                    st.warning("Dê um nome pra campanha.")
+                elif not any(s["corpo_mensagem"].strip() for s in steps):
+                    st.warning("Preencha ao menos a mensagem da primeira etapa.")
+                elif origem == "Busca existente (Histórico)" and not origem_search_id:
+                    st.warning("Selecione uma pesquisa.")
+                elif origem == "Upload de planilha" and not leads_prontos:
+                    st.warning("Suba uma planilha com nome e telefone.")
+                elif origem == "Digitar números manualmente" and not leads_prontos:
+                    st.warning("Digite ao menos um número.")
+                else:
+                    tipo_origem = {
+                        "Busca existente (Histórico)": "busca_existente",
+                        "Upload de planilha": "upload",
+                        "Digitar números manualmente": "manual",
+                    }[origem]
+                    camp_id = dispatch_db.criar_campanha(
+                        user_id=user_id, nome=nome_camp.strip(),
+                        instance_id=inst_opts[inst_sel], tipo_origem=tipo_origem,
+                        origem_search_id=origem_search_id,
+                        intervalo_min_seg=int(intervalo_min), intervalo_max_seg=int(intervalo_max),
+                    )
+                    if not camp_id:
+                        st.error("Erro ao criar a campanha.")
+                    else:
+                        for i, s in enumerate(steps, start=1):
+                            dispatch_db.criar_etapa(camp_id, i, s["atraso_horas"], s["corpo_mensagem"])
+                        if tipo_origem == "busca_existente":
+                            leads_prontos = buscar_leads_da_pesquisa(origem_search_id)
+                        n = dispatch_db.enroll_targets(camp_id, leads_prontos)
+                        dispatch_db.atualizar_campanha(camp_id, status="ativa")
+                        st.session_state["_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
+                        st.session_state["_camp_form_aberto"] = False
+                        st.success(f"Campanha criada e ativada com {n} contato(s) inscrito(s)!")
+                        time.sleep(0.5)
+                        st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
     campanhas = dispatch_db.listar_campanhas(user_id)
     if not campanhas:
         st.caption("Nenhuma campanha criada ainda.")

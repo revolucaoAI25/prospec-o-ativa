@@ -336,7 +336,7 @@ CREATE TABLE IF NOT EXISTS dispatch_campaigns (
     nome              TEXT NOT NULL,
     instance_id       UUID REFERENCES whatsapp_instances(id),
     status            TEXT NOT NULL DEFAULT 'rascunho' CHECK (status IN ('rascunho', 'ativa', 'pausada', 'concluida')),
-    tipo_origem       TEXT NOT NULL CHECK (tipo_origem IN ('busca_existente', 'upload', 'auto_trigger', 'sheet_watch')),
+    tipo_origem       TEXT NOT NULL CHECK (tipo_origem IN ('busca_existente', 'upload', 'manual', 'auto_trigger', 'sheet_watch')),
     origem_search_id  UUID REFERENCES searches(id),   -- só p/ busca_existente
     filtro_nicho      TEXT,                           -- só p/ auto_trigger
     filtro_subnicho   TEXT,
