@@ -183,6 +183,14 @@ html, body, [class*="css"] {
   font-weight: 700 !important;
   box-shadow: 0 0 24px rgba(0,217,126,0.08), inset 0 1px 0 rgba(255,255,255,0.06) !important;
 }
+/* Hover do item ativo do menu — precisa de regra própria, senão herda o
+   fundo verde sólido do botão primário genérico (usado nos CTAs de busca)
+   e o texto (verde) fica ilegível sobre fundo também verde. */
+[data-testid="stSidebar"] [data-testid="stButton"] > button[kind="primary"]:hover {
+  background: rgba(0, 217, 126, 0.22) !important;
+  color: var(--accent) !important;
+  border-color: rgba(0,217,126,0.32) !important;
+}
 
 /* ═══════════════════════════════════════════════════════════
    TEXT INPUTS — Dark recessed look with hairline border
