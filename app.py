@@ -1991,7 +1991,68 @@ def pagina_historico():
         )
         return
 
-    for p in pesquisas:
+    # ── Filtros e ordenação ─────────────────────────────────────────────────
+    def _estados_de(p: dict) -> list[str]:
+        return [e.strip() for e in (p.get("estado", "") or "").split(",") if e.strip()]
+
+    _FONTE_LBL = {"maps": "Google Maps", "receita_federal": "CNPJ", "instagram": "Instagram"}
+    with st.expander("🔍 Filtrar e ordenar", expanded=False):
+        fc1, fc2, fc3, fc4 = st.columns([3, 2, 2, 2])
+        with fc1:
+            hist_busca = st.text_input(
+                "Buscar", placeholder="Nicho, subnicho ou localidade…",
+                key="hist_busca", label_visibility="collapsed",
+            )
+        with fc2:
+            _fontes_disp = sorted({p.get("fonte", "") for p in pesquisas if p.get("fonte")})
+            hist_fonte = st.multiselect(
+                "Fonte", _fontes_disp, format_func=lambda f: _FONTE_LBL.get(f, f),
+                key="hist_fonte", placeholder="Todas as fontes",
+            )
+        with fc3:
+            _estados_disp = sorted({e for p in pesquisas for e in _estados_de(p)})
+            hist_estado = st.multiselect(
+                "Estado", _estados_disp, key="hist_estado", placeholder="Todos os estados",
+            )
+        with fc4:
+            hist_ordenar = st.selectbox(
+                "Ordenar por", ["Mais recente", "Mais antigo", "Mais leads", "Menos leads"],
+                key="hist_ordenar",
+            )
+
+    pesquisas_filtradas = pesquisas
+    if hist_busca.strip():
+        _q = hist_busca.strip().lower()
+        pesquisas_filtradas = [
+            p for p in pesquisas_filtradas
+            if _q in (p.get("nicho", "") or "").lower()
+            or _q in (p.get("subnicho", "") or "").lower()
+            or _q in (p.get("localidade", "") or "").lower()
+        ]
+    if hist_fonte:
+        pesquisas_filtradas = [p for p in pesquisas_filtradas if p.get("fonte") in hist_fonte]
+    if hist_estado:
+        pesquisas_filtradas = [p for p in pesquisas_filtradas if any(e in hist_estado for e in _estados_de(p))]
+
+    _sort_key = {
+        "Mais recente": (lambda p: p.get("created_at", ""), True),
+        "Mais antigo":  (lambda p: p.get("created_at", ""), False),
+        "Mais leads":   (lambda p: p.get("total_results", 0), True),
+        "Menos leads":  (lambda p: p.get("total_results", 0), False),
+    }[hist_ordenar]
+    pesquisas_filtradas = sorted(pesquisas_filtradas, key=_sort_key[0], reverse=_sort_key[1])
+
+    if len(pesquisas_filtradas) != len(pesquisas):
+        st.caption(f"{len(pesquisas_filtradas)} de {len(pesquisas)} pesquisas")
+
+    if not pesquisas_filtradas:
+        st.markdown(
+            '<div class="empty-state">🔍 Nenhuma pesquisa encontrada com esses filtros.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    for p in pesquisas_filtradas:
         dt = p.get("created_at","")[:16].replace("T"," ") if p.get("created_at") else "—"
         fonte_icon = "🗺️" if p.get("fonte") == "maps" else "📋"
         nicho = p.get("nicho","—"); sub = p.get("subnicho",""); loc = p.get("localidade","—")

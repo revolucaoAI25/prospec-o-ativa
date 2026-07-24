@@ -139,7 +139,7 @@ def salvar_leads(search_id: str, resultados: list[dict]) -> bool:
         return False
 
 
-def listar_pesquisas(limite: int = 50) -> list[dict]:
+def listar_pesquisas(limite: int = 300) -> list[dict]:
     """Retorna pesquisas do usuário logado, mais recentes primeiro. Cacheado por sessão."""
     if "_pesquisas_cache" in st.session_state:
         return st.session_state["_pesquisas_cache"]
