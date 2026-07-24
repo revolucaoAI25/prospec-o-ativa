@@ -331,6 +331,26 @@ button[kind="primaryFormSubmit"]:active {
   color: var(--text-1) !important;
 }
 
+/* Confirmação de ação destrutiva — botão "Sim, excluir/remover/desconectar"
+   dentro de um st.container(key="danger_...") recebe cor de alerta em vez
+   do verde padrão de botão primário. */
+[class*="st-key-danger_"] [data-testid="stButton"] > button[kind="primary"] {
+  background: linear-gradient(160deg, #f87171 0%, #ef4444 50%, #dc2626 100%) !important;
+  color: #2a0505 !important;
+  border: 1px solid rgba(239,68,68,0.35) !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.2) inset,
+    0 2px 4px rgba(0,0,0,0.4),
+    0 4px 16px rgba(239,68,68,0.25) !important;
+}
+[class*="st-key-danger_"] [data-testid="stButton"] > button[kind="primary"]:hover {
+  background: linear-gradient(160deg, #fca5a5 0%, #f87171 50%, #ef4444 100%) !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.25) inset,
+    0 4px 8px rgba(0,0,0,0.4),
+    0 8px 24px rgba(239,68,68,0.35) !important;
+}
+
 /* Download */
 [data-testid="stDownloadButton"] > button {
   background: var(--surface) !important;
@@ -1964,7 +1984,7 @@ def pagina_historico():
             if st.session_state.get(f"_conf_del_pesq_{p['id']}"):
                 st.warning("Tem certeza que deseja apagar esta pesquisa e todos os leads salvos nela? Esta ação não pode ser desfeita.")
                 cc1, cc2 = st.columns(2)
-                with cc1:
+                with cc1, st.container(key=f"danger_del_pesq_{p['id']}"):
                     if st.button("✅ Sim, apagar", key=f"conf_del_pesq_ok_{p['id']}", type="primary"):
                         ok, msg = deletar_pesquisa(p["id"])
                         st.session_state.pop(f"_conf_del_pesq_{p['id']}", None)
@@ -2097,7 +2117,7 @@ def _card_automacao(auto: dict) -> None:
         if st.session_state.get(f"_conf_del_{aid}"):
             st.warning(f"Tem certeza que deseja excluir **{nome}**? Esta ação não pode ser desfeita.")
             c1, c2 = st.columns(2)
-            with c1:
+            with c1, st.container(key=f"danger_del_auto_{aid}"):
                 if st.button("✅ Sim, excluir", key=f"conf_del_ok_{aid}", type="primary"):
                     deletar_automacao(aid)
                     st.session_state.pop(f"_conf_del_{aid}", None)
@@ -2810,7 +2830,7 @@ def pagina_configuracoes():
                     _del_nome = _cfg_pool[_del_idx].get("nickname") or f"Chave {_del_idx+1}"
                     st.warning(f"Remover a chave **{_del_nome}** do pool?")
                     _dmc1, _dmc2 = st.columns(2)
-                    with _dmc1:
+                    with _dmc1, st.container(key="danger_del_cfg_mk"):
                         if st.button("✅ Sim, remover", key="conf_del_cfg_mk_ok", type="primary"):
                             _np = [k for j, k in enumerate(_cfg_pool) if j != _del_idx]
                             st.session_state.pop("_conf_del_cfg_mk_idx", None)
@@ -2876,7 +2896,7 @@ def pagina_configuracoes():
                 _del_anome = _cfg_apool[_del_aidx].get("nickname") or f"Chave {_del_aidx+1}"
                 st.warning(f"Remover a chave **{_del_anome}** do pool?")
                 _dac1, _dac2 = st.columns(2)
-                with _dac1:
+                with _dac1, st.container(key="danger_del_cfg_ak"):
                     if st.button("✅ Sim, remover", key="conf_del_cfg_ak_ok", type="primary"):
                         _nap = [k for j, k in enumerate(_cfg_apool) if j != _del_aidx]
                         st.session_state.pop("_conf_del_cfg_ak_idx", None)
@@ -3133,7 +3153,7 @@ def pagina_configuracoes():
                 if st.session_state.get("_conf_disc_google"):
                     st.warning("Tem certeza? Isso remove a conta Google conectada e **todas** as planilhas configuradas.")
                     dc1, dc2 = st.columns(2)
-                    with dc1:
+                    with dc1, st.container(key="danger_disc_google"):
                         if st.button("✅ Sim, desconectar", key="conf_disc_google_ok", type="primary"):
                             for k in ["sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista"]:
                                 st.session_state.pop(k, None)
@@ -3263,7 +3283,7 @@ def pagina_admin():
             if st.session_state.get(f"_conf_del_u_{uid}"):
                 st.warning(f"Tem certeza que deseja remover **{email}** e todos os dados dele (pesquisas, leads, automações)? Esta ação não pode ser desfeita.")
                 uc1, uc2 = st.columns(2)
-                with uc1:
+                with uc1, st.container(key=f"danger_del_u_{uid}"):
                     if st.button("✅ Sim, remover", key=f"conf_del_u_ok_{uid}", type="primary"):
                         ok4, msg4 = deletar_usuario(uid)
                         st.session_state.pop(f"_conf_del_u_{uid}", None)
@@ -3333,7 +3353,7 @@ def pagina_admin():
                         _del_knome = _upool[_del_kidx].get("nickname") or f"Chave {_del_kidx+1}"
                         st.warning(f"Remover a chave **{_del_knome}** do pool deste usuário?")
                         _dkc1, _dkc2 = st.columns(2)
-                        with _dkc1:
+                        with _dkc1, st.container(key=f"danger_del_mk_{uid}"):
                             if st.button("✅ Sim, remover", key=f"conf_del_mk_ok_{uid}", type="primary"):
                                 _np = [k for j, k in enumerate(_upool) if j != _del_kidx]
                                 st.session_state.pop(f"_conf_del_mk_idx_{uid}", None)
@@ -3416,7 +3436,7 @@ def pagina_admin():
                     _del_aanome = _apool[_del_aaidx].get("nickname") or f"Chave {_del_aaidx+1}"
                     st.warning(f"Remover a chave **{_del_aanome}** do pool deste usuário?")
                     _dakc1, _dakc2 = st.columns(2)
-                    with _dakc1:
+                    with _dakc1, st.container(key=f"danger_del_ak_{uid}"):
                         if st.button("✅ Sim, remover", key=f"conf_del_ak_ok_{uid}", type="primary"):
                             _nap = [k for j, k in enumerate(_apool) if j != _del_aaidx]
                             st.session_state.pop(f"_conf_del_ak_idx_{uid}", None)
