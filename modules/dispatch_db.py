@@ -50,12 +50,39 @@ def criar_instancia(user_id: str, nome: str, evolution_instance_name: str) -> Op
         resp = sb.table("whatsapp_instances").insert({
             "user_id": user_id,
             "nome": nome,
+            "canal": "evolution",
             "evolution_instance_name": evolution_instance_name,
             "status": "conectando",
         }).execute()
         return resp.data[0]["id"] if resp.data else None
     except Exception as e:
         logger.error("criar_instancia: %s", e)
+        return None
+
+
+def criar_instancia_oficial(
+    user_id: str, nome: str, token: str, phone_number_id: str, waba_id: str = "",
+    numero_conectado: str = "",
+) -> Optional[str]:
+    """Provisiona uma instância do canal oficial pra um cliente — chamado
+    pelo admin ao atender uma solicitação (o cliente nunca vê o token)."""
+    sb = _sb()
+    if not sb:
+        return None
+    try:
+        resp = sb.table("whatsapp_instances").insert({
+            "user_id": user_id,
+            "nome": nome,
+            "canal": "oficial",
+            "token_oficial": token,
+            "phone_number_id": phone_number_id,
+            "waba_id": waba_id or None,
+            "numero_conectado": numero_conectado or None,
+            "status": "conectado",
+        }).execute()
+        return resp.data[0]["id"] if resp.data else None
+    except Exception as e:
+        logger.error("criar_instancia_oficial: %s", e)
         return None
 
 
@@ -118,6 +145,81 @@ def deletar_instancia(instance_id: str) -> bool:
         return True
     except Exception as e:
         logger.error("deletar_instancia: %s", e)
+        return False
+
+
+# ── Solicitações de conexão do canal oficial ──────────────────────────────
+# Cliente não configura token/phone_number_id ele mesmo — só pede, e o admin
+# provisiona manualmente (canal oficial é gerenciado pela conta DatafyAPI
+# do próprio admin, por enquanto).
+
+def criar_solicitacao_oficial(user_id: str, nome_desejado: str = "", telefone_contato: str = "") -> Optional[str]:
+    sb = _sb()
+    if not sb:
+        return None
+    try:
+        resp = sb.table("oficial_connection_requests").insert({
+            "user_id": user_id,
+            "nome_desejado": nome_desejado or None,
+            "telefone_contato": telefone_contato or None,
+        }).execute()
+        return resp.data[0]["id"] if resp.data else None
+    except Exception as e:
+        logger.error("criar_solicitacao_oficial: %s", e)
+        return None
+
+
+def listar_solicitacoes_oficial(status: Optional[str] = None) -> list[dict]:
+    """Todas as solicitações (qualquer usuário) — usado pelo painel do admin."""
+    sb = _sb()
+    if not sb:
+        return []
+    try:
+        q = sb.table("oficial_connection_requests").select("*").order("criado_em", desc=True)
+        if status:
+            q = q.eq("status", status)
+        resp = q.execute()
+        return resp.data or []
+    except Exception as e:
+        logger.error("listar_solicitacoes_oficial: %s", e)
+        return []
+
+
+def listar_solicitacoes_oficial_usuario(user_id: str) -> list[dict]:
+    sb = _sb()
+    if not sb:
+        return []
+    try:
+        resp = (sb.table("oficial_connection_requests").select("*")
+                  .eq("user_id", user_id).order("criado_em", desc=True).execute())
+        return resp.data or []
+    except Exception as e:
+        logger.error("listar_solicitacoes_oficial_usuario: %s", e)
+        return []
+
+
+def atualizar_solicitacao_oficial(req_id: str, **campos) -> bool:
+    sb = _sb()
+    if not sb:
+        return False
+    try:
+        campos["atualizado_em"] = datetime.now(timezone.utc).isoformat()
+        sb.table("oficial_connection_requests").update(campos).eq("id", req_id).execute()
+        return True
+    except Exception as e:
+        logger.error("atualizar_solicitacao_oficial: %s", e)
+        return False
+
+
+def deletar_solicitacao_oficial(req_id: str) -> bool:
+    sb = _sb()
+    if not sb:
+        return False
+    try:
+        sb.table("oficial_connection_requests").delete().eq("id", req_id).execute()
+        return True
+    except Exception as e:
+        logger.error("deletar_solicitacao_oficial: %s", e)
         return False
 
 
@@ -391,24 +493,31 @@ def proxima_etapa(campaign_id: str, current_step_ordem: int) -> Optional[dict]:
 
 
 # ── Opt-out ────────────────────────────────────────────────────────────────
+# Escopado por user_id — opt-out é por cliente, não global. Sem isso, um
+# opt-out do cliente A bloquearia silenciosamente disparos do cliente B
+# pro mesmo número (relevante agora que Disparos deixou de ser admin-only).
 
-def esta_opt_out(telefone: str) -> bool:
+def esta_opt_out(telefone: str, user_id: str) -> bool:
     sb = _sb()
     if not sb:
         return False
     try:
-        resp = sb.table("dispatch_opt_outs").select("telefone").eq("telefone", telefone).limit(1).execute()
+        resp = (sb.table("dispatch_opt_outs").select("telefone")
+                  .eq("telefone", telefone).eq("user_id", user_id).limit(1).execute())
         return bool(resp.data)
     except Exception:
         return False
 
 
-def registrar_opt_out(telefone: str, motivo: str = "") -> bool:
+def registrar_opt_out(telefone: str, user_id: str, motivo: str = "") -> bool:
     sb = _sb()
     if not sb:
         return False
     try:
-        sb.table("dispatch_opt_outs").upsert({"telefone": telefone, "motivo": motivo or None}).execute()
+        sb.table("dispatch_opt_outs").upsert(
+            {"telefone": telefone, "user_id": user_id, "motivo": motivo or None},
+            on_conflict="telefone,user_id",
+        ).execute()
         return True
     except Exception as e:
         logger.error("registrar_opt_out: %s", e)
@@ -429,6 +538,11 @@ def enroll_targets(campaign_id: str, leads: list[dict]) -> dict:
     sb = _sb()
     if not sb:
         return vazio
+
+    campanha = obter_campanha(campaign_id)
+    if not campanha:
+        return vazio
+    dono_user_id = campanha["user_id"]
 
     etapas = listar_etapas(campaign_id)
     if not etapas:
@@ -460,7 +574,8 @@ def enroll_targets(campaign_id: str, leads: list[dict]) -> dict:
     try:
         todos_tels = list(por_telefone.keys())
         for i in range(0, len(todos_tels), 500):
-            resp = sb.table("dispatch_opt_outs").select("telefone").in_("telefone", todos_tels[i:i + 500]).execute()
+            resp = (sb.table("dispatch_opt_outs").select("telefone")
+                      .eq("user_id", dono_user_id).in_("telefone", todos_tels[i:i + 500]).execute())
             opt_outs.update(r["telefone"] for r in (resp.data or []))
     except Exception as e:
         logger.error("enroll_targets (checar opt-outs): %s", e)

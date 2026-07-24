@@ -2663,9 +2663,9 @@ def pagina_automacoes():
                     "Disparar automaticamente para quem for extraído", key="_auto_disparo_ativo",
                 )
                 if disparo_auto_ativo:
-                    _instancias_a = _ddb_a.listar_instancias(user_id)
+                    _instancias_a = [i for i in _ddb_a.listar_instancias(user_id) if i.get("canal") != "oficial"]
                     if not _instancias_a:
-                        st.warning("Conecte uma instância WhatsApp em Disparos → Instâncias antes de ativar isso.")
+                        st.warning("Conecte uma instância WhatsApp não-oficial em Disparos → Instâncias antes de ativar isso (canal oficial ainda não disponível pra disparo).")
                     else:
                         _inst_opts_a = {i["nome"]: i["id"] for i in _instancias_a}
                         _inst_sel_a = st.selectbox("Instância WhatsApp", list(_inst_opts_a.keys()), key="_auto_disparo_inst")
@@ -3027,9 +3027,9 @@ def pagina_automacoes():
             with st.container(key="form_card_nova_auto_disparo"):
                 st.markdown("#### Nova Automação de Disparo")
                 nome_ad = st.text_input("Nome", key="ad_nome", placeholder="Ex: Recuperação judicial SP")
-                _instancias_ad = _ddb_disp_auto.listar_instancias(user_id)
+                _instancias_ad = [i for i in _ddb_disp_auto.listar_instancias(user_id) if i.get("canal") != "oficial"]
                 if not _instancias_ad:
-                    st.warning("Conecte uma instância WhatsApp em Disparos → Instâncias antes de criar isso.")
+                    st.warning("Conecte uma instância WhatsApp não-oficial em Disparos → Instâncias antes de criar isso (canal oficial ainda não disponível pra disparo).")
                 else:
                     _inst_opts_ad = {i["nome"]: i["id"] for i in _instancias_ad}
                     inst_sel_ad = st.selectbox("Instância WhatsApp", list(_inst_opts_ad.keys()), key="ad_inst")
@@ -4110,7 +4110,7 @@ def _poll_conexao_disparo(inst_id: str, evolution_name: str, segundos: int = 40)
 def _tab_disparo_instancias(user_id: str):
     from modules import dispatch_db, evolution_api
 
-    st.markdown("Conecte um número de WhatsApp (via Evolution API) para usar nas campanhas.")
+    st.markdown("Conecte um número de WhatsApp para usar nas campanhas.")
 
     _conectando = st.session_state.get("_disparo_conectando")
     if _conectando:
@@ -4163,38 +4163,87 @@ def _tab_disparo_instancias(user_id: str):
                     st.rerun()
             st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
-    with st.expander("➕ Conectar novo número", expanded=not _conectando):
-        novo_nome = st.text_input("Nome (só pra identificar internamente)", key="disparo_novo_nome", placeholder="Ex: WhatsApp Comercial")
-        if st.button("Criar e mostrar QR", key="disparo_criar_instancia", disabled=not evolution_api.configurado()):
-            if not novo_nome.strip():
-                st.warning("Dê um nome pra instância.")
-            else:
-                import re as _re, time as _time
-                slug = _re.sub(r"[^a-z0-9]+", "_", novo_nome.strip().lower()).strip("_")
-                evolution_name = f"{slug}_{int(_time.time())}"
-                try:
-                    resp = evolution_api.criar_instancia(evolution_name)
-                    inst_id = dispatch_db.criar_instancia(user_id, novo_nome.strip(), evolution_name)
-                    qr_data = (resp.get("qrcode") or {})
-                    b64 = (qr_data.get("base64") or "").split(",")[-1] if qr_data.get("base64") else ""
-                    if not b64:
-                        # Alguns setups não retornam o QR na criação — busca em seguida
-                        try:
-                            qr2 = evolution_api.obter_qrcode(evolution_name)
-                            b64 = (qr2.get("base64") or "").split(",")[-1] if qr2.get("base64") else ""
-                        except Exception:
-                            pass
-                    st.session_state["_disparo_conectando"] = inst_id
-                    st.session_state["_disparo_qr_b64"] = b64
-                    with st.spinner("QR gerado. Aguardando leitura…"):
-                        conectou = _poll_conexao_disparo(inst_id, evolution_name)
-                    if conectou:
-                        st.session_state.pop("_disparo_conectando", None)
-                        st.session_state.pop("_disparo_qr_b64", None)
-                        st.success("Conectado!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao criar instância na Evolution API: {e}")
+    canal_novo = st.radio(
+        "Tipo de conexão",
+        ["WhatsApp não-oficial (QR Code)", "API Oficial (WhatsApp Business)"],
+        key="disparo_canal_novo", horizontal=True,
+    )
+
+    if canal_novo == "WhatsApp não-oficial (QR Code)":
+        with st.expander("➕ Conectar novo número", expanded=not _conectando):
+            novo_nome = st.text_input("Nome (só pra identificar internamente)", key="disparo_novo_nome", placeholder="Ex: WhatsApp Comercial")
+            if st.button("Criar e mostrar QR", key="disparo_criar_instancia", disabled=not evolution_api.configurado()):
+                if not novo_nome.strip():
+                    st.warning("Dê um nome pra instância.")
+                else:
+                    import re as _re, time as _time
+                    slug = _re.sub(r"[^a-z0-9]+", "_", novo_nome.strip().lower()).strip("_")
+                    evolution_name = f"{slug}_{int(_time.time())}"
+                    try:
+                        resp = evolution_api.criar_instancia(evolution_name)
+                        inst_id = dispatch_db.criar_instancia(user_id, novo_nome.strip(), evolution_name)
+                        qr_data = (resp.get("qrcode") or {})
+                        b64 = (qr_data.get("base64") or "").split(",")[-1] if qr_data.get("base64") else ""
+                        if not b64:
+                            # Alguns setups não retornam o QR na criação — busca em seguida
+                            try:
+                                qr2 = evolution_api.obter_qrcode(evolution_name)
+                                b64 = (qr2.get("base64") or "").split(",")[-1] if qr2.get("base64") else ""
+                            except Exception:
+                                pass
+                        st.session_state["_disparo_conectando"] = inst_id
+                        st.session_state["_disparo_qr_b64"] = b64
+                        with st.spinner("QR gerado. Aguardando leitura…"):
+                            conectou = _poll_conexao_disparo(inst_id, evolution_name)
+                        if conectou:
+                            st.session_state.pop("_disparo_conectando", None)
+                            st.session_state.pop("_disparo_qr_b64", None)
+                            st.success("Conectado!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao criar instância na Evolution API: {e}")
+
+    else:  # API Oficial
+        st.markdown('<div class="sec">API Oficial (WhatsApp Business)</div>', unsafe_allow_html=True)
+        st.caption(
+            "O canal oficial exige aprovação da Meta e é configurado pela nossa equipe — "
+            "você só precisa solicitar a conexão abaixo."
+        )
+        _solic_usuario = dispatch_db.listar_solicitacoes_oficial_usuario(user_id)
+        _solic_pendente = next((s for s in _solic_usuario if s.get("status") != "concluido"), None)
+        if _solic_pendente:
+            _status_lbl = {"pendente": "aguardando análise", "em_andamento": "em andamento"}.get(
+                _solic_pendente["status"], _solic_pendente["status"]
+            )
+            st.info(f"Você já tem uma solicitação em aberto ({_status_lbl}). Em breve você receberá as instruções.", icon="⏳")
+        else:
+            with st.form("form_solicitar_oficial"):
+                nome_desejado_of = st.text_input("Nome (identificação interna)", key="of_nome", placeholder="Ex: WhatsApp Comercial")
+                telefone_contato_of = st.text_input("Número de telefone a conectar", key="of_telefone", placeholder="(11) 99999-9999")
+                pedir_of = st.form_submit_button("📨 Solicitar conexão oficial", type="primary", use_container_width=True)
+            if pedir_of:
+                if not telefone_contato_of.strip():
+                    st.warning("Informe o número de telefone.")
+                else:
+                    req_id = dispatch_db.criar_solicitacao_oficial(
+                        user_id, nome_desejado_of.strip(), telefone_contato_of.strip(),
+                    )
+                    if req_id:
+                        from modules import notificacoes
+                        _usuario_atual = st.session_state.get("user", {}) or {}
+                        notificacoes.notificar_pedido_conexao_oficial({
+                            "tipo": "pedido_conexao_oficial",
+                            "request_id": req_id,
+                            "user_id": user_id,
+                            "email": _usuario_atual.get("email", ""),
+                            "nome_desejado": nome_desejado_of.strip(),
+                            "telefone_contato": telefone_contato_of.strip(),
+                        })
+                        st.success("Solicitação enviada! Em breve você receberá as instruções pra conectar.")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Não foi possível registrar a solicitação. Tente novamente.")
 
     st.markdown("### Instâncias conectadas")
     instancias = dispatch_db.listar_instancias(user_id)
@@ -4203,10 +4252,13 @@ def _tab_disparo_instancias(user_id: str):
         return
 
     for inst in instancias:
+        eh_oficial = inst.get("canal") == "oficial"
         c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
         with c1:
             st.markdown(f"**{inst['nome']}**")
-            st.caption(inst.get("numero_conectado") or inst.get("evolution_instance_name", ""))
+            _canal_lbl = "🟦 Oficial" if eh_oficial else "🟩 Não-oficial"
+            _sub = inst.get("numero_conectado") or inst.get("evolution_instance_name", "")
+            st.caption(f"{_canal_lbl} · {_sub}" if _sub else _canal_lbl)
         with c2:
             status = inst.get("status", "desconectado")
             badge_cls, badge_lbl = {
@@ -4216,7 +4268,7 @@ def _tab_disparo_instancias(user_id: str):
             }.get(status, ("b-err", status))
             st.markdown(f'<span class="badge {badge_cls}">{badge_lbl}</span>', unsafe_allow_html=True)
         with c3:
-            if st.button("🔄 Status", key=f"disparo_refresh_{inst['id']}", use_container_width=True):
+            if not eh_oficial and st.button("🔄 Status", key=f"disparo_refresh_{inst['id']}", use_container_width=True):
                 try:
                     estado, numero = evolution_api.status_e_numero(inst["evolution_instance_name"])
                     novo_status = "conectado" if estado == "open" else ("conectando" if estado == "connecting" else "desconectado")
@@ -4229,10 +4281,11 @@ def _tab_disparo_instancias(user_id: str):
                 st.rerun()
         with c4:
             if st.button("🗑️ Remover", key=f"disparo_del_inst_{inst['id']}", use_container_width=True):
-                try:
-                    evolution_api.excluir_instancia(inst["evolution_instance_name"])
-                except Exception:
-                    pass
+                if not eh_oficial:
+                    try:
+                        evolution_api.excluir_instancia(inst["evolution_instance_name"])
+                    except Exception:
+                        pass
                 dispatch_db.deletar_instancia(inst["id"])
                 st.rerun()
 
@@ -4241,7 +4294,18 @@ def _tab_disparo_campanhas(user_id: str):
     from modules import dispatch_db
     from modules.database import listar_pesquisas, buscar_leads_da_pesquisa
 
-    instancias = dispatch_db.listar_instancias(user_id)
+    # Canal oficial ainda só conecta (Instâncias) — disparo por template pro
+    # canal oficial é a próxima etapa. Até lá, só instâncias não-oficiais
+    # entram aqui pra não deixar criar uma campanha que nunca vai enviar.
+    todas_instancias = dispatch_db.listar_instancias(user_id)
+    instancias = [i for i in todas_instancias if i.get("canal") != "oficial"]
+    if any(i.get("canal") == "oficial" for i in todas_instancias) and not instancias:
+        st.info(
+            "Sua instância oficial está conectada, mas o disparo por template pra ela ainda "
+            "não está disponível — em breve. Por enquanto, campanhas usam o canal não-oficial.",
+            icon="ℹ️",
+        )
+        return
     if not instancias:
         st.info("Conecte uma instância WhatsApp na aba **Instâncias** antes de criar uma campanha.", icon="ℹ️")
         return
@@ -4548,6 +4612,73 @@ def _tab_disparo_relatorios(user_id: str):
         st.dataframe(df_t, use_container_width=True, height=320)
 
 
+def _tab_disparo_pedidos_oficial():
+    from modules import dispatch_db
+
+    st.markdown(
+        "Painel do admin pra provisionar o canal oficial de cada cliente — token, "
+        "**Phone Number ID** e **WABA ID** vêm do seu painel DatafyAPI."
+    )
+
+    solicitacoes = dispatch_db.listar_solicitacoes_oficial()
+    pendentes = [s for s in solicitacoes if s.get("status") != "concluido"]
+    concluidas = [s for s in solicitacoes if s.get("status") == "concluido"]
+
+    st.markdown(f"### Pendentes ({len(pendentes)})")
+    if not pendentes:
+        st.caption("Nenhuma solicitação pendente.")
+    for s in pendentes:
+        sid = s["id"]
+        titulo = f"{s.get('nome_desejado') or 'Sem nome'} — {s.get('telefone_contato') or '—'} · {s.get('status','').upper()}"
+        with st.expander(titulo):
+            st.caption(f"Solicitado em {(s.get('criado_em') or '')[:16].replace('T',' ')} · user_id: `{s['user_id']}`")
+
+            with st.form(f"form_provisionar_{sid}"):
+                nome_inst_of = st.text_input(
+                    "Nome da instância", value=s.get("nome_desejado") or "WhatsApp Oficial", key=f"prov_nome_{sid}",
+                )
+                token_of = st.text_input("Token (DatafyAPI)", key=f"prov_token_{sid}", type="password")
+                fc1, fc2 = st.columns(2)
+                with fc1:
+                    phone_id_of = st.text_input("Phone Number ID", key=f"prov_phone_{sid}")
+                with fc2:
+                    waba_id_of = st.text_input("WABA ID", key=f"prov_waba_{sid}")
+                numero_of = st.text_input("Número conectado (opcional, só exibição)", key=f"prov_numero_{sid}", placeholder="(11) 99999-9999")
+                provisionar = st.form_submit_button("✅ Provisionar e concluir", type="primary", use_container_width=True)
+
+            if provisionar:
+                if not token_of.strip() or not phone_id_of.strip():
+                    st.warning("Preencha ao menos o token e o Phone Number ID.")
+                else:
+                    inst_id = dispatch_db.criar_instancia_oficial(
+                        s["user_id"], nome_inst_of.strip(), token_of.strip(),
+                        phone_id_of.strip(), waba_id_of.strip(), numero_of.strip(),
+                    )
+                    if inst_id:
+                        dispatch_db.atualizar_solicitacao_oficial(sid, status="concluido", instance_id=inst_id)
+                        st.success("Canal oficial provisionado!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Erro ao criar a instância.")
+
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                if s.get("status") == "pendente" and st.button("🔧 Marcar em andamento", key=f"prov_andamento_{sid}", use_container_width=True):
+                    dispatch_db.atualizar_solicitacao_oficial(sid, status="em_andamento")
+                    st.rerun()
+            with bc2:
+                if st.button("🗑️ Descartar pedido", key=f"prov_del_{sid}", use_container_width=True):
+                    dispatch_db.deletar_solicitacao_oficial(sid)
+                    st.rerun()
+
+    if concluidas:
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+        st.markdown(f"### Concluídas ({len(concluidas)})")
+        for s in concluidas:
+            st.caption(f"✅ {s.get('nome_desejado') or 'Sem nome'} — {s.get('telefone_contato') or '—'} (user_id: `{s['user_id']}`)")
+
+
 def pagina_disparo():
     from modules import evolution_api
 
@@ -4557,25 +4688,29 @@ def pagina_disparo():
         '<div class="page-header">'
         '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#00D97E" fill="none" stroke-width="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></div>'
         '<div><div class="page-title">Disparos</div>'
-        '<div class="page-sub">Campanhas de WhatsApp via Evolution API — conecte um número, monte a cadência e dispare</div></div>'
+        '<div class="page-sub">Campanhas de WhatsApp — conecte um número (não-oficial ou API oficial), monte a cadência e dispare</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )
 
     if not evolution_api.configurado():
         st.warning(
-            "Evolution API não configurada. Adicione **EVOLUTION_API_URL** e **EVOLUTION_API_KEY** "
-            "nas Secrets do Streamlit / variáveis de ambiente.",
+            "Evolution API (canal não-oficial) não configurada. Adicione **EVOLUTION_API_URL** e "
+            "**EVOLUTION_API_KEY** nas Secrets do Streamlit / variáveis de ambiente — não afeta o canal oficial.",
             icon="⚠️",
         )
 
-    tab_inst, tab_camp, tab_rel = st.tabs(["📱 Instâncias", "📣 Campanhas", "📊 Relatórios"])
+    tab_inst, tab_camp, tab_rel, tab_pedidos = st.tabs(
+        ["📱 Instâncias", "📣 Campanhas", "📊 Relatórios", "🔧 Pedidos (Oficial)"]
+    )
     with tab_inst:
         _tab_disparo_instancias(user_id)
     with tab_camp:
         _tab_disparo_campanhas(user_id)
     with tab_rel:
         _tab_disparo_relatorios(user_id)
+    with tab_pedidos:
+        _tab_disparo_pedidos_oficial()
 
 
 # ── Sidebar & roteamento principal ────────────────────────────────────────────

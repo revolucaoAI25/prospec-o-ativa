@@ -492,3 +492,100 @@ CREATE POLICY "admin_only_dispatch_opt_outs" ON dispatch_opt_outs
 DROP POLICY IF EXISTS "admin_only_message_templates" ON message_templates;
 CREATE POLICY "admin_only_message_templates" ON message_templates
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- ============================================================
+-- Canal oficial (WhatsApp Business Cloud API via DatafyAPI)
+-- Execute no SQL Editor do Supabase se o banco já existia.
+--
+-- Modelo: cada cliente pode ter uma instância oficial, mas quem provisiona
+-- é sempre o admin (token + phone_number_id + waba_id da conta DatafyAPI
+-- do próprio admin, gerenciando o número desse cliente específico). O
+-- cliente só pode SOLICITAR a conexão pela interface — daí vira uma linha
+-- em oficial_connection_requests que o admin resolve manualmente.
+-- ============================================================
+
+ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS token_oficial   TEXT;
+ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS phone_number_id TEXT;
+ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS waba_id         TEXT;
+
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS nome_meta   TEXT;               -- nome exato registrado na Meta (minúsculo, underscore)
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS idioma      TEXT DEFAULT 'pt_BR';
+ALTER TABLE message_templates ADD COLUMN IF NOT EXISTS componentes JSONB DEFAULT '[]'::jsonb;  -- header/body/footer/buttons no formato da Meta
+
+ALTER TABLE dispatch_cadence_steps ADD COLUMN IF NOT EXISTS template_id UUID REFERENCES message_templates(id);
+
+CREATE TABLE IF NOT EXISTS oficial_connection_requests (
+    id             UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id        UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    nome_desejado  TEXT,
+    telefone_contato TEXT,
+    status         TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente', 'em_andamento', 'concluido')),
+    observacao     TEXT,
+    instance_id    UUID REFERENCES whatsapp_instances(id),  -- preenchido quando o admin provisiona
+    criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE oficial_connection_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_or_admin_oficial_connection_requests" ON oficial_connection_requests;
+CREATE POLICY "own_or_admin_oficial_connection_requests" ON oficial_connection_requests
+    FOR ALL USING (
+        user_id = auth.uid()
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+
+-- ── Opt-out passa a ser por cliente, não mais global ──────────────────────
+-- Antes de abrir Disparos pra clientes não-admin: um opt-out global faria o
+-- cliente de opt-out de um cliente A bloquear silenciosamente o cliente B
+-- também. `esta_opt_out`/`registrar_opt_out` em dispatch_db.py já foram
+-- atualizados pra sempre passar o user_id da campanha.
+ALTER TABLE dispatch_opt_outs ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id);
+ALTER TABLE dispatch_opt_outs DROP CONSTRAINT IF EXISTS dispatch_opt_outs_pkey;
+ALTER TABLE dispatch_opt_outs ADD PRIMARY KEY (telefone, user_id);
+
+-- ── Abre as tabelas de disparo pro dono de cada linha, não só admin ───────
+-- Continua funcionando igual pro admin (a maioria das operações do app usa
+-- o cliente service-role, que ignora RLS de qualquer forma — isso aqui é
+-- defesa em profundidade, ver comentário mais acima no arquivo).
+DROP POLICY IF EXISTS "admin_only_whatsapp_instances" ON whatsapp_instances;
+CREATE POLICY "own_or_admin_whatsapp_instances" ON whatsapp_instances
+    FOR ALL USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+
+DROP POLICY IF EXISTS "admin_only_dispatch_campaigns" ON dispatch_campaigns;
+CREATE POLICY "own_or_admin_dispatch_campaigns" ON dispatch_campaigns
+    FOR ALL USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+
+DROP POLICY IF EXISTS "admin_only_dispatch_cadence_steps" ON dispatch_cadence_steps;
+CREATE POLICY "own_or_admin_dispatch_cadence_steps" ON dispatch_cadence_steps
+    FOR ALL USING (
+        EXISTS (SELECT 1 FROM dispatch_campaigns dc WHERE dc.id = campaign_id AND dc.user_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+
+DROP POLICY IF EXISTS "admin_only_dispatch_targets" ON dispatch_targets;
+CREATE POLICY "own_or_admin_dispatch_targets" ON dispatch_targets
+    FOR ALL USING (
+        EXISTS (SELECT 1 FROM dispatch_campaigns dc WHERE dc.id = campaign_id AND dc.user_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+
+DROP POLICY IF EXISTS "admin_only_dispatch_messages_log" ON dispatch_messages_log;
+CREATE POLICY "own_or_admin_dispatch_messages_log" ON dispatch_messages_log
+    FOR ALL USING (
+        EXISTS (SELECT 1 FROM dispatch_campaigns dc WHERE dc.id = campaign_id AND dc.user_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+
+DROP POLICY IF EXISTS "admin_only_dispatch_sheet_watchers" ON dispatch_sheet_watchers;
+CREATE POLICY "own_or_admin_dispatch_sheet_watchers" ON dispatch_sheet_watchers
+    FOR ALL USING (
+        EXISTS (SELECT 1 FROM dispatch_campaigns dc WHERE dc.id = campaign_id AND dc.user_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+
+DROP POLICY IF EXISTS "admin_only_dispatch_opt_outs" ON dispatch_opt_outs;
+CREATE POLICY "own_or_admin_dispatch_opt_outs" ON dispatch_opt_outs
+    FOR ALL USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+
+DROP POLICY IF EXISTS "admin_only_message_templates" ON message_templates;
+CREATE POLICY "own_or_admin_message_templates" ON message_templates
+    FOR ALL USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
