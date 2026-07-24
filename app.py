@@ -2832,6 +2832,66 @@ def pagina_configuracoes():
                     if ok:
                         st.session_state["user_gmaps_key"] = gmk
 
+    # ── Apify API Key ─────────────────────────────────────────────────────────────
+    with st.expander("🤖 Apify API Key", expanded=False):
+        _apify_desc = "Usada como **fallback automático** na busca Google Maps (quando a cota é esgotada, $4/1.000 resultados) e na busca Instagram."
+        st.markdown(_apify_desc)
+        st.markdown("Configure uma ou mais chaves Apify. O sistema usa rodízio automático quando uma chave atinge o limite mensal.")
+        from modules.database import obter_pool_apify_usuario, salvar_pool_apify_usuario
+        _cfg_apool = obter_pool_apify_usuario()
+        if _cfg_apool:
+            for _api, _ape in enumerate(_cfg_apool):
+                _apc1, _apc2, _apc3 = st.columns([3, 3, 1])
+                with _apc1:
+                    st.caption(_ape.get("nickname") or f"Chave {_api+1}")
+                with _apc2:
+                    _apuse = int(_ape.get("usage", 0))
+                    _aplim = int(_ape.get("limit", 900))
+                    _apmon = _ape.get("month", "—")
+                    _appct = min(_apuse / max(_aplim, 1), 1.0)
+                    _apcls = "b-err" if _appct >= 1.0 else ("b-warn" if _appct >= 0.8 else "b-ok")
+                    st.markdown(f'<span class="badge {_apcls}">{_apmon}: {_apuse}/{_aplim}</span>', unsafe_allow_html=True)
+                with _apc3:
+                    if st.button("🗑️", key=f"del_cfg_ak_{_api}", help="Remover"):
+                        _nap = [k for j, k in enumerate(_cfg_apool) if j != _api]
+                        if salvar_pool_apify_usuario(_nap):
+                            st.rerun()
+        with st.form("add_cfg_ak"):
+            _afc1, _afc2, _afc3 = st.columns([2, 4, 2])
+            with _afc1:
+                _afn = st.text_input("Apelido", placeholder="Chave 1", key="cfg_ak_nick")
+            with _afc2:
+                _afk = st.text_input("Chave API", placeholder="apify_api_...", type="password", key="cfg_ak_val")
+            with _afc3:
+                _afl = st.number_input("Limite/mês", min_value=100, value=1000, step=100, key="cfg_ak_lim")
+            if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
+                if _afk:
+                    _nap = list(_cfg_apool) + [{
+                        "key": _afk, "nickname": _afn or f"Chave {len(_cfg_apool)+1}",
+                        "usage": 0, "month": "", "limit": int(_afl),
+                    }]
+                    if salvar_pool_apify_usuario(_nap):
+                        st.success("Chave adicionada!")
+                        st.rerun()
+        # Chave única (compatibilidade)
+        with st.expander("Ou use chave única (modo legado)"):
+            _apify_cur = st.session_state.get("apify_api_key_user", "")
+            apify_inp = st.text_input(
+                "Apify API Key",
+                value=_apify_cur,
+                type="password",
+                placeholder="apify_api_...",
+                key="cfg_apify_key",
+            )
+            if st.button("💾 Salvar chave única", key="save_apify"):
+                from modules.database import salvar_configuracoes
+                ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
+                if ok_ap:
+                    st.session_state["apify_api_key_user"] = apify_inp.strip()
+                    st.success("Chave Apify salva com sucesso.")
+                else:
+                    st.error(msg_ap)
+
     # ── Google Sheets OAuth ─────────────────────────────────────────────────────
     with st.expander("📊 Google Sheets (OAuth)", expanded=True):
         st.markdown("Conecte sua conta Google para exportar resultados diretamente para planilhas.")
@@ -3047,66 +3107,6 @@ def pagina_configuracoes():
                     st.info(f"Suas {len(_planilhas_salvas)} planilha(s) configurada(s) serão restauradas automaticamente após reconectar.", icon="ℹ️")
                 url = gerar_url_auth(cid, cs, ru)
                 st.link_button("🔗 Conectar conta Google", url, use_container_width=True)
-
-    # ── Apify API Key ─────────────────────────────────────────────────────────────
-    with st.expander("🤖 Apify API Key", expanded=False):
-        _apify_desc = "Usada como **fallback automático** na busca Google Maps (quando a cota é esgotada, $4/1.000 resultados) e na busca Instagram."
-        st.markdown(_apify_desc)
-        st.markdown("Configure uma ou mais chaves Apify. O sistema usa rodízio automático quando uma chave atinge o limite mensal.")
-        from modules.database import obter_pool_apify_usuario, salvar_pool_apify_usuario
-        _cfg_apool = obter_pool_apify_usuario()
-        if _cfg_apool:
-            for _api, _ape in enumerate(_cfg_apool):
-                _apc1, _apc2, _apc3 = st.columns([3, 3, 1])
-                with _apc1:
-                    st.caption(_ape.get("nickname") or f"Chave {_api+1}")
-                with _apc2:
-                    _apuse = int(_ape.get("usage", 0))
-                    _aplim = int(_ape.get("limit", 900))
-                    _apmon = _ape.get("month", "—")
-                    _appct = min(_apuse / max(_aplim, 1), 1.0)
-                    _apcls = "b-err" if _appct >= 1.0 else ("b-warn" if _appct >= 0.8 else "b-ok")
-                    st.markdown(f'<span class="badge {_apcls}">{_apmon}: {_apuse}/{_aplim}</span>', unsafe_allow_html=True)
-                with _apc3:
-                    if st.button("🗑️", key=f"del_cfg_ak_{_api}", help="Remover"):
-                        _nap = [k for j, k in enumerate(_cfg_apool) if j != _api]
-                        if salvar_pool_apify_usuario(_nap):
-                            st.rerun()
-        with st.form("add_cfg_ak"):
-            _afc1, _afc2, _afc3 = st.columns([2, 4, 2])
-            with _afc1:
-                _afn = st.text_input("Apelido", placeholder="Chave 1", key="cfg_ak_nick")
-            with _afc2:
-                _afk = st.text_input("Chave API", placeholder="apify_api_...", type="password", key="cfg_ak_val")
-            with _afc3:
-                _afl = st.number_input("Limite/mês", min_value=100, value=1000, step=100, key="cfg_ak_lim")
-            if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
-                if _afk:
-                    _nap = list(_cfg_apool) + [{
-                        "key": _afk, "nickname": _afn or f"Chave {len(_cfg_apool)+1}",
-                        "usage": 0, "month": "", "limit": int(_afl),
-                    }]
-                    if salvar_pool_apify_usuario(_nap):
-                        st.success("Chave adicionada!")
-                        st.rerun()
-        # Chave única (compatibilidade)
-        with st.expander("Ou use chave única (modo legado)"):
-            _apify_cur = st.session_state.get("apify_api_key_user", "")
-            apify_inp = st.text_input(
-                "Apify API Key",
-                value=_apify_cur,
-                type="password",
-                placeholder="apify_api_...",
-                key="cfg_apify_key",
-            )
-            if st.button("💾 Salvar chave única", key="save_apify"):
-                from modules.database import salvar_configuracoes
-                ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
-                if ok_ap:
-                    st.session_state["apify_api_key_user"] = apify_inp.strip()
-                    st.success("Chave Apify salva com sucesso.")
-                else:
-                    st.error(msg_ap)
 
     # ── Alterar senha ────────────────────────────────────────────────────────────
     with st.expander("🔑 Alterar senha", expanded=False):
