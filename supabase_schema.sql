@@ -203,7 +203,8 @@ CREATE TABLE IF NOT EXISTS automations (
 
 ALTER TABLE automations ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "own_automations"
+DROP POLICY IF EXISTS "own_automations" ON automations;
+CREATE POLICY "own_automations"
     ON automations FOR ALL TO authenticated
     USING  (user_id = auth.uid())
     WITH CHECK (user_id = auth.uid());
@@ -222,7 +223,8 @@ CREATE TABLE IF NOT EXISTS automation_runs (
 
 ALTER TABLE automation_runs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "own_automation_runs"
+DROP POLICY IF EXISTS "own_automation_runs" ON automation_runs;
+CREATE POLICY "own_automation_runs"
     ON automation_runs FOR ALL TO authenticated
     USING  (user_id = auth.uid())
     WITH CHECK (user_id = auth.uid());
@@ -447,19 +449,34 @@ ALTER TABLE dispatch_sheet_watchers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dispatch_opt_outs       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE message_templates       ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "admin_only_whatsapp_instances" ON whatsapp_instances
+DROP POLICY IF EXISTS "admin_only_whatsapp_instances" ON whatsapp_instances;
+CREATE POLICY "admin_only_whatsapp_instances" ON whatsapp_instances
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
-CREATE POLICY IF NOT EXISTS "admin_only_dispatch_campaigns" ON dispatch_campaigns
+
+DROP POLICY IF EXISTS "admin_only_dispatch_campaigns" ON dispatch_campaigns;
+CREATE POLICY "admin_only_dispatch_campaigns" ON dispatch_campaigns
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
-CREATE POLICY IF NOT EXISTS "admin_only_dispatch_cadence_steps" ON dispatch_cadence_steps
+
+DROP POLICY IF EXISTS "admin_only_dispatch_cadence_steps" ON dispatch_cadence_steps;
+CREATE POLICY "admin_only_dispatch_cadence_steps" ON dispatch_cadence_steps
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
-CREATE POLICY IF NOT EXISTS "admin_only_dispatch_targets" ON dispatch_targets
+
+DROP POLICY IF EXISTS "admin_only_dispatch_targets" ON dispatch_targets;
+CREATE POLICY "admin_only_dispatch_targets" ON dispatch_targets
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
-CREATE POLICY IF NOT EXISTS "admin_only_dispatch_messages_log" ON dispatch_messages_log
+
+DROP POLICY IF EXISTS "admin_only_dispatch_messages_log" ON dispatch_messages_log;
+CREATE POLICY "admin_only_dispatch_messages_log" ON dispatch_messages_log
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
-CREATE POLICY IF NOT EXISTS "admin_only_dispatch_sheet_watchers" ON dispatch_sheet_watchers
+
+DROP POLICY IF EXISTS "admin_only_dispatch_sheet_watchers" ON dispatch_sheet_watchers;
+CREATE POLICY "admin_only_dispatch_sheet_watchers" ON dispatch_sheet_watchers
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
-CREATE POLICY IF NOT EXISTS "admin_only_dispatch_opt_outs" ON dispatch_opt_outs
+
+DROP POLICY IF EXISTS "admin_only_dispatch_opt_outs" ON dispatch_opt_outs;
+CREATE POLICY "admin_only_dispatch_opt_outs" ON dispatch_opt_outs
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
-CREATE POLICY IF NOT EXISTS "admin_only_message_templates" ON message_templates
+
+DROP POLICY IF EXISTS "admin_only_message_templates" ON message_templates;
+CREATE POLICY "admin_only_message_templates" ON message_templates
     FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
