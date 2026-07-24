@@ -1436,6 +1436,7 @@ def pagina_busca():
 
                 # ── Filtros da empresa ─────────────────────────────────────────
                 with st.expander("📊 Filtros da empresa"):
+                    st.caption("Porte, matriz/filial e regime tributário")
                     fc1, fc2 = st.columns(2)
                     with fc1:
                         portes_sel = st.multiselect(
@@ -1461,6 +1462,7 @@ def pagina_busca():
                             key="cdd_mei",
                         )
 
+                    st.caption("Data de abertura e capital social")
                     fd1, fd2 = st.columns(2)
                     with fd1:
                         dt_ini = st.date_input("Abertura — de", value=None, key="cdd_dt_ini")
@@ -2255,6 +2257,7 @@ def _card_automacao(auto: dict) -> None:
                     with st.expander("📊 Filtros da empresa"):
                         _porte_stored   = filtros_e.get("porte") or []
                         _porte_default_e = [op for op in _PORTE_OPTS_E if op.split(" — ")[0].strip() in _porte_stored]
+                        st.caption("Porte, matriz/filial e regime tributário")
                         gc1, gc2 = st.columns(2)
                         with gc1:
                             portes_ed = st.multiselect("Porte da empresa", _PORTE_OPTS_E, default=_porte_default_e, key=f"ed_{aid}_porte")
@@ -2268,6 +2271,7 @@ def _card_automacao(auto: dict) -> None:
                             _mei_idx   = 1 if filtros_e.get("mei_optante") is True else (2 if filtros_e.get("excluir_mei") else 0)
                             mei_ed     = st.radio("MEI", ["Indiferente", "Apenas MEI", "Excluir MEI"],
                                                    index=_mei_idx, key=f"ed_{aid}_mei")
+                        st.caption("Data de abertura e capital social")
                         gd1, gd2 = st.columns(2)
                         _dti_s = filtros_e.get("data_abertura_inicio", "")
                         _dtf_s = filtros_e.get("data_abertura_fim", "")
@@ -2609,6 +2613,7 @@ def pagina_automacoes():
                         lim_auto_c = st.number_input("Máx. resultados", 1, 2000, 100, 50, key="an_lim_c")
 
                     with st.expander("📊 Filtros da empresa"):
+                        st.caption("Porte, matriz/filial e regime tributário")
                         fc1, fc2 = st.columns(2)
                         with fc1:
                             portes_a = st.multiselect(
@@ -2632,6 +2637,7 @@ def pagina_automacoes():
                                 ["Indiferente", "Apenas MEI", "Excluir MEI"],
                                 key="an_mei",
                             )
+                        st.caption("Data de abertura e capital social")
                         fd1, fd2 = st.columns(2)
                         with fd1:
                             dt_ini_a = st.date_input("Abertura — de", value=None, key="an_dt_ini")
