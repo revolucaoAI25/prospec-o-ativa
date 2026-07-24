@@ -2802,9 +2802,24 @@ def pagina_configuracoes():
                         st.markdown(f'<span class="badge {_pcls}">{_pmon}: {_puse}/{_plim}</span>', unsafe_allow_html=True)
                     with _pc3:
                         if st.button("🗑️", key=f"del_cfg_mk_{_pi}", help="Remover"):
-                            _np = [k for j, k in enumerate(_cfg_pool) if j != _pi]
+                            st.session_state["_conf_del_cfg_mk_idx"] = _pi
+                            st.rerun()
+
+                _del_idx = st.session_state.get("_conf_del_cfg_mk_idx")
+                if _del_idx is not None and _del_idx < len(_cfg_pool):
+                    _del_nome = _cfg_pool[_del_idx].get("nickname") or f"Chave {_del_idx+1}"
+                    st.warning(f"Remover a chave **{_del_nome}** do pool?")
+                    _dmc1, _dmc2 = st.columns(2)
+                    with _dmc1:
+                        if st.button("✅ Sim, remover", key="conf_del_cfg_mk_ok", type="primary"):
+                            _np = [k for j, k in enumerate(_cfg_pool) if j != _del_idx]
+                            st.session_state.pop("_conf_del_cfg_mk_idx", None)
                             if salvar_pool_maps_usuario(_np):
                                 st.rerun()
+                    with _dmc2:
+                        if st.button("Cancelar", key="conf_del_cfg_mk_no"):
+                            st.session_state.pop("_conf_del_cfg_mk_idx", None)
+                            st.rerun()
             with st.form("add_cfg_mk"):
                 _fc1, _fc2, _fc3 = st.columns([2, 4, 2])
                 with _fc1:
@@ -2853,9 +2868,24 @@ def pagina_configuracoes():
                     st.markdown(f'<span class="badge {_apcls}">{_apmon}: {_apuse}/{_aplim}</span>', unsafe_allow_html=True)
                 with _apc3:
                     if st.button("🗑️", key=f"del_cfg_ak_{_api}", help="Remover"):
-                        _nap = [k for j, k in enumerate(_cfg_apool) if j != _api]
+                        st.session_state["_conf_del_cfg_ak_idx"] = _api
+                        st.rerun()
+
+            _del_aidx = st.session_state.get("_conf_del_cfg_ak_idx")
+            if _del_aidx is not None and _del_aidx < len(_cfg_apool):
+                _del_anome = _cfg_apool[_del_aidx].get("nickname") or f"Chave {_del_aidx+1}"
+                st.warning(f"Remover a chave **{_del_anome}** do pool?")
+                _dac1, _dac2 = st.columns(2)
+                with _dac1:
+                    if st.button("✅ Sim, remover", key="conf_del_cfg_ak_ok", type="primary"):
+                        _nap = [k for j, k in enumerate(_cfg_apool) if j != _del_aidx]
+                        st.session_state.pop("_conf_del_cfg_ak_idx", None)
                         if salvar_pool_apify_usuario(_nap):
                             st.rerun()
+                with _dac2:
+                    if st.button("Cancelar", key="conf_del_cfg_ak_no"):
+                        st.session_state.pop("_conf_del_cfg_ak_idx", None)
+                        st.rerun()
         with st.form("add_cfg_ak"):
             _afc1, _afc2, _afc3 = st.columns([2, 4, 2])
             with _afc1:
@@ -3097,10 +3127,23 @@ def pagina_configuracoes():
                         st.rerun()
                 with _bc2:
                     if st.button("🔓 Desconectar", key="disc_google", use_container_width=True, help="Remove a conta Google e todas as planilhas configuradas"):
-                        for k in ["sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista"]:
-                            st.session_state.pop(k, None)
-                        salvar_configuracoes({"google_sheets_creds": None})
+                        st.session_state["_conf_disc_google"] = True
                         st.rerun()
+
+                if st.session_state.get("_conf_disc_google"):
+                    st.warning("Tem certeza? Isso remove a conta Google conectada e **todas** as planilhas configuradas.")
+                    dc1, dc2 = st.columns(2)
+                    with dc1:
+                        if st.button("✅ Sim, desconectar", key="conf_disc_google_ok", type="primary"):
+                            for k in ["sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista"]:
+                                st.session_state.pop(k, None)
+                            salvar_configuracoes({"google_sheets_creds": None})
+                            st.session_state.pop("_conf_disc_google", None)
+                            st.rerun()
+                    with dc2:
+                        if st.button("Cancelar", key="conf_disc_google_no"):
+                            st.session_state.pop("_conf_disc_google", None)
+                            st.rerun()
             else:
                 _planilhas_salvas = st.session_state.get("sheets_planilhas", [])
                 if _planilhas_salvas:
@@ -3282,10 +3325,25 @@ def pagina_admin():
                             st.markdown(f'<span class="badge {_kcls}">{_kmon}: {_kuse}/{_klim}</span>', unsafe_allow_html=True)
                         with _kc3:
                             if st.button("🗑️", key=f"del_mk_{uid}_{_ki}", help="Remover chave"):
-                                _np = [k for j, k in enumerate(_upool) if j != _ki]
+                                st.session_state[f"_conf_del_mk_idx_{uid}"] = _ki
+                                st.rerun()
+
+                    _del_kidx = st.session_state.get(f"_conf_del_mk_idx_{uid}")
+                    if _del_kidx is not None and _del_kidx < len(_upool):
+                        _del_knome = _upool[_del_kidx].get("nickname") or f"Chave {_del_kidx+1}"
+                        st.warning(f"Remover a chave **{_del_knome}** do pool deste usuário?")
+                        _dkc1, _dkc2 = st.columns(2)
+                        with _dkc1:
+                            if st.button("✅ Sim, remover", key=f"conf_del_mk_ok_{uid}", type="primary"):
+                                _np = [k for j, k in enumerate(_upool) if j != _del_kidx]
+                                st.session_state.pop(f"_conf_del_mk_idx_{uid}", None)
                                 _ok_p, _msg_p = configurar_creditos_admin(uid, maps_keys_pool=_np)
                                 (st.success if _ok_p else st.error)(_msg_p)
                                 if _ok_p: time.sleep(0.3); st.rerun()
+                        with _dkc2:
+                            if st.button("Cancelar", key=f"conf_del_mk_no_{uid}"):
+                                st.session_state.pop(f"_conf_del_mk_idx_{uid}", None)
+                                st.rerun()
                 else:
                     st.caption("Nenhuma chave configurada.")
                 with st.form(f"add_mk_{uid}"):
@@ -3350,10 +3408,25 @@ def pagina_admin():
                         st.markdown(f'<span class="badge {_acls}">{_amon}: {_ause}/{_alim}</span>', unsafe_allow_html=True)
                     with _apc3:
                         if st.button("🗑️", key=f"del_ak_{uid}_{_ai}", help="Remover chave"):
-                            _nap = [k for j, k in enumerate(_apool) if j != _ai]
+                            st.session_state[f"_conf_del_ak_idx_{uid}"] = _ai
+                            st.rerun()
+
+                _del_aaidx = st.session_state.get(f"_conf_del_ak_idx_{uid}")
+                if _del_aaidx is not None and _del_aaidx < len(_apool):
+                    _del_aanome = _apool[_del_aaidx].get("nickname") or f"Chave {_del_aaidx+1}"
+                    st.warning(f"Remover a chave **{_del_aanome}** do pool deste usuário?")
+                    _dakc1, _dakc2 = st.columns(2)
+                    with _dakc1:
+                        if st.button("✅ Sim, remover", key=f"conf_del_ak_ok_{uid}", type="primary"):
+                            _nap = [k for j, k in enumerate(_apool) if j != _del_aaidx]
+                            st.session_state.pop(f"_conf_del_ak_idx_{uid}", None)
                             _ok_ap, _msg_ap = configurar_creditos_admin(uid, apify_keys_pool=_nap)
                             (st.success if _ok_ap else st.error)(_msg_ap)
                             if _ok_ap: time.sleep(0.3); st.rerun()
+                    with _dakc2:
+                        if st.button("Cancelar", key=f"conf_del_ak_no_{uid}"):
+                            st.session_state.pop(f"_conf_del_ak_idx_{uid}", None)
+                            st.rerun()
             else:
                 st.caption("Nenhuma chave no pool configurada.")
             with st.form(f"add_ak_{uid}"):
