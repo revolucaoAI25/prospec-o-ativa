@@ -65,6 +65,7 @@ def criar_automacao(
     dias_semana: list[int],
     horario: str,
     proxima_execucao: Optional[datetime] = None,
+    dispatch_campaign_id: Optional[str] = None,
 ) -> Optional[str]:
     """Cria automação e retorna o ID gerado."""
     sb = _sb()
@@ -82,6 +83,11 @@ def criar_automacao(
             "horario":          horario,
             "ativa":            True,
         }
+        # Só inclui a coluna quando de fato usada — evita que a criação de
+        # automações comuns quebre em bancos onde a migração da coluna
+        # dispatch_campaign_id ainda não foi rodada.
+        if dispatch_campaign_id:
+            payload["dispatch_campaign_id"] = dispatch_campaign_id
         if proxima_execucao:
             payload["proxima_execucao"] = proxima_execucao.isoformat()
         resp = sb.table("automations").insert(payload).execute()
@@ -117,6 +123,21 @@ def deletar_automacao(auto_id: str) -> bool:
     except Exception as e:
         logger.error("deletar_automacao: %s", e)
         return False
+
+
+def obter_automacao_por_campanha(campaign_id: str) -> Optional[dict]:
+    """Acha a automação de busca (se houver) vinculada a essa campanha de disparo — usado em Relatórios."""
+    sb = _sb()
+    if not sb:
+        return None
+    try:
+        resp = (sb.table("automations").select("id, nome")
+                  .eq("dispatch_campaign_id", campaign_id).limit(1).execute())
+        rows = resp.data or []
+        return rows[0] if rows else None
+    except Exception as e:
+        logger.error("obter_automacao_por_campanha: %s", e)
+        return None
 
 
 def obter_automacoes_vencidas() -> list[dict]:

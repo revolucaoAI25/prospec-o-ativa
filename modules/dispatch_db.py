@@ -276,6 +276,65 @@ def listar_campanhas_sheet_watch_ativas() -> list[dict]:
         return []
 
 
+# ── Gatilho por filtro (auto_trigger) ─────────────────────────────────────────
+
+def listar_campanhas_auto_trigger_ativas() -> list[dict]:
+    """Campanhas ativas com origem auto_trigger — usado pelo scan lento do scheduler."""
+    sb = _sb()
+    if not sb:
+        return []
+    try:
+        resp = (sb.table("dispatch_campaigns")
+                  .select("*").eq("status", "ativa").eq("tipo_origem", "auto_trigger").execute())
+        return resp.data or []
+    except Exception as e:
+        logger.error("listar_campanhas_auto_trigger_ativas: %s", e)
+        return []
+
+
+def buscar_leads_filtro(
+    user_id: str, nicho: str = "", subnicho: str = "", uf: str = "", desde: Optional[str] = None,
+) -> list[dict]:
+    """
+    Busca leads do próprio `user_id` que batem com nicho/subnicho/uf (case-
+    insensitive, substring), extraídos depois de `desde` (ISO timestamp).
+    Usado pela campanha de disparo com gatilho por filtro — escopo
+    intencionalmente restrito às extrações do próprio dono da campanha.
+    Pagina em blocos de 1000 (limite do PostgREST).
+    """
+    sb = _sb()
+    if not sb:
+        return []
+    try:
+        leads: list[dict] = []
+        page_size = 1000
+        offset = 0
+        while True:
+            q = (sb.table("leads")
+                   .select("nome, telefone, telefone2, email, endereco, municipio, uf, cep, "
+                           "site, maps_url, avaliacao, total_avaliacoes, cnpj, nicho, subnicho, "
+                           "fonte, created_at")
+                   .eq("user_id", user_id))
+            if nicho:
+                q = q.ilike("nicho", f"%{nicho}%")
+            if subnicho:
+                q = q.ilike("subnicho", f"%{subnicho}%")
+            if uf:
+                q = q.eq("uf", uf.upper())
+            if desde:
+                q = q.gt("created_at", desde)
+            resp = q.order("created_at").range(offset, offset + page_size - 1).execute()
+            linhas = resp.data or []
+            leads.extend(linhas)
+            if len(linhas) < page_size:
+                break
+            offset += page_size
+        return leads
+    except Exception as e:
+        logger.error("buscar_leads_filtro: %s", e)
+        return []
+
+
 # ── Etapas da cadência ────────────────────────────────────────────────────────
 
 def criar_etapa(campaign_id: str, ordem: int, atraso_horas: float, corpo_mensagem: str, midia_url: str = "") -> Optional[str]:

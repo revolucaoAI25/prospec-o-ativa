@@ -361,6 +361,15 @@ def executar_automacao(auto: dict) -> None:
         else:
             sheets_status = "sem_sheets"
 
+    # 8.5 Disparo WhatsApp vinculado (opcional, admin) — inscreve quem foi
+    # extraído agora na campanha de disparo ligada a essa automação.
+    if auto.get("dispatch_campaign_id") and resultados:
+        try:
+            from modules import dispatch_db
+            dispatch_db.enroll_targets(auto["dispatch_campaign_id"], resultados)
+        except Exception as e:
+            logger.error("Disparo vinculado da automação %s falhou: %s", auto_id, e)
+
     # 9. Registrar log da execução
     registrar_execucao(auto_id, user_id, sheets_status, leads=total)
 

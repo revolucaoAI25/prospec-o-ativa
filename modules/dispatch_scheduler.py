@@ -164,6 +164,34 @@ def _processar_sheet_watcher(campanha: dict) -> None:
     )
 
 
+def _processar_auto_trigger(campanha: dict) -> None:
+    """Busca leads do próprio dono da campanha que batem com o filtro
+    (nicho/subnicho/UF) extraídos desde o último scan, e os inscreve.
+    Escopo intencional: só leads do próprio admin, nunca de outros usuários
+    da plataforma (privacidade/consentimento — decisão tomada no desenho
+    original dessa feature)."""
+    from modules import dispatch_db
+
+    leads = dispatch_db.buscar_leads_filtro(
+        user_id=campanha["user_id"],
+        nicho=campanha.get("filtro_nicho") or "",
+        subnicho=campanha.get("filtro_subnicho") or "",
+        uf=campanha.get("filtro_uf") or "",
+        desde=campanha.get("ultimo_trigger_em"),
+    )
+    agora_iso = datetime.now(timezone.utc).isoformat()
+    if not leads:
+        dispatch_db.atualizar_campanha(campanha["id"], ultimo_trigger_em=agora_iso)
+        return
+
+    resultado = dispatch_db.enroll_targets(campanha["id"], leads)
+    dispatch_db.atualizar_campanha(campanha["id"], ultimo_trigger_em=agora_iso)
+    logger.info(
+        "Campanha %s (auto_trigger): %d lead(s) novo(s) batendo com o filtro, %d inscrito(s).",
+        campanha["id"], len(leads), resultado.get("inscritos", 0),
+    )
+
+
 class DispatchScheduler:
     """Thread de background que processa a fila de disparo WhatsApp a cada TICK_SEGUNDOS."""
 
@@ -211,6 +239,11 @@ class DispatchScheduler:
                 _processar_sheet_watcher(campanha)
             except Exception as e:
                 logger.error("Erro processando sheet_watch da campanha %s: %s", campanha.get("id"), e)
+        for campanha in dispatch_db.listar_campanhas_auto_trigger_ativas():
+            try:
+                _processar_auto_trigger(campanha)
+            except Exception as e:
+                logger.error("Erro processando auto_trigger da campanha %s: %s", campanha.get("id"), e)
 
 
 # ── Singleton global ───────────────────────────────────────────────────────

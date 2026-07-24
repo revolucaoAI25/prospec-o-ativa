@@ -2153,6 +2153,19 @@ def _card_automacao(auto: dict) -> None:
     status_cls = "b-ok" if ativa else "b-warn"
     status_txt = "Ativa" if ativa else "Pausada"
 
+    dispatch_camp_id = auto.get("dispatch_campaign_id")
+    disparo_badge_html = ""
+    disparo_stats_html = ""
+    if dispatch_camp_id:
+        from modules import dispatch_db as _ddb_card
+        _stats_disp = _ddb_card.stats_campanha(dispatch_camp_id)
+        disparo_badge_html = '<span class="badge b-ok">📣 Disparo vinculado</span>'
+        disparo_stats_html = (
+            f'<span>📇 {_stats_disp["total"]} inscritos · ⏳ {_stats_disp["pendente"]} pendentes · '
+            f'✅ {_stats_disp["concluido"]} concluídos · ❌ {_stats_disp["falhou"]} falharam '
+            f'(gerencie a cadência em Disparos)</span>'
+        )
+
     with st.container():
         st.markdown(
             f'<div style="background:var(--surface);border:1px solid var(--border);'
@@ -2161,13 +2174,15 @@ def _card_automacao(auto: dict) -> None:
             f'<span style="font-weight:700;font-size:15px;color:var(--text-1)">{nome}</span>'
             f'<span class="badge b-ok">{tipo_badge}</span>'
             f'<span class="badge {status_cls}">{status_txt}</span>'
+            + disparo_badge_html +
             f'</div>'
             f'<div style="margin-top:8px;font-size:12px;color:var(--text-2);display:flex;gap:20px;flex-wrap:wrap">'
             f'<span>🗓️ {formatar_dias(dias)} às {formatar_horarios(hora)}</span>'
             f'<span>⏭️ {formatar_proxima_execucao(prox)}</span>'
             + (f'<span>🔚 Encerra em {data_fim[8:10]}/{data_fim[5:7]}/{data_fim[:4]}</span>' if data_fim else '')
             + f'</div>'
-            f'</div>',
+            + (f'<div style="margin-top:6px;font-size:12px;color:var(--text-2);display:flex;gap:20px;flex-wrap:wrap">{disparo_stats_html}</div>' if disparo_stats_html else '')
+            + f'</div>',
             unsafe_allow_html=True,
         )
 
@@ -2558,8 +2573,10 @@ def pagina_automacoes():
     from modules.automation_db import listar_automacoes_usuario, criar_automacao
     from modules.scheduler import calcular_proxima_execucao, ensure_started
     from modules.nichos import NICHOS, ESTADOS, NOMES_NICHOS, SIGLAS_ESTADOS
+    from modules.auth import eh_admin
 
     user_id = st.session_state.get("user", {}).get("id")
+    _admin = eh_admin()
 
     # Garante que o scheduler está rodando
     ensure_started()
@@ -2623,6 +2640,58 @@ def pagina_automacoes():
 
             planilhas_cfg = st.session_state.get("sheets_planilhas", [])
             sheets_ok = bool(st.session_state.get("sheets_creds") and planilhas_cfg)
+
+            # Disparo WhatsApp vinculado (admin, opcional) — FORA do form:
+            # o construtor de cadência precisa de botões de adicionar/remover
+            # etapa, e st.form só permite st.form_submit_button.
+            disparo_auto_ativo = False
+            disparo_auto_inst_id = None
+            disparo_auto_int_min, disparo_auto_int_max = 30, 90
+            if _admin:
+                from modules import dispatch_db as _ddb_a
+                st.markdown('<div class="sec">📣 Disparo WhatsApp (opcional)</div>', unsafe_allow_html=True)
+                disparo_auto_ativo = st.checkbox(
+                    "Disparar automaticamente para quem for extraído", key="_auto_disparo_ativo",
+                )
+                if disparo_auto_ativo:
+                    _instancias_a = _ddb_a.listar_instancias(user_id)
+                    if not _instancias_a:
+                        st.warning("Conecte uma instância WhatsApp em Disparos → Instâncias antes de ativar isso.")
+                    else:
+                        _inst_opts_a = {i["nome"]: i["id"] for i in _instancias_a}
+                        _inst_sel_a = st.selectbox("Instância WhatsApp", list(_inst_opts_a.keys()), key="_auto_disparo_inst")
+                        disparo_auto_inst_id = _inst_opts_a.get(_inst_sel_a)
+
+                        if "_auto_disparo_steps" not in st.session_state:
+                            st.session_state["_auto_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
+                        _dac1, _dac2 = st.columns(2)
+                        with _dac1:
+                            disparo_auto_int_min = st.number_input("Intervalo mínimo (s)", min_value=5, value=30, step=5, key="_auto_disparo_int_min")
+                        with _dac2:
+                            disparo_auto_int_max = st.number_input("Intervalo máximo (s)", min_value=5, value=90, step=5, key="_auto_disparo_int_max")
+                        st.caption("Variáveis disponíveis: {{nome}}, {{telefone}}, {{email}}, {{endereco}}, {{municipio}}, {{uf}}, {{site}} etc.")
+                        for i, step in enumerate(st.session_state["_auto_disparo_steps"]):
+                            _asc1, _asc2, _asc3 = st.columns([2, 6, 1])
+                            with _asc1:
+                                step["atraso_horas"] = st.number_input(
+                                    "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
+                                    min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
+                                    key=f"_auto_disparo_step_atraso_{i}",
+                                )
+                            with _asc2:
+                                step["corpo_mensagem"] = st.text_area(
+                                    "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
+                                    value=step["corpo_mensagem"], key=f"_auto_disparo_step_corpo_{i}", height=80,
+                                )
+                            with _asc3:
+                                st.markdown("<br>", unsafe_allow_html=True)
+                                if len(st.session_state["_auto_disparo_steps"]) > 1 and st.button("🗑️", key=f"_auto_disparo_step_del_{i}"):
+                                    st.session_state["_auto_disparo_steps"].pop(i)
+                                    st.rerun()
+                        if st.button("➕ Adicionar etapa à cadência", key="_auto_disparo_add_step"):
+                            st.session_state["_auto_disparo_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
+                            st.rerun()
+                        st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
             with st.form("form_nova_automacao", clear_on_submit=True):
                 # ── Nome ──────────────────────────────────────────────────────
@@ -2862,6 +2931,14 @@ def pagina_automacoes():
                     erros.append("Selecione ao menos um dia da semana.")
                 if not horarios_sel:
                     erros.append("Selecione ao menos um horário de execução.")
+                if disparo_auto_ativo:
+                    if not disparo_auto_inst_id:
+                        erros.append("Selecione uma instância WhatsApp para o disparo (ou desative a opção).")
+                    _auto_disparo_steps_val = st.session_state.get("_auto_disparo_steps", [])
+                    if not _auto_disparo_steps_val or not _auto_disparo_steps_val[0]["corpo_mensagem"].strip():
+                        erros.append("Preencha a mensagem da primeira etapa do disparo (ou desative a opção).")
+                    elif not all(s["corpo_mensagem"].strip() for s in _auto_disparo_steps_val):
+                        erros.append("Todas as etapas do disparo precisam ter uma mensagem.")
 
                 if erros:
                     for e in erros:
@@ -2871,6 +2948,22 @@ def pagina_automacoes():
                     if data_fim_sel:
                         filtros_auto["data_fim"] = data_fim_sel.strftime("%Y-%m-%d")
                     proxima = calcular_proxima_execucao(dias_sel, horario_str)
+
+                    dispatch_campaign_id_novo = None
+                    if disparo_auto_ativo and disparo_auto_inst_id:
+                        from modules import dispatch_db as _ddb_b
+                        dispatch_campaign_id_novo = _ddb_b.criar_campanha(
+                            user_id=user_id, nome=f"[Automação] {nome_auto.strip()}",
+                            instance_id=disparo_auto_inst_id, tipo_origem="automacao_busca",
+                            intervalo_min_seg=int(disparo_auto_int_min), intervalo_max_seg=int(disparo_auto_int_max),
+                        )
+                        if dispatch_campaign_id_novo:
+                            for i, s in enumerate(st.session_state["_auto_disparo_steps"], start=1):
+                                _ddb_b.criar_etapa(dispatch_campaign_id_novo, i, s["atraso_horas"], s["corpo_mensagem"])
+                            _ddb_b.atualizar_campanha(dispatch_campaign_id_novo, status="ativa")
+                        else:
+                            st.warning("Não foi possível criar a campanha de disparo — a automação foi criada sem ela.")
+
                     novo_id = criar_automacao(
                         user_id=user_id,
                         nome=nome_auto.strip(),
@@ -2881,11 +2974,17 @@ def pagina_automacoes():
                         dias_semana=dias_sel,
                         horario=horario_str,
                         proxima_execucao=proxima,
+                        dispatch_campaign_id=dispatch_campaign_id_novo,
                     )
                     if novo_id:
                         prox_fmt = proxima.strftime('%d/%m às %H:%M') if proxima else '—'
-                        st.success(f"✅ Automação **{nome_auto}** criada! Próxima execução: {prox_fmt}.")
+                        msg_ok = f"✅ Automação **{nome_auto}** criada! Próxima execução: {prox_fmt}."
+                        if dispatch_campaign_id_novo:
+                            msg_ok += " Disparo WhatsApp vinculado e ativo."
+                        st.success(msg_ok)
                         st.session_state["_auto_form_aberto"] = False
+                        st.session_state["_auto_disparo_ativo"] = False
+                        st.session_state["_auto_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -2904,6 +3003,173 @@ def pagina_automacoes():
     else:
         for auto in autos:
             _card_automacao(auto)
+
+    # ── Automações de disparo (WhatsApp) — admin ──────────────────────────────
+    if _admin:
+        from modules import dispatch_db as _ddb_disp_auto
+
+        st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
+        st.markdown('<hr class="hr">', unsafe_allow_html=True)
+        col_info2, col_btn2 = st.columns([3, 1])
+        with col_info2:
+            st.markdown("### Automações de disparo (WhatsApp)")
+            st.caption("Campanhas que rodam sozinhas: disparam sempre que um lead seu bater com um filtro, ou quando uma planilha monitorada ganhar linhas novas.")
+        with col_btn2:
+            if st.button("+ Nova Automação de Disparo", type="primary", use_container_width=True, key="btn_nova_auto_disparo"):
+                st.session_state["_auto_disp_form_aberto"] = not st.session_state.get("_auto_disp_form_aberto", False)
+                st.rerun()
+
+        if st.session_state.get("_auto_disp_form_aberto"):
+            st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+            with st.container(key="form_card_nova_auto_disparo"):
+                st.markdown("#### Nova Automação de Disparo")
+                nome_ad = st.text_input("Nome", key="ad_nome", placeholder="Ex: Recuperação judicial SP")
+                _instancias_ad = _ddb_disp_auto.listar_instancias(user_id)
+                if not _instancias_ad:
+                    st.warning("Conecte uma instância WhatsApp em Disparos → Instâncias antes de criar isso.")
+                else:
+                    _inst_opts_ad = {i["nome"]: i["id"] for i in _instancias_ad}
+                    inst_sel_ad = st.selectbox("Instância WhatsApp", list(_inst_opts_ad.keys()), key="ad_inst")
+                    inst_id_ad = _inst_opts_ad.get(inst_sel_ad)
+
+                    gatilho_ad = st.radio("Gatilho", ["Filtro específico", "Monitorar Planilha Google"], key="ad_gatilho")
+
+                    filtro_nicho_ad = filtro_subnicho_ad = filtro_uf_ad = ""
+                    sheet_watch_cfg_ad = None
+                    leads_iniciais_ad = []
+                    variaveis_ad = ["nome", "telefone"]
+
+                    if gatilho_ad == "Filtro específico":
+                        fc1, fc2, fc3 = st.columns(3)
+                        with fc1:
+                            filtro_nicho_ad = st.text_input("Nicho", key="ad_filtro_nicho", placeholder="Ex: advogado")
+                        with fc2:
+                            filtro_subnicho_ad = st.text_input("Subnicho (opcional)", key="ad_filtro_subnicho")
+                        with fc3:
+                            filtro_uf_ad = st.selectbox("UF (opcional)", [""] + SIGLAS_ESTADOS, key="ad_filtro_uf")
+                        st.caption(
+                            "Dispara pra leads que **você** já extraiu (ou vier a extrair) batendo com esse "
+                            "filtro. Não considera extrações de outros usuários da plataforma."
+                        )
+                        variaveis_ad = [
+                            "nome", "telefone", "telefone2", "email", "endereco", "municipio",
+                            "uf", "cep", "site", "maps_url", "avaliacao", "total_avaliacoes",
+                            "cnpj", "nicho", "subnicho", "fonte",
+                        ]
+                    else:
+                        sheet_watch_cfg_ad, leads_iniciais_ad, variaveis_ad = _ui_planilha_watch("ad_sw")
+
+                    if "_ad_steps" not in st.session_state:
+                        st.session_state["_ad_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
+                    dac1, dac2 = st.columns(2)
+                    with dac1:
+                        int_min_ad = st.number_input("Intervalo mínimo (s)", min_value=5, value=30, step=5, key="ad_int_min")
+                    with dac2:
+                        int_max_ad = st.number_input("Intervalo máximo (s)", min_value=5, value=90, step=5, key="ad_int_max")
+                    st.caption("Variáveis disponíveis: " + ", ".join(f"{{{{{v}}}}}" for v in variaveis_ad))
+                    for i, step in enumerate(st.session_state["_ad_steps"]):
+                        asc1, asc2, asc3 = st.columns([2, 6, 1])
+                        with asc1:
+                            step["atraso_horas"] = st.number_input(
+                                "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
+                                min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
+                                key=f"ad_step_atraso_{i}",
+                            )
+                        with asc2:
+                            step["corpo_mensagem"] = st.text_area(
+                                "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
+                                value=step["corpo_mensagem"], key=f"ad_step_corpo_{i}", height=80,
+                            )
+                        with asc3:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if len(st.session_state["_ad_steps"]) > 1 and st.button("🗑️", key=f"ad_step_del_{i}"):
+                                st.session_state["_ad_steps"].pop(i)
+                                st.rerun()
+                    if st.button("➕ Adicionar etapa à cadência", key="ad_add_step"):
+                        st.session_state["_ad_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
+                        st.rerun()
+
+                    st.markdown('<hr class="hr">', unsafe_allow_html=True)
+                    if st.button("✅ Criar Automação de Disparo", type="primary", key="ad_criar", use_container_width=True):
+                        _steps_ad = st.session_state["_ad_steps"]
+                        _erros_ad = []
+                        if not nome_ad.strip():
+                            _erros_ad.append("Dê um nome.")
+                        if not inst_id_ad:
+                            _erros_ad.append("Selecione uma instância.")
+                        if gatilho_ad == "Filtro específico" and not filtro_nicho_ad.strip() and not filtro_subnicho_ad.strip() and not filtro_uf_ad:
+                            _erros_ad.append("Preencha ao menos um critério de filtro (nicho, subnicho ou UF).")
+                        if gatilho_ad == "Monitorar Planilha Google" and not sheet_watch_cfg_ad:
+                            _erros_ad.append("Selecione a planilha, a aba e as colunas de telefone.")
+                        if not _steps_ad[0]["corpo_mensagem"].strip():
+                            _erros_ad.append("Preencha a mensagem da primeira etapa.")
+                        elif not all(s["corpo_mensagem"].strip() for s in _steps_ad):
+                            _erros_ad.append("Todas as etapas precisam ter uma mensagem.")
+
+                        if _erros_ad:
+                            for e in _erros_ad:
+                                st.error(e)
+                        else:
+                            tipo_origem_ad = "auto_trigger" if gatilho_ad == "Filtro específico" else "sheet_watch"
+                            camp_id_ad = _ddb_disp_auto.criar_campanha(
+                                user_id=user_id, nome=nome_ad.strip(), instance_id=inst_id_ad,
+                                tipo_origem=tipo_origem_ad,
+                                filtro_nicho=filtro_nicho_ad.strip(), filtro_subnicho=filtro_subnicho_ad.strip(),
+                                filtro_uf=filtro_uf_ad,
+                                intervalo_min_seg=int(int_min_ad), intervalo_max_seg=int(int_max_ad),
+                            )
+                            if not camp_id_ad:
+                                st.error("Erro ao criar a automação de disparo.")
+                            else:
+                                for i, s in enumerate(_steps_ad, start=1):
+                                    _ddb_disp_auto.criar_etapa(camp_id_ad, i, s["atraso_horas"], s["corpo_mensagem"])
+                                if tipo_origem_ad == "sheet_watch":
+                                    _ddb_disp_auto.criar_sheet_watcher(
+                                        camp_id_ad, sheet_watch_cfg_ad["sheet_id"], sheet_watch_cfg_ad["aba_nome"],
+                                        sheet_watch_cfg_ad["coluna_telefone"], sheet_watch_cfg_ad["coluna_nome"],
+                                        ultima_linha_processada=sheet_watch_cfg_ad["linhas_existentes"],
+                                    )
+                                resultado_ad = {"inscritos": 0, "invalidos": 0, "duplicados": 0, "opt_out": 0}
+                                if leads_iniciais_ad:
+                                    resultado_ad = _ddb_disp_auto.enroll_targets(camp_id_ad, leads_iniciais_ad)
+                                _ddb_disp_auto.atualizar_campanha(camp_id_ad, status="ativa")
+                                st.session_state["_auto_disp_form_aberto"] = False
+                                st.session_state["_ad_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
+                                st.success(
+                                    f"Automação de disparo **{nome_ad}** criada e ativa! "
+                                    f"{resultado_ad['inscritos']} contato(s) já inscritos. Acompanhe em Disparos → Relatórios."
+                                )
+                                time.sleep(0.5)
+                                st.rerun()
+
+        _camps_disparo_auto = [
+            c for c in _ddb_disp_auto.listar_campanhas(user_id)
+            if c.get("tipo_origem") in ("auto_trigger", "sheet_watch")
+        ]
+        if _camps_disparo_auto:
+            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+            for camp_ad in _camps_disparo_auto:
+                _stats_ad = _ddb_disp_auto.stats_campanha(camp_ad["id"])
+                _gatilho_lbl = "🎯 Gatilho por filtro" if camp_ad["tipo_origem"] == "auto_trigger" else "📊 Monitorando planilha"
+                with st.expander(f"{camp_ad['nome']} — {camp_ad.get('status','').upper()} · {_gatilho_lbl}"):
+                    st.markdown(
+                        f"📇 {_stats_ad['total']} inscritos · ⏳ {_stats_ad['pendente']} pendentes · "
+                        f"✅ {_stats_ad['concluido']} concluídos · ❌ {_stats_ad['falhou']} falharam"
+                    )
+                    bcad1, bcad2 = st.columns(2)
+                    with bcad1:
+                        if camp_ad.get("status") == "ativa":
+                            if st.button("⏸️ Pausar", key=f"ad_pause_{camp_ad['id']}", use_container_width=True):
+                                _ddb_disp_auto.atualizar_campanha(camp_ad["id"], status="pausada")
+                                st.rerun()
+                        else:
+                            if st.button("▶️ Ativar", key=f"ad_activate_{camp_ad['id']}", use_container_width=True):
+                                _ddb_disp_auto.atualizar_campanha(camp_ad["id"], status="ativa")
+                                st.rerun()
+                    with bcad2:
+                        if st.button("🗑️ Excluir", key=f"ad_del_{camp_ad['id']}", use_container_width=True):
+                            _ddb_disp_auto.deletar_campanha(camp_ad["id"])
+                            st.rerun()
 
 
 # ── Configurações ──────────────────────────────────────────────────────────────
@@ -3643,6 +3909,114 @@ def pagina_admin():
 
 # ── Disparo WhatsApp (admin-only) ───────────────────────────────────────────
 
+_ORIGEM_CAMPANHA_LBL = {
+    "busca_existente": "📋 Busca existente",
+    "upload":          "📤 Upload de planilha",
+    "manual":          "✍️ Números manuais",
+    "auto_trigger":    "🎯 Gatilho por filtro",
+    "sheet_watch":     "📊 Monitorando planilha",
+    "automacao_busca": "🔗 Vinculada à automação",
+}
+
+_CANDIDATOS_COL_NOME = ["nome", "name", "empresa", "razao", "razão", "contato"]
+_CANDIDATOS_COL_TEL = ["telefone", "phone", "celular", "whatsapp", "fone", "numero", "número"]
+
+
+def _detectar_col(colunas: list, candidatos: list[str], padrao_idx: int) -> int:
+    for i, c in enumerate(colunas):
+        cl = str(c).strip().lower()
+        if any(k in cl for k in candidatos):
+            return i
+    return padrao_idx
+
+
+def _ui_planilha_watch(key_prefix: str):
+    """
+    UI compartilhada pra escolher planilha/aba/colunas do Google Sheets a
+    monitorar (usada tanto em Disparos → Campanhas quanto em Automações →
+    Automação de disparo — um único lugar evita a lógica divergir entre
+    as duas telas).
+
+    Retorna (sheet_watch_cfg, leads_iniciais, variaveis_disp).
+    sheet_watch_cfg é None se a seleção ainda não está completa.
+    """
+    from modules import google_sheets
+    vazio = (None, [], ["nome", "telefone"])
+    creds_sheet = st.session_state.get("sheets_creds")
+    if not creds_sheet:
+        st.info("Conecte sua conta Google em ⚙️ Configurações antes de monitorar uma planilha.", icon="ℹ️")
+        return vazio
+    try:
+        planilhas_drive = google_sheets.listar_planilhas(creds_sheet)
+    except Exception as e:
+        st.error(f"Erro ao listar planilhas: {e}")
+        return vazio
+    if not planilhas_drive:
+        st.caption("Nenhuma planilha encontrada na sua conta Google.")
+        return vazio
+
+    sheet_opts = {p["name"]: p["id"] for p in planilhas_drive}
+    sheet_sel_nome = st.selectbox("Planilha", list(sheet_opts.keys()), key=f"{key_prefix}_sheet")
+    sheet_id_sel = sheet_opts.get(sheet_sel_nome)
+    try:
+        abas_disp = google_sheets.listar_abas(creds_sheet, sheet_id_sel) if sheet_id_sel else []
+    except Exception as e:
+        st.error(f"Erro ao listar abas: {e}")
+        return vazio
+    if not abas_disp:
+        return vazio
+
+    aba_sel = st.selectbox("Aba", abas_disp, key=f"{key_prefix}_aba")
+    try:
+        valores_sheet = google_sheets.ler_valores(creds_sheet, sheet_id_sel, aba_sel)
+    except Exception as e:
+        st.error(f"Erro ao ler a planilha: {e}")
+        return vazio
+    if not valores_sheet:
+        st.caption("A aba está vazia (ou só tem cabeçalho).")
+        return vazio
+
+    cabecalho_sheet = [str(c) for c in valores_sheet[0]]
+    linhas_sheet = valores_sheet[1:]
+    idx_nome_sw = _detectar_col(cabecalho_sheet, _CANDIDATOS_COL_NOME, 0)
+    idx_tel_sw = _detectar_col(cabecalho_sheet, _CANDIDATOS_COL_TEL, min(1, len(cabecalho_sheet) - 1))
+    scc1, scc2 = st.columns(2)
+    with scc1:
+        col_nome_sw = st.selectbox("Coluna do nome", cabecalho_sheet, index=idx_nome_sw, key=f"{key_prefix}_col_nome")
+    with scc2:
+        col_tel_sw = st.selectbox("Coluna do telefone", cabecalho_sheet, index=idx_tel_sw, key=f"{key_prefix}_col_tel")
+
+    modo_sw = st.radio(
+        "A partir de quando disparar",
+        [
+            "Desde o início — dispara pro que já está na planilha e continua monitorando",
+            "Só a partir de agora — ignora o que já está, dispara só pro que for adicionado depois",
+        ],
+        key=f"{key_prefix}_modo",
+    )
+    st.caption(f"{len(linhas_sheet)} linha(s) de dados na planilha agora. A planilha continua sendo monitorada enquanto a campanha estiver ativa.")
+
+    cfg = {
+        "sheet_id": sheet_id_sel, "aba_nome": aba_sel,
+        "coluna_telefone": col_tel_sw, "coluna_nome": col_nome_sw,
+        "linhas_existentes": len(linhas_sheet),
+        "modo": "inicio" if modo_sw.startswith("Desde o início") else "novos",
+    }
+    variaveis_disp = sorted({"nome", "telefone"} | set(cabecalho_sheet))
+
+    leads_iniciais = []
+    if cfg["modo"] == "inicio":
+        idx_t = cabecalho_sheet.index(col_tel_sw)
+        idx_n = cabecalho_sheet.index(col_nome_sw)
+        for linha in linhas_sheet:
+            lead = {cabecalho_sheet[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho_sheet))}
+            lead["telefone"] = linha[idx_t] if idx_t < len(linha) else ""
+            lead["nome"] = linha[idx_n] if idx_n < len(linha) else ""
+            leads_iniciais.append(lead)
+
+    return cfg, leads_iniciais, variaveis_disp
+
+
 def _poll_conexao_disparo(inst_id: str, evolution_name: str, segundos: int = 40) -> bool:
     """Fica checando a conexão ativamente por até `segundos` (a cada 2.5s),
     em vez de depender do usuário clicar em "Verificar conexão" toda hora.
@@ -3838,16 +4212,6 @@ def _tab_disparo_campanhas(user_id: str):
             preview_key = "geral"
             variaveis_disp = ["nome", "telefone"]
 
-            def _detectar_col(colunas: list, candidatos: list[str], padrao_idx: int) -> int:
-                for i, c in enumerate(colunas):
-                    cl = str(c).strip().lower()
-                    if any(k in cl for k in candidatos):
-                        return i
-                return padrao_idx
-
-            _CANDIDATOS_NOME = ["nome", "name", "empresa", "razao", "razão", "contato"]
-            _CANDIDATOS_TEL = ["telefone", "phone", "celular", "whatsapp", "fone", "numero", "número"]
-
             if origem == "Busca existente (Histórico)":
                 pesquisas = listar_pesquisas()
                 if not pesquisas:
@@ -3876,8 +4240,8 @@ def _tab_disparo_campanhas(user_id: str):
                         df_up = None
                     if df_up is not None and not df_up.empty:
                         cols = list(df_up.columns)
-                        idx_nome = _detectar_col(cols, _CANDIDATOS_NOME, 0)
-                        idx_tel = _detectar_col(cols, _CANDIDATOS_TEL, min(1, len(cols) - 1))
+                        idx_nome = _detectar_col(cols, _CANDIDATOS_COL_NOME, 0)
+                        idx_tel = _detectar_col(cols, _CANDIDATOS_COL_TEL, min(1, len(cols) - 1))
                         cc1, cc2 = st.columns(2)
                         with cc1:
                             col_nome = st.selectbox("Coluna do nome", cols, index=idx_nome, key="disparo_up_col_nome")
@@ -3911,74 +4275,9 @@ def _tab_disparo_campanhas(user_id: str):
                     preview_key = f"manual_{len(numeros)}"
 
             else:  # Monitorar Planilha Google
-                from modules import google_sheets
-                creds_sheet = st.session_state.get("sheets_creds")
-                if not creds_sheet:
-                    st.info("Conecte sua conta Google em ⚙️ Configurações antes de monitorar uma planilha.", icon="ℹ️")
-                else:
-                    try:
-                        planilhas_drive = google_sheets.listar_planilhas(creds_sheet)
-                    except Exception as e:
-                        planilhas_drive = []
-                        st.error(f"Erro ao listar planilhas: {e}")
-                    if not planilhas_drive:
-                        st.caption("Nenhuma planilha encontrada na sua conta Google.")
-                    else:
-                        sheet_opts = {p["name"]: p["id"] for p in planilhas_drive}
-                        sheet_sel_nome = st.selectbox("Planilha", list(sheet_opts.keys()), key="disparo_sw_sheet")
-                        sheet_id_sel = sheet_opts.get(sheet_sel_nome)
-                        try:
-                            abas_disp = google_sheets.listar_abas(creds_sheet, sheet_id_sel) if sheet_id_sel else []
-                        except Exception as e:
-                            abas_disp = []
-                            st.error(f"Erro ao listar abas: {e}")
-                        if abas_disp:
-                            aba_sel = st.selectbox("Aba", abas_disp, key="disparo_sw_aba")
-                            try:
-                                valores_sheet = google_sheets.ler_valores(creds_sheet, sheet_id_sel, aba_sel)
-                            except Exception as e:
-                                valores_sheet = []
-                                st.error(f"Erro ao ler a planilha: {e}")
-                            if not valores_sheet:
-                                st.caption("A aba está vazia (ou só tem cabeçalho).")
-                            else:
-                                cabecalho_sheet = [str(c) for c in valores_sheet[0]]
-                                linhas_sheet = valores_sheet[1:]
-                                idx_nome_sw = _detectar_col(cabecalho_sheet, _CANDIDATOS_NOME, 0)
-                                idx_tel_sw = _detectar_col(cabecalho_sheet, _CANDIDATOS_TEL, min(1, len(cabecalho_sheet) - 1))
-                                scc1, scc2 = st.columns(2)
-                                with scc1:
-                                    col_nome_sw = st.selectbox("Coluna do nome", cabecalho_sheet, index=idx_nome_sw, key="disparo_sw_col_nome")
-                                with scc2:
-                                    col_tel_sw = st.selectbox("Coluna do telefone", cabecalho_sheet, index=idx_tel_sw, key="disparo_sw_col_tel")
-
-                                modo_sw = st.radio(
-                                    "A partir de quando disparar",
-                                    [
-                                        "Desde o início — dispara pro que já está na planilha e continua monitorando",
-                                        "Só a partir de agora — ignora o que já está, dispara só pro que for adicionado depois",
-                                    ],
-                                    key="disparo_sw_modo",
-                                )
-                                st.caption(f"{len(linhas_sheet)} linha(s) de dados na planilha agora. A planilha continua sendo monitorada enquanto a campanha estiver ativa.")
-
-                                sheet_watch_cfg = {
-                                    "sheet_id": sheet_id_sel, "aba_nome": aba_sel,
-                                    "coluna_telefone": col_tel_sw, "coluna_nome": col_nome_sw,
-                                    "linhas_existentes": len(linhas_sheet),
-                                    "modo": "inicio" if modo_sw.startswith("Desde o início") else "novos",
-                                }
-                                variaveis_disp = sorted({"nome", "telefone"} | set(cabecalho_sheet))
-                                preview_key = f"sheet_{sheet_id_sel}_{aba_sel}"
-
-                                if sheet_watch_cfg["modo"] == "inicio":
-                                    idx_t = cabecalho_sheet.index(col_tel_sw)
-                                    idx_n = cabecalho_sheet.index(col_nome_sw)
-                                    for linha in linhas_sheet:
-                                        lead = {cabecalho_sheet[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho_sheet))}
-                                        lead["telefone"] = linha[idx_t] if idx_t < len(linha) else ""
-                                        lead["nome"] = linha[idx_n] if idx_n < len(linha) else ""
-                                        leads_prontos.append(lead)
+                sheet_watch_cfg, leads_prontos, variaveis_disp = _ui_planilha_watch("disparo_sw")
+                if sheet_watch_cfg:
+                    preview_key = f"sheet_{sheet_watch_cfg['sheet_id']}_{sheet_watch_cfg['aba_nome']}"
 
             # ── Pré-visualizar e excluir leads antes de ativar (todas as origens) ──
             if leads_prontos:
@@ -4115,7 +4414,13 @@ def _tab_disparo_campanhas(user_id: str):
     inst_by_id = {i["id"]: i["nome"] for i in instancias}
     for camp in campanhas:
         stats = dispatch_db.stats_campanha(camp["id"])
-        with st.expander(f"{camp['nome']} — {camp.get('status','').upper()} · {inst_by_id.get(camp.get('instance_id'), '—')}"):
+        origem_lbl = _ORIGEM_CAMPANHA_LBL.get(camp.get("tipo_origem"), "")
+        with st.expander(f"{camp['nome']} — {camp.get('status','').upper()} · {inst_by_id.get(camp.get('instance_id'), '—')} · {origem_lbl}"):
+            if camp.get("tipo_origem") == "automacao_busca":
+                from modules.automation_db import obter_automacao_por_campanha
+                _auto_vinc = obter_automacao_por_campanha(camp["id"])
+                if _auto_vinc:
+                    st.caption(f"🔗 Vinculada à automação de busca: **{_auto_vinc['nome']}**")
             st.markdown(
                 f"📇 {stats['total']} inscritos · ⏳ {stats['pendente']} pendentes · "
                 f"✅ {stats['concluido']} concluídos · ❌ {stats['falhou']} falharam"
@@ -4147,11 +4452,21 @@ def _tab_disparo_relatorios(user_id: str):
         st.caption("Nenhuma campanha ainda.")
         return
 
-    opts = {c["nome"]: c["id"] for c in campanhas}
+    opts = {
+        f"{c['nome']} — {_ORIGEM_CAMPANHA_LBL.get(c.get('tipo_origem'), '')} ({c.get('status','').upper()})": c["id"]
+        for c in campanhas
+    }
     sel = st.selectbox("Campanha", list(opts.keys()), key="disparo_rel_camp")
     camp_id = opts.get(sel)
     if not camp_id:
         return
+
+    _camp_sel = next((c for c in campanhas if c["id"] == camp_id), None)
+    if _camp_sel and _camp_sel.get("tipo_origem") == "automacao_busca":
+        from modules.automation_db import obter_automacao_por_campanha
+        _auto_vinc_rel = obter_automacao_por_campanha(camp_id)
+        if _auto_vinc_rel:
+            st.caption(f"🔗 Vinculada à automação de busca: **{_auto_vinc_rel['nome']}**")
 
     stats = dispatch_db.stats_campanha(camp_id)
     m1, m2, m3, m4 = st.columns(4)

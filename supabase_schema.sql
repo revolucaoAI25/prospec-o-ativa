@@ -336,11 +336,12 @@ CREATE TABLE IF NOT EXISTS dispatch_campaigns (
     nome              TEXT NOT NULL,
     instance_id       UUID REFERENCES whatsapp_instances(id),
     status            TEXT NOT NULL DEFAULT 'rascunho' CHECK (status IN ('rascunho', 'ativa', 'pausada', 'concluida')),
-    tipo_origem       TEXT NOT NULL CHECK (tipo_origem IN ('busca_existente', 'upload', 'manual', 'auto_trigger', 'sheet_watch')),
+    tipo_origem       TEXT NOT NULL CHECK (tipo_origem IN ('busca_existente', 'upload', 'manual', 'auto_trigger', 'sheet_watch', 'automacao_busca')),
     origem_search_id  UUID REFERENCES searches(id),   -- só p/ busca_existente
     filtro_nicho      TEXT,                           -- só p/ auto_trigger
     filtro_subnicho   TEXT,
     filtro_uf         TEXT,
+    ultimo_trigger_em TIMESTAMPTZ,                    -- watermark do scan, só p/ auto_trigger
     intervalo_min_seg INTEGER NOT NULL DEFAULT 30,
     intervalo_max_seg INTEGER NOT NULL DEFAULT 90,
     criado_em         TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -416,6 +417,17 @@ CREATE TABLE IF NOT EXISTS message_templates (
     status_aprovacao TEXT NOT NULL DEFAULT 'rascunho',
     criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ── Disparo vinculado a uma Automação de busca (dispara pra quem ela extrair) ──
+-- Execute no SQL Editor do Supabase se o banco já existia.
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS dispatch_campaign_id UUID REFERENCES dispatch_campaigns(id);
+
+-- ── "Automação de disparo" com gatilho por filtro (auto_trigger) — watermark ──
+-- Execute no SQL Editor do Supabase se o banco já existia.
+ALTER TABLE dispatch_campaigns ADD COLUMN IF NOT EXISTS ultimo_trigger_em TIMESTAMPTZ;
+ALTER TABLE dispatch_campaigns DROP CONSTRAINT IF EXISTS dispatch_campaigns_tipo_origem_check;
+ALTER TABLE dispatch_campaigns ADD CONSTRAINT dispatch_campaigns_tipo_origem_check
+    CHECK (tipo_origem IN ('busca_existente', 'upload', 'manual', 'auto_trigger', 'sheet_watch', 'automacao_busca'));
 
 -- Reivindicação atômica de 1 alvo pronto pra envio por instância —
 -- evita corrida entre ticks/threads furando o intervalo anti-banimento.
