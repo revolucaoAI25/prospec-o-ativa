@@ -1173,43 +1173,29 @@ def pagina_busca():
             pais_sel = st.selectbox("País", _pais_opts, index=0, label_visibility="collapsed", key="maps_pais")
         is_brasil = pais_sel == "Brasil"
 
-        # Cidade(s) e Estado(s) — FORA do form pra bloquear a cidade ao vivo
-        # (sem precisar submeter) quando mais de um estado for selecionado.
-        st.markdown('<div class="sec">Localidade</div>', unsafe_allow_html=True)
-
-        ce0, cl0 = st.columns([3, 2])
-        with ce0:
-            if is_brasil:
-                estados_sel = st.multiselect(
-                    "Estado", SIGLAS_ESTADOS, default=["SP"],
-                    help="Selecione vários estados só quando não houver cidade informada (busca ampla, sem cidade específica).",
-                )
-            else:
-                estados_sel = []
-        with cl0:
-            lim = st.slider("Máx. resultados", 20, 500, 60, 20)
-
-        _cidade_bloqueada = is_brasil and len(estados_sel) > 1
-        if pais_sel == "Outro…":
-            _cidade_label = "País / Cidade"
-            _cidade_ph = "Ex: Dubai, Singapura…"
-        elif is_brasil:
-            _cidade_label = "Cidade"
-            _cidade_ph = "Ex: São Paulo, Campinas, Santos…"
-        else:
-            _cidade_label = "Cidade / Região (opcional)"
-            _cidade_ph = "Ex: Miami, Los Angeles…"
-
-        cidade = st.text_input(
-            _cidade_label, placeholder=_cidade_ph, disabled=_cidade_bloqueada,
-            help="Pode informar mais de uma cidade separando por vírgula." if is_brasil else None,
-        )
-        if _cidade_bloqueada:
-            st.caption("⚠️ Com mais de um estado selecionado, a busca é feita sem cidade específica. Escolha só um estado pra informar cidade(s).")
-
-        st.markdown('<hr class="hr">', unsafe_allow_html=True)
-
         with st.form("form_maps"):
+            st.markdown('<div class="sec">Localidade</div>', unsafe_allow_html=True)
+
+            cc, ce, cl = st.columns([3, 1, 2])
+            with cc:
+                if pais_sel == "Outro…":
+                    cidade = st.text_input("País / Cidade", placeholder="Ex: Dubai, Singapura…", label_visibility="collapsed")
+                elif is_brasil:
+                    cidade = st.text_input("Cidade", placeholder="Ex: São Paulo, Campinas, Santos…", label_visibility="collapsed",
+                                            help="Pode informar mais de uma cidade separando por vírgula. Nesse caso, escolha só um estado.")
+                else:
+                    cidade = st.text_input("Cidade / Região (opcional)", placeholder="Ex: Miami, Los Angeles…", label_visibility="collapsed")
+            with ce:
+                if is_brasil:
+                    estados_sel = st.multiselect(
+                        "Estado", SIGLAS_ESTADOS, default=["SP"], label_visibility="collapsed",
+                        help="Selecione vários estados só quando o campo Cidade estiver vazio (busca ampla, sem cidade específica).",
+                    )
+                else:
+                    estados_sel = []
+            with cl:
+                lim = st.slider("Resultados", 20, 500, 60, 20, label_visibility="collapsed")
+                st.caption(f"Máx. **{lim}** resultados")
             apenas_novos_maps = st.toggle(
                 "🔄 Apenas leads novos (remover repetidos de buscas anteriores)",
                 value=True,
@@ -1231,7 +1217,7 @@ def pagina_busca():
             buscar_btn = st.form_submit_button("🔍 Buscar no Google Maps", disabled=not maps_ok, use_container_width=True, type="primary")
 
         if buscar_btn:
-            cidades_lista = [] if _cidade_bloqueada else [c.strip() for c in cidade.split(",") if c.strip()]
+            cidades_lista = [c.strip() for c in cidade.split(",") if c.strip()]
             pais_final = "" if pais_sel in ("Brasil", "Outro…") else pais_sel
             _maps_err = None
             if is_brasil and not cidades_lista and not estados_sel:
