@@ -5,9 +5,12 @@ ou quando não há chave do Google Maps configurada.
 Custo: $4 / 1.000 lugares.
 """
 
+import random
 import time
 import requests
 from typing import Callable, Optional
+
+from .google_maps import _MODIFICADORES_CIDADE, _MODIFICADORES_ESTADO
 
 _ACTOR_ID = "compass~crawler-google-places"
 _BASE      = "https://api.apify.com/v2"
@@ -61,6 +64,23 @@ def _buscar_items(token: str, dataset_id: str) -> list[dict]:
     return resp.json()
 
 
+def _montar_variacoes(query_base: str, subnicho: str, cidade: str) -> list[str]:
+    """
+    Monta variações da busca acrescentando modificadores geográficos ao texto
+    (ex: "advogado centro", "advogado zona norte") — a localização em si vai
+    à parte, em `locationQuery`. A ordem é embaralhada a cada chamada (exceto
+    a variação sem modificador, que sempre roda primeiro) pra que buscas
+    repetidas na mesma localidade não fiquem presas às mesmas 2-3 primeiras
+    variações quando `limite` é pequeno.
+    """
+    query = f"{query_base} {subnicho}".strip() if subnicho else query_base
+    mods = list(_MODIFICADORES_CIDADE if cidade else _MODIFICADORES_ESTADO)
+    resto = mods[1:]
+    random.shuffle(resto)
+    mods = ([mods[0]] + resto)[:3]
+    return [f"{query} {m}".strip() if m else query for m in mods]
+
+
 def _buscar_uma_localidade(
     query_base: str,
     localidade: str,
@@ -75,13 +95,14 @@ def _buscar_uma_localidade(
     show_phone: bool,
     show_rating: bool,
 ) -> list[dict]:
-    query = f"{query_base} {subnicho}".strip() if subnicho else query_base
-    log(0, limite, f"[Apify] Iniciando busca: {query} em {localidade}…")
+    search_strings = _montar_variacoes(query_base, subnicho, cidade)
+    cota_por_variacao = max(1, -(-limite // len(search_strings)))
+    log(0, limite, f"[Apify] Iniciando busca: {len(search_strings)} variações em {localidade}…")
 
     payload = {
-        "searchStringsArray":        [query],
+        "searchStringsArray":        search_strings,
         "locationQuery":             localidade,
-        "maxCrawledPlacesPerSearch": limite,
+        "maxCrawledPlacesPerSearch": cota_por_variacao,
     }
 
     run_id, dataset_id = _iniciar_run(api_key, payload)
