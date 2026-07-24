@@ -185,6 +185,23 @@ def listar_abas(creds_dict: dict, sheet_id: str) -> list[str]:
     return [s["properties"]["title"] for s in meta.get("sheets", [])]
 
 
+def ler_valores(creds_dict: dict, sheet_id: str, aba_nome: str) -> list[list[str]]:
+    """
+    Lê todos os valores de uma aba (linha 0 = cabeçalho). Usado pelo
+    monitoramento de planilha do disparo — cada linha retornada é uma lista
+    de strings, sem preenchimento de colunas faltantes (linhas mais curtas
+    que o cabeçalho ficam curtas mesmo; quem consome trata isso).
+    """
+    creds = _creds_from_dict(creds_dict)
+    service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+    escaped_aba = aba_nome.replace("'", "''")
+    resp = service.spreadsheets().values().get(
+        spreadsheetId=sheet_id,
+        range=f"'{escaped_aba}'",
+    ).execute()
+    return resp.get("values", [])
+
+
 def _garantir_linhas(service, sheet_id: str, meta: dict, aba_nome: str, linhas_necessarias: int) -> None:
     """Expande a aba se ela não tiver linhas suficientes."""
     for sheet in meta.get("sheets", []):

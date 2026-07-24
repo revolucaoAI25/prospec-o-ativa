@@ -7,10 +7,10 @@ por INSTÂNCIA, não por item da fila — por isso o processamento roda inline,
 um alvo por instância por tick, nunca em threads paralelas por alvo (evita
 corrida onde duas threads liberariam o mesmo envio ao mesmo tempo).
 
-Fase 1: só processa dispatch_targets já inscritos (origem busca_existente /
-upload, feitas pela UI). O scan de gatilho automático (auto_trigger /
-sheet_watch) entra na Fase 2, como um segundo sub-loop mais lento dentro do
-mesmo processo.
+Fase 2: além da fila de envio (acima), um segundo sub-loop bem mais lento
+varre campanhas do tipo sheet_watch e importa linhas novas de uma Planilha
+Google como novos targets — mesmo processo, sem thread própria (evita a
+mesma classe de corrida que o envio já evita rodando inline).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 TICK_SEGUNDOS = 15
+SHEET_WATCH_INTERVALO_SEGUNDOS = 120
 
 
 def _renderizar_mensagem(corpo: str, lead_snapshot: dict) -> str:
@@ -98,12 +99,78 @@ def _processar_instancia(instance: dict) -> None:
     )
 
 
+def _processar_sheet_watcher(campanha: dict) -> None:
+    """Lê linhas novas da planilha monitorada por essa campanha e as inscreve
+    como targets. `ultima_linha_processada` é um watermark de quantas linhas
+    de DADOS (sem contar o cabeçalho) já foram vistas — só otimização pra não
+    reler tudo a cada scan; quem garante contra inscrição duplicada é o
+    UNIQUE(campaign_id, telefone), igual às outras origens."""
+    from modules import dispatch_db
+    from modules.automation_db import get_perfil_usuario
+    from modules.google_sheets import ler_valores
+
+    watcher = dispatch_db.obter_sheet_watcher(campanha["id"])
+    if not watcher:
+        return
+
+    perfil = get_perfil_usuario(campanha["user_id"])
+    creds_raw = perfil.get("google_sheets_creds")
+    if isinstance(creds_raw, dict):
+        creds_dict = creds_raw.get("oauth") or creds_raw
+    else:
+        creds_dict = None
+    if not creds_dict:
+        logger.warning("Campanha %s (sheet_watch): usuário sem Google Sheets conectado.", campanha["id"])
+        return
+
+    try:
+        valores = ler_valores(creds_dict, watcher["sheet_id"], watcher["aba_nome"])
+    except Exception as e:
+        logger.error("Campanha %s (sheet_watch): erro ao ler planilha: %s", campanha["id"], e)
+        return
+
+    if not valores:
+        return
+    cabecalho = valores[0]
+    linhas = valores[1:]
+    ja_processadas = watcher.get("ultima_linha_processada") or 0
+    novas = linhas[ja_processadas:]
+    if not novas:
+        return
+
+    try:
+        idx_tel = cabecalho.index(watcher["coluna_telefone"])
+    except ValueError:
+        logger.error(
+            "Campanha %s (sheet_watch): coluna de telefone '%s' não existe mais no cabeçalho da planilha.",
+            campanha["id"], watcher["coluna_telefone"],
+        )
+        return
+    coluna_nome = watcher.get("coluna_nome") or ""
+    idx_nome = cabecalho.index(coluna_nome) if coluna_nome and coluna_nome in cabecalho else None
+
+    leads = []
+    for linha in novas:
+        lead = {cabecalho[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho))}
+        lead["telefone"] = linha[idx_tel] if idx_tel < len(linha) else ""
+        lead["nome"] = linha[idx_nome] if (idx_nome is not None and idx_nome < len(linha)) else ""
+        leads.append(lead)
+
+    resultado = dispatch_db.enroll_targets(campanha["id"], leads)
+    dispatch_db.atualizar_sheet_watcher(watcher["id"], ultima_linha_processada=len(linhas))
+    logger.info(
+        "Campanha %s (sheet_watch): %d linha(s) nova(s) na planilha, %d inscrita(s).",
+        campanha["id"], len(novas), resultado.get("inscritos", 0),
+    )
+
+
 class DispatchScheduler:
     """Thread de background que processa a fila de disparo WhatsApp a cada TICK_SEGUNDOS."""
 
     def __init__(self):
         self._running = False
         self._thread: threading.Thread | None = None
+        self._ultimo_watch = 0.0
 
     def start(self):
         if self._running:
@@ -120,6 +187,12 @@ class DispatchScheduler:
                 self._tick()
             except Exception as e:
                 logger.error("DispatchScheduler tick error: %s", e)
+            if time.time() - self._ultimo_watch >= SHEET_WATCH_INTERVALO_SEGUNDOS:
+                try:
+                    self._tick_sheet_watch()
+                except Exception as e:
+                    logger.error("DispatchScheduler sheet-watch tick error: %s", e)
+                self._ultimo_watch = time.time()
             time.sleep(TICK_SEGUNDOS)
 
     def _tick(self):
@@ -130,6 +203,14 @@ class DispatchScheduler:
                 _processar_instancia(inst)
             except Exception as e:
                 logger.error("Erro processando instância %s: %s", inst.get("id"), e)
+
+    def _tick_sheet_watch(self):
+        from modules import dispatch_db
+        for campanha in dispatch_db.listar_campanhas_sheet_watch_ativas():
+            try:
+                _processar_sheet_watcher(campanha)
+            except Exception as e:
+                logger.error("Erro processando sheet_watch da campanha %s: %s", campanha.get("id"), e)
 
 
 # ── Singleton global ───────────────────────────────────────────────────────

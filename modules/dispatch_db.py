@@ -212,6 +212,70 @@ def deletar_campanha(campaign_id: str) -> bool:
         return False
 
 
+# ── Monitoramento de Planilha Google (sheet_watch) ────────────────────────────
+
+def criar_sheet_watcher(
+    campaign_id: str, sheet_id: str, aba_nome: str,
+    coluna_telefone: str, coluna_nome: str = "", ultima_linha_processada: int = 0,
+) -> Optional[str]:
+    sb = _sb()
+    if not sb:
+        return None
+    try:
+        resp = sb.table("dispatch_sheet_watchers").insert({
+            "campaign_id": campaign_id,
+            "sheet_id": sheet_id,
+            "aba_nome": aba_nome,
+            "coluna_telefone": coluna_telefone,
+            "coluna_nome": coluna_nome or None,
+            "ultima_linha_processada": ultima_linha_processada,
+        }).execute()
+        return resp.data[0]["id"] if resp.data else None
+    except Exception as e:
+        logger.error("criar_sheet_watcher: %s", e)
+        return None
+
+
+def obter_sheet_watcher(campaign_id: str) -> Optional[dict]:
+    sb = _sb()
+    if not sb:
+        return None
+    try:
+        resp = (sb.table("dispatch_sheet_watchers")
+                  .select("*").eq("campaign_id", campaign_id).limit(1).execute())
+        rows = resp.data or []
+        return rows[0] if rows else None
+    except Exception as e:
+        logger.error("obter_sheet_watcher: %s", e)
+        return None
+
+
+def atualizar_sheet_watcher(watcher_id: str, **campos) -> bool:
+    sb = _sb()
+    if not sb:
+        return False
+    try:
+        sb.table("dispatch_sheet_watchers").update(campos).eq("id", watcher_id).execute()
+        return True
+    except Exception as e:
+        logger.error("atualizar_sheet_watcher: %s", e)
+        return False
+
+
+def listar_campanhas_sheet_watch_ativas() -> list[dict]:
+    """Campanhas ativas com origem sheet_watch — usado pelo scan lento do scheduler."""
+    sb = _sb()
+    if not sb:
+        return []
+    try:
+        resp = (sb.table("dispatch_campaigns")
+                  .select("*").eq("status", "ativa").eq("tipo_origem", "sheet_watch").execute())
+        return resp.data or []
+    except Exception as e:
+        logger.error("listar_campanhas_sheet_watch_ativas: %s", e)
+        return []
+
+
 # ── Etapas da cadência ────────────────────────────────────────────────────────
 
 def criar_etapa(campaign_id: str, ordem: int, atraso_horas: float, corpo_mensagem: str, midia_url: str = "") -> Optional[str]:

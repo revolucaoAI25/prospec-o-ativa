@@ -3825,13 +3825,28 @@ def _tab_disparo_campanhas(user_id: str):
 
             origem = st.radio(
                 "Origem dos contatos",
-                ["Busca existente (Histórico)", "Upload de planilha", "Digitar números manualmente"],
+                [
+                    "Busca existente (Histórico)", "Upload de planilha",
+                    "Digitar números manualmente", "Monitorar Planilha Google",
+                ],
                 key="disparo_camp_origem",
             )
 
             leads_prontos: list[dict] = []
             origem_search_id = None
+            sheet_watch_cfg = None
+            preview_key = "geral"
             variaveis_disp = ["nome", "telefone"]
+
+            def _detectar_col(colunas: list, candidatos: list[str], padrao_idx: int) -> int:
+                for i, c in enumerate(colunas):
+                    cl = str(c).strip().lower()
+                    if any(k in cl for k in candidatos):
+                        return i
+                return padrao_idx
+
+            _CANDIDATOS_NOME = ["nome", "name", "empresa", "razao", "razão", "contato"]
+            _CANDIDATOS_TEL = ["telefone", "phone", "celular", "whatsapp", "fone", "numero", "número"]
 
             if origem == "Busca existente (Histórico)":
                 pesquisas = listar_pesquisas()
@@ -3841,6 +3856,9 @@ def _tab_disparo_campanhas(user_id: str):
                     opts = {f"{p['nicho']} · {p['localidade']} ({p['total_results']} leads)": p["id"] for p in pesquisas}
                     sel = st.selectbox("Pesquisa", list(opts.keys()), key="disparo_camp_busca")
                     origem_search_id = opts.get(sel)
+                    if origem_search_id:
+                        leads_prontos = buscar_leads_da_pesquisa(origem_search_id)
+                    preview_key = f"busca_{origem_search_id}"
                     variaveis_disp = [
                         "nome", "telefone", "telefone2", "email", "endereco", "municipio",
                         "uf", "cep", "site", "maps_url", "avaliacao", "total_avaliacoes",
@@ -3858,19 +3876,8 @@ def _tab_disparo_campanhas(user_id: str):
                         df_up = None
                     if df_up is not None and not df_up.empty:
                         cols = list(df_up.columns)
-
-                        def _detectar_col(candidatos: list[str], padrao_idx: int) -> int:
-                            for i, c in enumerate(cols):
-                                cl = str(c).strip().lower()
-                                if any(k in cl for k in candidatos):
-                                    return i
-                            return padrao_idx
-
-                        idx_nome = _detectar_col(["nome", "name", "empresa", "razao", "razão", "contato"], 0)
-                        idx_tel = _detectar_col(
-                            ["telefone", "phone", "celular", "whatsapp", "fone", "numero", "número"],
-                            min(1, len(cols) - 1),
-                        )
+                        idx_nome = _detectar_col(cols, _CANDIDATOS_NOME, 0)
+                        idx_tel = _detectar_col(cols, _CANDIDATOS_TEL, min(1, len(cols) - 1))
                         cc1, cc2 = st.columns(2)
                         with cc1:
                             col_nome = st.selectbox("Coluna do nome", cols, index=idx_nome, key="disparo_up_col_nome")
@@ -3884,8 +3891,9 @@ def _tab_disparo_campanhas(user_id: str):
                             lead["telefone"] = str(r.get(col_tel, "") or "")
                             leads_prontos.append(lead)
                         variaveis_disp = sorted({"nome", "telefone"} | {str(c) for c in cols})
+                        preview_key = f"upload_{arquivo.name}_{arquivo.size}"
 
-            else:  # Digitar números manualmente
+            elif origem == "Digitar números manualmente":
                 manual_nome = st.text_input(
                     "Nome (opcional, vale pra todos os números abaixo)",
                     key="disparo_camp_manual_nome", placeholder="Ex: Lead",
@@ -3900,6 +3908,104 @@ def _tab_disparo_campanhas(user_id: str):
                     numeros = [n.strip() for n in _re_manual.split(r"[,;\n]+", manual_txt) if n.strip()]
                     leads_prontos = [{"nome": manual_nome.strip(), "telefone": n} for n in numeros]
                     st.caption(f"{len(leads_prontos)} número(s) detectado(s).")
+                    preview_key = f"manual_{len(numeros)}"
+
+            else:  # Monitorar Planilha Google
+                from modules import google_sheets
+                creds_sheet = st.session_state.get("sheets_creds")
+                if not creds_sheet:
+                    st.info("Conecte sua conta Google em ⚙️ Configurações antes de monitorar uma planilha.", icon="ℹ️")
+                else:
+                    try:
+                        planilhas_drive = google_sheets.listar_planilhas(creds_sheet)
+                    except Exception as e:
+                        planilhas_drive = []
+                        st.error(f"Erro ao listar planilhas: {e}")
+                    if not planilhas_drive:
+                        st.caption("Nenhuma planilha encontrada na sua conta Google.")
+                    else:
+                        sheet_opts = {p["name"]: p["id"] for p in planilhas_drive}
+                        sheet_sel_nome = st.selectbox("Planilha", list(sheet_opts.keys()), key="disparo_sw_sheet")
+                        sheet_id_sel = sheet_opts.get(sheet_sel_nome)
+                        try:
+                            abas_disp = google_sheets.listar_abas(creds_sheet, sheet_id_sel) if sheet_id_sel else []
+                        except Exception as e:
+                            abas_disp = []
+                            st.error(f"Erro ao listar abas: {e}")
+                        if abas_disp:
+                            aba_sel = st.selectbox("Aba", abas_disp, key="disparo_sw_aba")
+                            try:
+                                valores_sheet = google_sheets.ler_valores(creds_sheet, sheet_id_sel, aba_sel)
+                            except Exception as e:
+                                valores_sheet = []
+                                st.error(f"Erro ao ler a planilha: {e}")
+                            if not valores_sheet:
+                                st.caption("A aba está vazia (ou só tem cabeçalho).")
+                            else:
+                                cabecalho_sheet = [str(c) for c in valores_sheet[0]]
+                                linhas_sheet = valores_sheet[1:]
+                                idx_nome_sw = _detectar_col(cabecalho_sheet, _CANDIDATOS_NOME, 0)
+                                idx_tel_sw = _detectar_col(cabecalho_sheet, _CANDIDATOS_TEL, min(1, len(cabecalho_sheet) - 1))
+                                scc1, scc2 = st.columns(2)
+                                with scc1:
+                                    col_nome_sw = st.selectbox("Coluna do nome", cabecalho_sheet, index=idx_nome_sw, key="disparo_sw_col_nome")
+                                with scc2:
+                                    col_tel_sw = st.selectbox("Coluna do telefone", cabecalho_sheet, index=idx_tel_sw, key="disparo_sw_col_tel")
+
+                                modo_sw = st.radio(
+                                    "A partir de quando disparar",
+                                    [
+                                        "Desde o início — dispara pro que já está na planilha e continua monitorando",
+                                        "Só a partir de agora — ignora o que já está, dispara só pro que for adicionado depois",
+                                    ],
+                                    key="disparo_sw_modo",
+                                )
+                                st.caption(f"{len(linhas_sheet)} linha(s) de dados na planilha agora. A planilha continua sendo monitorada enquanto a campanha estiver ativa.")
+
+                                sheet_watch_cfg = {
+                                    "sheet_id": sheet_id_sel, "aba_nome": aba_sel,
+                                    "coluna_telefone": col_tel_sw, "coluna_nome": col_nome_sw,
+                                    "linhas_existentes": len(linhas_sheet),
+                                    "modo": "inicio" if modo_sw.startswith("Desde o início") else "novos",
+                                }
+                                variaveis_disp = sorted({"nome", "telefone"} | set(cabecalho_sheet))
+                                preview_key = f"sheet_{sheet_id_sel}_{aba_sel}"
+
+                                if sheet_watch_cfg["modo"] == "inicio":
+                                    idx_t = cabecalho_sheet.index(col_tel_sw)
+                                    idx_n = cabecalho_sheet.index(col_nome_sw)
+                                    for linha in linhas_sheet:
+                                        lead = {cabecalho_sheet[i]: (linha[i] if i < len(linha) else "") for i in range(len(cabecalho_sheet))}
+                                        lead["telefone"] = linha[idx_t] if idx_t < len(linha) else ""
+                                        lead["nome"] = linha[idx_n] if idx_n < len(linha) else ""
+                                        leads_prontos.append(lead)
+
+            # ── Pré-visualizar e excluir leads antes de ativar (todas as origens) ──
+            if leads_prontos:
+                st.markdown('<div class="sec">Pré-visualizar e excluir leads (opcional)</div>', unsafe_allow_html=True)
+                if len(leads_prontos) > 2000:
+                    st.caption(
+                        f"{len(leads_prontos)} leads — lista grande demais pra excluir individualmente aqui "
+                        "(limite de 2.000), todos serão inscritos."
+                    )
+                else:
+                    import pandas as pd
+                    df_prev = pd.DataFrame([
+                        {"Incluir": True, "Nome": l.get("nome", ""), "Telefone": l.get("telefone", "")}
+                        for l in leads_prontos
+                    ])
+                    df_edit = st.data_editor(
+                        df_prev,
+                        key=f"disparo_preview_{preview_key}",
+                        column_config={"Incluir": st.column_config.CheckboxColumn("Incluir", default=True)},
+                        disabled=["Nome", "Telefone"],
+                        hide_index=True, use_container_width=True,
+                        height=min(320, 46 + 35 * len(leads_prontos)),
+                    )
+                    _excluidos_idx = set(df_edit.index[~df_edit["Incluir"]].tolist())
+                    if _excluidos_idx:
+                        leads_prontos = [l for i, l in enumerate(leads_prontos) if i not in _excluidos_idx]
+                    st.caption(f"{len(leads_prontos)} de {len(df_prev)} serão inscritos.")
 
             st.markdown('<div class="sec">Ritmo de disparo (intervalo aleatório entre mensagens, anti-banimento)</div>', unsafe_allow_html=True)
             rc1, rc2 = st.columns(2)
@@ -3950,11 +4056,14 @@ def _tab_disparo_campanhas(user_id: str):
                     st.warning("Suba uma planilha com nome e telefone.")
                 elif origem == "Digitar números manualmente" and not leads_prontos:
                     st.warning("Digite ao menos um número.")
+                elif origem == "Monitorar Planilha Google" and not sheet_watch_cfg:
+                    st.warning("Selecione a planilha, a aba e as colunas de telefone.")
                 else:
                     tipo_origem = {
                         "Busca existente (Histórico)": "busca_existente",
                         "Upload de planilha": "upload",
                         "Digitar números manualmente": "manual",
+                        "Monitorar Planilha Google": "sheet_watch",
                     }[origem]
                     camp_id = dispatch_db.criar_campanha(
                         user_id=user_id, nome=nome_camp.strip(),
@@ -3967,13 +4076,24 @@ def _tab_disparo_campanhas(user_id: str):
                     else:
                         for i, s in enumerate(steps, start=1):
                             dispatch_db.criar_etapa(camp_id, i, s["atraso_horas"], s["corpo_mensagem"])
-                        if tipo_origem == "busca_existente":
-                            leads_prontos = buscar_leads_da_pesquisa(origem_search_id)
-                        resultado_enroll = dispatch_db.enroll_targets(camp_id, leads_prontos)
+
+                        if tipo_origem == "sheet_watch":
+                            dispatch_db.criar_sheet_watcher(
+                                camp_id, sheet_watch_cfg["sheet_id"], sheet_watch_cfg["aba_nome"],
+                                sheet_watch_cfg["coluna_telefone"], sheet_watch_cfg["coluna_nome"],
+                                ultima_linha_processada=sheet_watch_cfg["linhas_existentes"],
+                            )
+
+                        if leads_prontos:
+                            resultado_enroll = dispatch_db.enroll_targets(camp_id, leads_prontos)
+                        else:
+                            resultado_enroll = {"inscritos": 0, "invalidos": 0, "duplicados": 0, "opt_out": 0}
                         dispatch_db.atualizar_campanha(camp_id, status="ativa")
                         st.session_state["_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
                         st.session_state["_camp_form_aberto"] = False
                         msg = f"Campanha criada e ativada com {resultado_enroll['inscritos']} contato(s) inscrito(s)!"
+                        if tipo_origem == "sheet_watch":
+                            msg += " A planilha continua sendo monitorada — novas linhas entram automaticamente."
                         _extras = []
                         if resultado_enroll["invalidos"]:
                             _extras.append(f"{resultado_enroll['invalidos']} com telefone inválido")
