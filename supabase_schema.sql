@@ -303,3 +303,163 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS instagram_visible BOOLEAN NOT NULL
 -- ── Pool de chaves Google Maps (rodízio automático) ──────────────
 -- Execute no SQL Editor do Supabase se o banco já existia.
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS maps_keys_pool JSONB DEFAULT '[]'::jsonb;
+
+-- ── Pool de chaves Apify (rodízio automático) ─────────────────────
+-- Execute no SQL Editor do Supabase se o banco já existia.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS apify_keys_pool JSONB DEFAULT '[]'::jsonb;
+
+-- ============================================================
+-- Ferramenta de Disparo WhatsApp (admin-only)
+-- Canal inicial: Evolution API (não-oficial). Deixa espaço pro
+-- canal oficial (WhatsApp Business Cloud API) via coluna `canal`.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS whatsapp_instances (
+    id                         UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id                    UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    nome                       TEXT NOT NULL,
+    canal                      TEXT NOT NULL DEFAULT 'evolution' CHECK (canal IN ('evolution', 'oficial')),
+    evolution_instance_name    TEXT,
+    status                     TEXT NOT NULL DEFAULT 'desconectado' CHECK (status IN ('desconectado', 'conectando', 'conectado')),
+    numero_conectado           TEXT,
+    ultimo_envio_em            TIMESTAMPTZ,
+    proximo_envio_liberado_em  TIMESTAMPTZ,
+    limite_diario_envios       INTEGER,
+    criado_em                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dispatch_campaigns (
+    id                UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id           UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    nome              TEXT NOT NULL,
+    instance_id       UUID REFERENCES whatsapp_instances(id),
+    status            TEXT NOT NULL DEFAULT 'rascunho' CHECK (status IN ('rascunho', 'ativa', 'pausada', 'concluida')),
+    tipo_origem       TEXT NOT NULL CHECK (tipo_origem IN ('busca_existente', 'upload', 'auto_trigger', 'sheet_watch')),
+    origem_search_id  UUID REFERENCES searches(id),   -- só p/ busca_existente
+    filtro_nicho      TEXT,                           -- só p/ auto_trigger
+    filtro_subnicho   TEXT,
+    filtro_uf         TEXT,
+    intervalo_min_seg INTEGER NOT NULL DEFAULT 30,
+    intervalo_max_seg INTEGER NOT NULL DEFAULT 90,
+    criado_em         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dispatch_cadence_steps (
+    id             UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    campaign_id    UUID REFERENCES dispatch_campaigns(id) ON DELETE CASCADE NOT NULL,
+    ordem          INTEGER NOT NULL,
+    atraso_horas   NUMERIC NOT NULL DEFAULT 0,
+    corpo_mensagem TEXT NOT NULL,
+    midia_url      TEXT,
+    criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dispatch_targets (
+    id                UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    campaign_id       UUID REFERENCES dispatch_campaigns(id) ON DELETE CASCADE NOT NULL,
+    nome              TEXT,
+    telefone          TEXT NOT NULL,   -- E.164, ex: 5511999999999
+    lead_snapshot     JSONB,
+    status            TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente', 'enviando', 'enviado', 'concluido', 'falhou', 'removido')),
+    current_step_id   UUID REFERENCES dispatch_cadence_steps(id),
+    proxima_etapa_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reservado_em      TIMESTAMPTZ,
+    criado_em         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (campaign_id, telefone)
+);
+CREATE INDEX IF NOT EXISTS idx_dispatch_targets_scan ON dispatch_targets(campaign_id, status, proxima_etapa_em);
+CREATE INDEX IF NOT EXISTS idx_dispatch_targets_tel   ON dispatch_targets(telefone);
+
+CREATE TABLE IF NOT EXISTS dispatch_messages_log (
+    id               UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    target_id        UUID REFERENCES dispatch_targets(id) ON DELETE CASCADE NOT NULL,
+    campaign_id      UUID REFERENCES dispatch_campaigns(id) ON DELETE CASCADE NOT NULL,
+    step_id          UUID REFERENCES dispatch_cadence_steps(id),
+    enviado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status           TEXT NOT NULL CHECK (status IN ('sucesso', 'erro')),
+    evolution_message_id TEXT,
+    erro_msg         TEXT,
+    corpo_enviado    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS dispatch_sheet_watchers (
+    id                       UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    campaign_id              UUID REFERENCES dispatch_campaigns(id) ON DELETE CASCADE NOT NULL,
+    sheet_id                 TEXT NOT NULL,
+    aba_nome                 TEXT NOT NULL,
+    coluna_telefone          TEXT NOT NULL,
+    coluna_nome              TEXT,
+    ultima_linha_processada  INTEGER NOT NULL DEFAULT 0,
+    criado_em                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Opt-out global: independe de campanha, checado no enrollment de QUALQUER campanha
+CREATE TABLE IF NOT EXISTS dispatch_opt_outs (
+    telefone   TEXT PRIMARY KEY,
+    criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    motivo     TEXT
+);
+
+-- Template reutilizável (corpo + variáveis). Fica pronto pro canal oficial
+-- (status_aprovacao) mas sem UI própria até a Fase 3.
+CREATE TABLE IF NOT EXISTS message_templates (
+    id               UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id          UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    nome             TEXT NOT NULL,
+    categoria        TEXT,
+    corpo            TEXT NOT NULL,
+    variaveis        JSONB DEFAULT '[]'::jsonb,
+    canal            TEXT NOT NULL DEFAULT 'evolution' CHECK (canal IN ('evolution', 'oficial')),
+    status_aprovacao TEXT NOT NULL DEFAULT 'rascunho',
+    criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Reivindicação atômica de 1 alvo pronto pra envio por instância —
+-- evita corrida entre ticks/threads furando o intervalo anti-banimento.
+CREATE OR REPLACE FUNCTION claim_dispatch_target(p_instance_id UUID)
+RETURNS SETOF dispatch_targets AS $$
+    UPDATE dispatch_targets
+    SET status = 'enviando', reservado_em = NOW()
+    WHERE id = (
+        SELECT dt.id FROM dispatch_targets dt
+        JOIN dispatch_campaigns dc ON dc.id = dt.campaign_id
+        WHERE dc.instance_id = p_instance_id
+          AND dc.status = 'ativa'
+          AND dt.status = 'pendente'
+          AND dt.proxima_etapa_em <= NOW()
+        ORDER BY dt.proxima_etapa_em
+        LIMIT 1
+        FOR UPDATE OF dt SKIP LOCKED
+    )
+    RETURNING *;
+$$ LANGUAGE sql VOLATILE;
+
+-- RLS: só admin (as operações em background usam o cliente service-role,
+-- que ignora RLS — isso é defesa em profundidade caso a UI algum dia
+-- consulte essas tabelas com o cliente do usuário logado).
+ALTER TABLE whatsapp_instances      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatch_campaigns      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatch_cadence_steps  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatch_targets        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatch_messages_log   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatch_sheet_watchers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatch_opt_outs       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE message_templates       ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY IF NOT EXISTS "admin_only_whatsapp_instances" ON whatsapp_instances
+    FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+CREATE POLICY IF NOT EXISTS "admin_only_dispatch_campaigns" ON dispatch_campaigns
+    FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+CREATE POLICY IF NOT EXISTS "admin_only_dispatch_cadence_steps" ON dispatch_cadence_steps
+    FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+CREATE POLICY IF NOT EXISTS "admin_only_dispatch_targets" ON dispatch_targets
+    FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+CREATE POLICY IF NOT EXISTS "admin_only_dispatch_messages_log" ON dispatch_messages_log
+    FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+CREATE POLICY IF NOT EXISTS "admin_only_dispatch_sheet_watchers" ON dispatch_sheet_watchers
+    FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+CREATE POLICY IF NOT EXISTS "admin_only_dispatch_opt_outs" ON dispatch_opt_outs
+    FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+CREATE POLICY IF NOT EXISTS "admin_only_message_templates" ON message_templates
+    FOR ALL USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));

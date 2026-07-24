@@ -3288,6 +3288,324 @@ def pagina_admin():
                         if ok15: time.sleep(0.3); st.rerun()
 
 
+# ── Disparo WhatsApp (admin-only) ───────────────────────────────────────────
+
+def _tab_disparo_instancias(user_id: str):
+    from modules import dispatch_db, evolution_api
+
+    st.markdown("Conecte um número de WhatsApp (via Evolution API) para usar nas campanhas.")
+
+    _conectando = st.session_state.get("_disparo_conectando")
+    if _conectando:
+        inst = dispatch_db.obter_instancia(_conectando)
+        if inst:
+            st.markdown(f"**Pareando: {inst['nome']}**")
+            qr_b64 = st.session_state.get("_disparo_qr_b64", "")
+            if qr_b64:
+                st.image(f"data:image/png;base64,{qr_b64}", width=280, caption="Escaneie com o WhatsApp do número que vai disparar")
+            else:
+                st.info("QR code não veio na resposta da API — clique em Gerar novo QR.")
+            qc1, qc2, qc3 = st.columns(3)
+            with qc1:
+                if st.button("🔄 Verificar conexão", key="disparo_check_conn", use_container_width=True):
+                    try:
+                        estado = evolution_api.status_conexao(inst["evolution_instance_name"])
+                        if estado == "open":
+                            dispatch_db.atualizar_instancia(inst["id"], status="conectado")
+                            st.session_state.pop("_disparo_conectando", None)
+                            st.session_state.pop("_disparo_qr_b64", None)
+                            st.success("Conectado!")
+                        else:
+                            st.warning(f"Ainda não conectado (estado: {estado}).")
+                    except Exception as e:
+                        st.error(f"Erro ao verificar: {e}")
+                    st.rerun()
+            with qc2:
+                if st.button("🔁 Gerar novo QR", key="disparo_new_qr", use_container_width=True):
+                    try:
+                        qr = evolution_api.obter_qrcode(inst["evolution_instance_name"])
+                        novo_b64 = (qr.get("base64") or "").split(",")[-1] if qr.get("base64") else ""
+                        st.session_state["_disparo_qr_b64"] = novo_b64
+                    except Exception as e:
+                        st.error(f"Erro ao gerar QR: {e}")
+                    st.rerun()
+            with qc3:
+                if st.button("✖ Cancelar", key="disparo_cancel_conn", use_container_width=True):
+                    st.session_state.pop("_disparo_conectando", None)
+                    st.session_state.pop("_disparo_qr_b64", None)
+                    st.rerun()
+            st.markdown("---")
+
+    with st.expander("➕ Conectar novo número", expanded=not _conectando):
+        novo_nome = st.text_input("Nome (só pra identificar internamente)", key="disparo_novo_nome", placeholder="Ex: WhatsApp Comercial")
+        if st.button("Criar e mostrar QR", key="disparo_criar_instancia", disabled=not evolution_api.configurado()):
+            if not novo_nome.strip():
+                st.warning("Dê um nome pra instância.")
+            else:
+                import re as _re, time as _time
+                slug = _re.sub(r"[^a-z0-9]+", "_", novo_nome.strip().lower()).strip("_")
+                evolution_name = f"{slug}_{int(_time.time())}"
+                try:
+                    resp = evolution_api.criar_instancia(evolution_name)
+                    inst_id = dispatch_db.criar_instancia(user_id, novo_nome.strip(), evolution_name)
+                    qr_data = (resp.get("qrcode") or {})
+                    b64 = (qr_data.get("base64") or "").split(",")[-1] if qr_data.get("base64") else ""
+                    if not b64:
+                        # Alguns setups não retornam o QR na criação — busca em seguida
+                        try:
+                            qr2 = evolution_api.obter_qrcode(evolution_name)
+                            b64 = (qr2.get("base64") or "").split(",")[-1] if qr2.get("base64") else ""
+                        except Exception:
+                            pass
+                    st.session_state["_disparo_conectando"] = inst_id
+                    st.session_state["_disparo_qr_b64"] = b64
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao criar instância na Evolution API: {e}")
+
+    st.markdown("### Instâncias conectadas")
+    instancias = dispatch_db.listar_instancias(user_id)
+    if not instancias:
+        st.caption("Nenhuma instância cadastrada ainda.")
+        return
+
+    for inst in instancias:
+        c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
+        with c1:
+            st.markdown(f"**{inst['nome']}**")
+            st.caption(inst.get("numero_conectado") or inst.get("evolution_instance_name", ""))
+        with c2:
+            status = inst.get("status", "desconectado")
+            badge = {"conectado": "🟢 Conectado", "conectando": "🟡 Conectando", "desconectado": "🔴 Desconectado"}.get(status, status)
+            st.markdown(badge)
+        with c3:
+            if st.button("🔄 Status", key=f"disparo_refresh_{inst['id']}", use_container_width=True):
+                try:
+                    estado = evolution_api.status_conexao(inst["evolution_instance_name"])
+                    novo_status = "conectado" if estado == "open" else ("conectando" if estado == "connecting" else "desconectado")
+                    dispatch_db.atualizar_instancia(inst["id"], status=novo_status)
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+                st.rerun()
+        with c4:
+            if st.button("🗑️ Remover", key=f"disparo_del_inst_{inst['id']}", use_container_width=True):
+                try:
+                    evolution_api.excluir_instancia(inst["evolution_instance_name"])
+                except Exception:
+                    pass
+                dispatch_db.deletar_instancia(inst["id"])
+                st.rerun()
+
+
+def _tab_disparo_campanhas(user_id: str):
+    from modules import dispatch_db
+    from modules.database import listar_pesquisas, buscar_leads_da_pesquisa
+
+    instancias = dispatch_db.listar_instancias(user_id)
+    if not instancias:
+        st.info("Conecte uma instância WhatsApp na aba **Instâncias** antes de criar uma campanha.", icon="ℹ️")
+        return
+
+    if "_disparo_steps" not in st.session_state:
+        st.session_state["_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
+
+    with st.expander("➕ Nova campanha", expanded=False):
+        nome_camp = st.text_input("Nome da campanha", key="disparo_camp_nome")
+        inst_opts = {i["nome"]: i["id"] for i in instancias}
+        inst_sel = st.selectbox("Instância WhatsApp", list(inst_opts.keys()), key="disparo_camp_inst")
+
+        origem = st.radio("Origem dos contatos", ["Busca existente (Histórico)", "Upload de planilha"], key="disparo_camp_origem")
+
+        leads_prontos: list[dict] = []
+        origem_search_id = None
+
+        if origem == "Busca existente (Histórico)":
+            pesquisas = listar_pesquisas()
+            if not pesquisas:
+                st.caption("Nenhuma pesquisa salva no Histórico ainda.")
+            else:
+                opts = {f"{p['nicho']} · {p['localidade']} ({p['total_results']} leads)": p["id"] for p in pesquisas}
+                sel = st.selectbox("Pesquisa", list(opts.keys()), key="disparo_camp_busca")
+                origem_search_id = opts.get(sel)
+        else:
+            arquivo = st.file_uploader("Planilha (CSV ou Excel)", type=["csv", "xlsx"], key="disparo_camp_upload")
+            if arquivo is not None:
+                import pandas as pd
+                try:
+                    df_up = pd.read_csv(arquivo) if arquivo.name.endswith(".csv") else pd.read_excel(arquivo)
+                except Exception as e:
+                    st.error(f"Erro ao ler o arquivo: {e}")
+                    df_up = None
+                if df_up is not None and not df_up.empty:
+                    cols = list(df_up.columns)
+                    cc1, cc2 = st.columns(2)
+                    with cc1:
+                        col_nome = st.selectbox("Coluna do nome", cols, key="disparo_up_col_nome")
+                    with cc2:
+                        col_tel = st.selectbox("Coluna do telefone", cols, key="disparo_up_col_tel")
+                    st.caption(f"{len(df_up)} linhas na planilha.")
+                    leads_prontos = [
+                        {"nome": str(r.get(col_nome, "") or ""), "telefone": str(r.get(col_tel, "") or "")}
+                        for _, r in df_up.iterrows()
+                    ]
+
+        st.markdown("**Ritmo de disparo** (intervalo aleatório entre mensagens, anti-banimento)")
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            intervalo_min = st.number_input("Mínimo (segundos)", min_value=5, value=30, step=5, key="disparo_int_min")
+        with rc2:
+            intervalo_max = st.number_input("Máximo (segundos)", min_value=5, value=90, step=5, key="disparo_int_max")
+
+        st.markdown("**Cadência de mensagens**")
+        for i, step in enumerate(st.session_state["_disparo_steps"]):
+            sc1, sc2, sc3 = st.columns([2, 6, 1])
+            with sc1:
+                step["atraso_horas"] = st.number_input(
+                    "Atraso (h)" if i == 0 else f"Atraso etapa {i+1} (h)",
+                    min_value=0.0, value=float(step["atraso_horas"]), step=1.0,
+                    key=f"disparo_step_atraso_{i}",
+                    help="Horas após a inscrição (etapa 1) ou após a etapa anterior ser enviada.",
+                )
+            with sc2:
+                step["corpo_mensagem"] = st.text_area(
+                    "Mensagem" if i == 0 else f"Mensagem etapa {i+1}",
+                    value=step["corpo_mensagem"], key=f"disparo_step_corpo_{i}", height=80,
+                    placeholder="Use {{nome}} para inserir o nome do lead.",
+                )
+            with sc3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if len(st.session_state["_disparo_steps"]) > 1 and st.button("🗑️", key=f"disparo_step_del_{i}"):
+                    st.session_state["_disparo_steps"].pop(i)
+                    st.rerun()
+
+        if st.button("➕ Adicionar etapa à cadência", key="disparo_add_step"):
+            st.session_state["_disparo_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
+            st.rerun()
+
+        st.markdown("---")
+        if st.button("✅ Criar campanha", type="primary", key="disparo_criar_campanha", use_container_width=True):
+            steps = st.session_state["_disparo_steps"]
+            if not nome_camp.strip():
+                st.warning("Dê um nome pra campanha.")
+            elif not any(s["corpo_mensagem"].strip() for s in steps):
+                st.warning("Preencha ao menos a mensagem da primeira etapa.")
+            elif origem == "Busca existente (Histórico)" and not origem_search_id:
+                st.warning("Selecione uma pesquisa.")
+            elif origem == "Upload de planilha" and not leads_prontos:
+                st.warning("Suba uma planilha com nome e telefone.")
+            else:
+                tipo_origem = "busca_existente" if origem == "Busca existente (Histórico)" else "upload"
+                camp_id = dispatch_db.criar_campanha(
+                    user_id=user_id, nome=nome_camp.strip(),
+                    instance_id=inst_opts[inst_sel], tipo_origem=tipo_origem,
+                    origem_search_id=origem_search_id,
+                    intervalo_min_seg=int(intervalo_min), intervalo_max_seg=int(intervalo_max),
+                )
+                if not camp_id:
+                    st.error("Erro ao criar a campanha.")
+                else:
+                    for i, s in enumerate(steps, start=1):
+                        dispatch_db.criar_etapa(camp_id, i, s["atraso_horas"], s["corpo_mensagem"])
+                    if tipo_origem == "busca_existente":
+                        leads_prontos = buscar_leads_da_pesquisa(origem_search_id)
+                    n = dispatch_db.enroll_targets(camp_id, leads_prontos)
+                    dispatch_db.atualizar_campanha(camp_id, status="ativa")
+                    st.session_state["_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
+                    st.success(f"Campanha criada e ativada com {n} contato(s) inscrito(s)!")
+                    time.sleep(0.5)
+                    st.rerun()
+
+    st.markdown("### Campanhas")
+    campanhas = dispatch_db.listar_campanhas(user_id)
+    if not campanhas:
+        st.caption("Nenhuma campanha criada ainda.")
+        return
+
+    inst_by_id = {i["id"]: i["nome"] for i in instancias}
+    for camp in campanhas:
+        stats = dispatch_db.stats_campanha(camp["id"])
+        with st.expander(f"{camp['nome']} — {camp.get('status','').upper()} · {inst_by_id.get(camp.get('instance_id'), '—')}"):
+            st.markdown(
+                f"📇 {stats['total']} inscritos · ⏳ {stats['pendente']} pendentes · "
+                f"✅ {stats['concluido']} concluídos · ❌ {stats['falhou']} falharam"
+            )
+            etapas = dispatch_db.listar_etapas(camp["id"])
+            for e in etapas:
+                st.caption(f"Etapa {e['ordem']} (+{e['atraso_horas']}h): {e['corpo_mensagem'][:80]}")
+            bc1, bc2, bc3 = st.columns(3)
+            with bc1:
+                if camp.get("status") == "ativa":
+                    if st.button("⏸️ Pausar", key=f"disparo_pause_{camp['id']}", use_container_width=True):
+                        dispatch_db.atualizar_campanha(camp["id"], status="pausada")
+                        st.rerun()
+                else:
+                    if st.button("▶️ Ativar", key=f"disparo_activate_{camp['id']}", use_container_width=True):
+                        dispatch_db.atualizar_campanha(camp["id"], status="ativa")
+                        st.rerun()
+            with bc3:
+                if st.button("🗑️ Excluir", key=f"disparo_del_camp_{camp['id']}", use_container_width=True):
+                    dispatch_db.deletar_campanha(camp["id"])
+                    st.rerun()
+
+
+def _tab_disparo_relatorios(user_id: str):
+    from modules import dispatch_db
+
+    campanhas = dispatch_db.listar_campanhas(user_id)
+    if not campanhas:
+        st.caption("Nenhuma campanha ainda.")
+        return
+
+    opts = {c["nome"]: c["id"] for c in campanhas}
+    sel = st.selectbox("Campanha", list(opts.keys()), key="disparo_rel_camp")
+    camp_id = opts.get(sel)
+    if not camp_id:
+        return
+
+    stats = dispatch_db.stats_campanha(camp_id)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Inscritos", stats["total"])
+    m2.metric("Pendentes", stats["pendente"])
+    m3.metric("Concluídos", stats["concluido"])
+    m4.metric("Falharam", stats["falhou"])
+
+    targets = dispatch_db.listar_targets_campanha(camp_id)
+    if targets:
+        import pandas as pd
+        df_t = pd.DataFrame(targets)[["nome", "telefone", "status", "proxima_etapa_em", "atualizado_em"]]
+        st.dataframe(df_t, use_container_width=True, height=320)
+
+
+def pagina_disparo():
+    from modules import evolution_api
+
+    user_id = st.session_state.get("user", {}).get("id")
+
+    st.markdown(
+        '<div class="page-header">'
+        '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#00D97E" fill="none" stroke-width="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></div>'
+        '<div><div class="page-title">Disparos</div>'
+        '<div class="page-sub">Campanhas de WhatsApp via Evolution API — conecte um número, monte a cadência e dispare</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    if not evolution_api.configurado():
+        st.warning(
+            "Evolution API não configurada. Adicione **EVOLUTION_API_URL** e **EVOLUTION_API_KEY** "
+            "nas Secrets do Streamlit / variáveis de ambiente.",
+            icon="⚠️",
+        )
+
+    tab_inst, tab_camp, tab_rel = st.tabs(["📱 Instâncias", "📣 Campanhas", "📊 Relatórios"])
+    with tab_inst:
+        _tab_disparo_instancias(user_id)
+    with tab_camp:
+        _tab_disparo_campanhas(user_id)
+    with tab_rel:
+        _tab_disparo_relatorios(user_id)
+
+
 # ── Sidebar & roteamento principal ────────────────────────────────────────────
 
 _NAV_ICONS = {
@@ -3296,6 +3614,7 @@ _NAV_ICONS = {
     "automacoes":    '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     "configuracoes": '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
     "admin":         '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+    "disparo":       '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
     "logout":        '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
 }
 
@@ -3365,6 +3684,7 @@ def _sidebar():
         ]
         if eh_admin():
             nav_items.append(("admin", "Admin"))
+            nav_items.append(("disparo", "Disparos"))
 
         st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
         for key, label in nav_items:
@@ -3460,6 +3780,13 @@ def main():
     except Exception:
         pass
 
+    # Scheduler de disparo WhatsApp — idem, singleton separado
+    try:
+        from modules.dispatch_scheduler import ensure_started as _dispatch_sched_start
+        _dispatch_sched_start()
+    except Exception:
+        pass
+
     _sidebar()
 
     page = st.session_state.get("page", "busca")
@@ -3475,6 +3802,11 @@ def main():
     elif page == "admin":
         if eh_admin():
             pagina_admin()
+        else:
+            st.error("Acesso não autorizado.")
+    elif page == "disparo":
+        if eh_admin():
+            pagina_disparo()
         else:
             st.error("Acesso não autorizado.")
     else:
