@@ -1173,15 +1173,9 @@ def pagina_busca():
             pais_sel = st.selectbox("País", _pais_opts, index=0, label_visibility="collapsed", key="maps_pais")
         is_brasil = pais_sel == "Brasil"
 
-        # Cidade(s) e Estado(s) — FORA do form pra permitir tags reativas
-        # (adicionar/remover cidade sem precisar submeter) e bloquear a cidade
-        # na hora, ao vivo, quando mais de um estado estiver selecionado.
+        # Cidade(s) e Estado(s) — FORA do form pra bloquear a cidade ao vivo
+        # (sem precisar submeter) quando mais de um estado for selecionado.
         st.markdown('<div class="sec">Localidade</div>', unsafe_allow_html=True)
-
-        if "_maps_cidades" not in st.session_state:
-            st.session_state["_maps_cidades"] = []
-        if "_maps_cidade_input_n" not in st.session_state:
-            st.session_state["_maps_cidade_input_n"] = 0
 
         ce0, cl0 = st.columns([3, 2])
         with ce0:
@@ -1201,40 +1195,17 @@ def pagina_busca():
             _cidade_ph = "Ex: Dubai, Singapura…"
         elif is_brasil:
             _cidade_label = "Cidade"
-            _cidade_ph = "Digite uma cidade e clique em Adicionar…"
+            _cidade_ph = "Ex: São Paulo, Campinas, Santos…"
         else:
             _cidade_label = "Cidade / Região (opcional)"
             _cidade_ph = "Ex: Miami, Los Angeles…"
 
-        cc1, cc2 = st.columns([4, 1])
-        with cc1:
-            _nova_cidade = st.text_input(
-                _cidade_label, placeholder=_cidade_ph,
-                key=f"maps_cidade_input_{st.session_state['_maps_cidade_input_n']}",
-                disabled=_cidade_bloqueada,
-            )
-        with cc2:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            if st.button("+ Adicionar", key="maps_add_cidade_btn", use_container_width=True, disabled=_cidade_bloqueada):
-                _c = _nova_cidade.strip()
-                if _c and _c not in st.session_state["_maps_cidades"]:
-                    st.session_state["_maps_cidades"].append(_c)
-                    st.session_state["_maps_cidade_input_n"] += 1
-                    st.rerun()
-
+        cidade = st.text_input(
+            _cidade_label, placeholder=_cidade_ph, disabled=_cidade_bloqueada,
+            help="Pode informar mais de uma cidade separando por vírgula." if is_brasil else None,
+        )
         if _cidade_bloqueada:
             st.caption("⚠️ Com mais de um estado selecionado, a busca é feita sem cidade específica. Escolha só um estado pra informar cidade(s).")
-        elif st.session_state["_maps_cidades"]:
-            for _chunk_ini in range(0, len(st.session_state["_maps_cidades"]), 6):
-                _chunk = st.session_state["_maps_cidades"][_chunk_ini:_chunk_ini + 6]
-                _tag_cols = st.columns(len(_chunk))
-                for _ci, _city in enumerate(_chunk):
-                    _idx_real = _chunk_ini + _ci
-                    with _tag_cols[_ci]:
-                        st.markdown(f'<div class="badge b-ok" style="justify-content:center;width:100%;margin-bottom:4px">{_city}</div>', unsafe_allow_html=True)
-                        if st.button("✕ remover", key=f"maps_rm_cidade_{_idx_real}", use_container_width=True):
-                            st.session_state["_maps_cidades"].pop(_idx_real)
-                            st.rerun()
 
         st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
@@ -1260,7 +1231,7 @@ def pagina_busca():
             buscar_btn = st.form_submit_button("🔍 Buscar no Google Maps", disabled=not maps_ok, use_container_width=True, type="primary")
 
         if buscar_btn:
-            cidades_lista = [] if _cidade_bloqueada else list(st.session_state["_maps_cidades"])
+            cidades_lista = [] if _cidade_bloqueada else [c.strip() for c in cidade.split(",") if c.strip()]
             pais_final = "" if pais_sel in ("Brasil", "Outro…") else pais_sel
             _maps_err = None
             if is_brasil and not cidades_lista and not estados_sel:
