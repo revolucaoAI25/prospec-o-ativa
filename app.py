@@ -737,6 +737,92 @@ button[kind="primaryFormSubmit"]:active {
 .nav-icon svg { width: 18px; height: 18px; stroke-width: 1.8; fill: none; stroke: currentColor; }
 
 /* ═══════════════════════════════════════════════════════════
+   METRICS — st.metric cards (ex: Relatórios de campanhas)
+═══════════════════════════════════════════════════════════ */
+[data-testid="stMetric"] {
+  background: var(--surface) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 16px 18px !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 12px rgba(0,0,0,0.3) !important;
+}
+[data-testid="stMetricLabel"] {
+  color: var(--text-3) !important;
+  font-size: 0.68rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+}
+[data-testid="stMetricValue"] {
+  color: var(--text-1) !important;
+  font-size: 1.6rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FILE UPLOADER — glass drop zone
+═══════════════════════════════════════════════════════════ */
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploaderDropzone"] {
+  background: var(--surface) !important;
+  border: 1.5px dashed var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  transition: border-color 0.22s var(--ease), background 0.22s var(--ease) !important;
+}
+[data-testid="stFileUploader"] section:hover,
+[data-testid="stFileUploaderDropzone"]:hover {
+  border-color: rgba(0,217,126,0.35) !important;
+  background: var(--surface-2) !important;
+}
+[data-testid="stFileUploader"] small { color: var(--text-3) !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   IMAGENS — ex: QR code de pareamento, emolduradas como card
+═══════════════════════════════════════════════════════════ */
+[data-testid="stImage"] img {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TÍTULOS DE SEÇÃO em markdown (ex: "### Campanhas")
+═══════════════════════════════════════════════════════════ */
+.block-container h3 {
+  font-size: 1.05rem !important; font-weight: 800 !important;
+  color: var(--text-1) !important; letter-spacing: -0.02em !important;
+  margin: 1.75rem 0 0.9rem !important;
+}
+.block-container h4 {
+  font-size: 0.92rem !important; font-weight: 700 !important;
+  color: var(--text-2) !important; letter-spacing: -0.01em !important;
+  margin: 1.25rem 0 0.6rem !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LINKS
+═══════════════════════════════════════════════════════════ */
+.block-container a { color: var(--accent) !important; text-decoration: none !important; }
+.block-container a:hover { text-decoration: underline !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   SPINNER
+═══════════════════════════════════════════════════════════ */
+[data-testid="stSpinner"] > div { border-top-color: var(--accent) !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   ACESSIBILIDADE — anel de foco visível pra navegação por teclado
+═══════════════════════════════════════════════════════════ */
+[data-testid="stButton"] > button:focus-visible,
+[data-testid="stDownloadButton"] > button:focus-visible {
+  outline: 2px solid rgba(0,217,126,0.6) !important;
+  outline-offset: 2px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
    RESPONSIVE
 ═══════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
@@ -745,6 +831,9 @@ button[kind="primaryFormSubmit"]:active {
   .page-title { font-size: 1.35rem !important; }
   .page-header-icon { width: 42px; height: 42px; }
   .page-header-icon svg { width: 20px; height: 20px; }
+}
+@media (max-width: 480px) {
+  .stats-row { grid-template-columns: 1fr !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -3376,8 +3465,12 @@ def _tab_disparo_instancias(user_id: str):
             st.caption(inst.get("numero_conectado") or inst.get("evolution_instance_name", ""))
         with c2:
             status = inst.get("status", "desconectado")
-            badge = {"conectado": "🟢 Conectado", "conectando": "🟡 Conectando", "desconectado": "🔴 Desconectado"}.get(status, status)
-            st.markdown(badge)
+            badge_cls, badge_lbl = {
+                "conectado":    ("b-ok",   "Conectado"),
+                "conectando":   ("b-warn", "Conectando"),
+                "desconectado": ("b-err",  "Desconectado"),
+            }.get(status, ("b-err", status))
+            st.markdown(f'<span class="badge {badge_cls}">{badge_lbl}</span>', unsafe_allow_html=True)
         with c3:
             if st.button("🔄 Status", key=f"disparo_refresh_{inst['id']}", use_container_width=True):
                 try:
