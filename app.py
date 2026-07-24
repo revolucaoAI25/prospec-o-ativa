@@ -1958,9 +1958,22 @@ def pagina_historico():
             col_a, col_b = st.columns([6,1])
             with col_b:
                 if st.button("🗑️ Apagar", key=f"del_{p['id']}"):
-                    ok, msg = deletar_pesquisa(p["id"])
-                    (st.success if ok else st.error)(msg)
-                    if ok: time.sleep(0.5); st.rerun()
+                    st.session_state[f"_conf_del_pesq_{p['id']}"] = True
+                    st.rerun()
+
+            if st.session_state.get(f"_conf_del_pesq_{p['id']}"):
+                st.warning("Tem certeza que deseja apagar esta pesquisa e todos os leads salvos nela? Esta ação não pode ser desfeita.")
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    if st.button("✅ Sim, apagar", key=f"conf_del_pesq_ok_{p['id']}", type="primary"):
+                        ok, msg = deletar_pesquisa(p["id"])
+                        st.session_state.pop(f"_conf_del_pesq_{p['id']}", None)
+                        (st.success if ok else st.error)(msg)
+                        if ok: time.sleep(0.5); st.rerun()
+                with cc2:
+                    if st.button("Cancelar", key=f"conf_del_pesq_no_{p['id']}"):
+                        st.session_state.pop(f"_conf_del_pesq_{p['id']}", None)
+                        st.rerun()
 
             leads = buscar_leads_da_pesquisa(p["id"])
             if not leads:
@@ -3201,9 +3214,22 @@ def pagina_admin():
             with col_d:
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🗑️ Remover usuário", key=f"del_u_{uid}", disabled=me, type="secondary"):
-                    ok4, msg4 = deletar_usuario(uid)
-                    (st.success if ok4 else st.error)(msg4)
-                    if ok4: time.sleep(0.3); st.rerun()
+                    st.session_state[f"_conf_del_u_{uid}"] = True
+                    st.rerun()
+
+            if st.session_state.get(f"_conf_del_u_{uid}"):
+                st.warning(f"Tem certeza que deseja remover **{email}** e todos os dados dele (pesquisas, leads, automações)? Esta ação não pode ser desfeita.")
+                uc1, uc2 = st.columns(2)
+                with uc1:
+                    if st.button("✅ Sim, remover", key=f"conf_del_u_ok_{uid}", type="primary"):
+                        ok4, msg4 = deletar_usuario(uid)
+                        st.session_state.pop(f"_conf_del_u_{uid}", None)
+                        (st.success if ok4 else st.error)(msg4)
+                        if ok4: time.sleep(0.3); st.rerun()
+                with uc2:
+                    if st.button("Cancelar", key=f"conf_del_u_no_{uid}"):
+                        st.session_state.pop(f"_conf_del_u_{uid}", None)
+                        st.rerun()
 
             st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
