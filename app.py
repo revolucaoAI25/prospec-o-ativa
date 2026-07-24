@@ -2226,16 +2226,17 @@ def _card_automacao(auto: dict) -> None:
                     ec1, ec2, ec3 = st.columns([3, 2, 2])
                     with ec1:
                         _lbl_cidade = "País / Cidade" if pais_ed == "Outro…" else ("Cidade" if is_brasil_ed else "Cidade / Região (opcional)")
-                        cidade_ed = st.text_input(_lbl_cidade, value=filtros_e.get("cidade", ""), key=f"ed_{aid}_cidade")
+                        cidade_ed = st.text_input(_lbl_cidade, value=filtros_e.get("cidade", ""), key=f"ed_{aid}_cidade",
+                                                   help="Pode informar mais de uma cidade separando por vírgula (nesse caso, escolha só um estado)." if is_brasil_ed else None)
                     with ec2:
                         if is_brasil_ed:
-                            _est_stored = filtros_e.get("estado", "")
-                            _est_idx_e  = (SIGLAS_ESTADOS.index(_est_stored) + 1) if _est_stored in SIGLAS_ESTADOS else 0
-                            estado_ed_raw = st.selectbox("Estado", ["—"] + SIGLAS_ESTADOS, index=_est_idx_e, key=f"ed_{aid}_estado")
-                            estado_ed = "" if estado_ed_raw == "—" else estado_ed_raw
+                            _est_stored_raw = filtros_e.get("estado", "")
+                            _est_stored_list = [e.strip() for e in _est_stored_raw.split(",") if e.strip()] if isinstance(_est_stored_raw, str) else (_est_stored_raw or [])
+                            _est_stored_list = [e for e in _est_stored_list if e in SIGLAS_ESTADOS]
+                            estados_ed_sel = st.multiselect("Estado", SIGLAS_ESTADOS, default=_est_stored_list, key=f"ed_{aid}_estado")
                         else:
                             st.text_input("Estado", value="", disabled=True, key=f"ed_{aid}_estado_dis")
-                            estado_ed = ""
+                            estados_ed_sel = []
                     with ec3:
                         lim_ed_m = st.number_input("Máx. resultados", 10, 500, int(filtros_e.get("limite", 50)), 10, key=f"ed_{aid}_lim_m")
 
@@ -2263,11 +2264,17 @@ def _card_automacao(auto: dict) -> None:
                     )
                     fca, fcb, fcc = st.columns([2, 2, 2])
                     with fca:
-                        _uf_stored = filtros_e.get("uf", "SP")
-                        _uf_idx_e  = SIGLAS_ESTADOS.index(_uf_stored) if _uf_stored in SIGLAS_ESTADOS else 0
-                        uf_ed = st.selectbox("Estado *", SIGLAS_ESTADOS, index=_uf_idx_e, key=f"ed_{aid}_uf")
+                        # filtros_e["uf"] pode ser string (automações antigas, valor
+                        # único) ou lista (automações criadas após múltiplos estados)
+                        _uf_stored_raw = filtros_e.get("uf", "SP")
+                        _uf_stored_list = _uf_stored_raw if isinstance(_uf_stored_raw, list) else ([_uf_stored_raw] if _uf_stored_raw else [])
+                        _uf_stored_list = [u for u in _uf_stored_list if u in SIGLAS_ESTADOS] or ["SP"]
+                        uf_ed_sel = st.multiselect("Estado *", SIGLAS_ESTADOS, default=_uf_stored_list, key=f"ed_{aid}_uf")
                     with fcb:
-                        mun_ed = st.text_input("Município (opcional)", value=filtros_e.get("municipio", ""), key=f"ed_{aid}_mun")
+                        _mun_stored_raw = filtros_e.get("municipio", "")
+                        _mun_stored_str = ", ".join(_mun_stored_raw) if isinstance(_mun_stored_raw, list) else (_mun_stored_raw or "")
+                        mun_ed = st.text_input("Município (opcional)", value=_mun_stored_str, key=f"ed_{aid}_mun",
+                                                help="Pode informar mais de um separando por vírgula.")
                     with fcc:
                         lim_ed_c = st.number_input("Máx. resultados", 1, 2000, int(filtros_e.get("limite", 100)), 50, key=f"ed_{aid}_lim_c")
 
@@ -2377,23 +2384,30 @@ def _card_automacao(auto: dict) -> None:
 
                 if tipo == "maps":
                     _pais_final_ed = "" if pais_ed in ("Brasil", "Outro…") else pais_ed
+                    _cidades_ed_lista = [c.strip() for c in cidade_ed.split(",") if c.strip()]
                     if is_brasil_ed:
-                        _est_nome_ed = ESTADOS.get(estado_ed, estado_ed) if estado_ed else ""
-                        _loc_ed = (f"{cidade_ed}, {_est_nome_ed}" if cidade_ed and _est_nome_ed
-                                   else cidade_ed or _est_nome_ed)
+                        if _cidades_ed_lista:
+                            _est_nome_ed = ESTADOS.get(estados_ed_sel[0], estados_ed_sel[0]) if estados_ed_sel else ""
+                            _loc_ed = [f"{c}, {_est_nome_ed}" if _est_nome_ed else c for c in _cidades_ed_lista]
+                        else:
+                            _loc_ed = [ESTADOS.get(e, e) for e in estados_ed_sel]
                     else:
-                        _loc_ed = (f"{cidade_ed}, {_pais_final_ed}" if cidade_ed and _pais_final_ed
-                                   else cidade_ed or _pais_final_ed)
+                        _loc_ed = (
+                            [f"{c}, {_pais_final_ed}" if _pais_final_ed else c for c in _cidades_ed_lista]
+                            if _cidades_ed_lista else ([_pais_final_ed] if _pais_final_ed else [])
+                        )
                     if not _loc_ed:
                         _erros_ed.append("Informe ao menos a cidade ou o estado.")
+                    if len(_cidades_ed_lista) > 1 and len(estados_ed_sel) > 1:
+                        _erros_ed.append("Ao informar mais de uma cidade, selecione apenas um estado.")
                     _sub_val_ed = sub_ed if isinstance(sub_ed, str) and sub_ed != "—" else ""
                     novos_filtros_ed = {
                         "query_base": query_ed if _is_custom_e else query_ed,
                         "localidade": _loc_ed,
                         "nicho":      nicho_key_ed if not _is_custom_e else query_ed,
                         "subnicho":   _sub_val_ed,
-                        "cidade":     cidade_ed,
-                        "estado":     estado_ed,
+                        "cidade":     ", ".join(_cidades_ed_lista),
+                        "estado":     ", ".join(estados_ed_sel),
                         "pais":       pais_ed,
                         "limite":     int(lim_ed_m),
                     }
@@ -2404,14 +2418,16 @@ def _card_automacao(auto: dict) -> None:
                     _cnaes_cod_ed = list(dict.fromkeys(_cnaes_cod_ed))
                     if not _cnaes_cod_ed and not rj_ed:
                         _erros_ed.append("Selecione ao menos um CNAE.")
+                    if not uf_ed_sel:
+                        _erros_ed.append("Selecione ao menos um estado.")
                     _mfmap_ed = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
                     _cnae_tipo_val_ed = {"Primário": "principal", "Secundário": "secundario", "Primário ou Secundário": "ambos"}.get(cnae_tipo_ed, "principal")
                     novos_filtros_ed = {
                         "cnaes":              _cnaes_cod_ed,
                         "cnae_tipo":          _cnae_tipo_val_ed,
                         "recuperacao_judicial": rj_ed,
-                        "uf":                 uf_ed,
-                        "municipio":          mun_ed.strip(),
+                        "uf":                 uf_ed_sel,
+                        "municipio":          [m.strip() for m in mun_ed.split(",") if m.strip()],
                         "limite":             int(lim_ed_c),
                         "porte":              [op.split(" — ")[0].strip() for op in portes_ed] or None,
                         "matriz_filial":      _mfmap_ed.get(matriz_ed, ""),
@@ -2560,39 +2576,41 @@ def pagina_automacoes():
                         if pais_auto == "Outro…":
                             cidade_auto = st.text_input("País / Cidade", placeholder="Ex: Dubai, Singapura…", key="an_cidade")
                         elif is_brasil_auto:
-                            cidade_auto = st.text_input("Cidade", placeholder="Ex: São Paulo", key="an_cidade")
+                            cidade_auto = st.text_input("Cidade", placeholder="Ex: São Paulo, Campinas…", key="an_cidade",
+                                                         help="Pode informar mais de uma cidade separando por vírgula (nesse caso, escolha só um estado).")
                         else:
                             cidade_auto = st.text_input("Cidade / Região (opcional)", placeholder="Ex: Miami…", key="an_cidade")
                     with cb:
                         if is_brasil_auto:
-                            estado_auto_raw = st.selectbox("Estado", ["—"] + SIGLAS_ESTADOS, key="an_estado")
-                            estado_auto = "" if estado_auto_raw == "—" else estado_auto_raw
+                            estados_auto_sel = st.multiselect("Estado", SIGLAS_ESTADOS, default=["SP"], key="an_estado",
+                                                               help="Selecione vários estados só quando Cidade estiver vazio.")
                         else:
                             st.text_input("Estado", value="", disabled=True, key="an_estado_dis")
-                            estado_auto = ""
+                            estados_auto_sel = []
                     with cc:
                         lim_auto_m = st.number_input("Máx. resultados", 10, 500, 50, 10, key="an_lim_m")
 
-                    # Montar localidade
+                    # Montar localidade(s)
                     pais_final_auto = "" if pais_auto in ("Brasil", "Outro…") else pais_auto
+                    _cidades_auto_lista = [c.strip() for c in cidade_auto.split(",") if c.strip()]
                     if is_brasil_auto:
-                        _est_nome = ESTADOS.get(estado_auto, estado_auto) if estado_auto else ""
-                        localidade_auto = (
-                            f"{cidade_auto}, {_est_nome}" if cidade_auto and _est_nome
-                            else cidade_auto or _est_nome
-                        )
+                        if _cidades_auto_lista:
+                            _est_nome = ESTADOS.get(estados_auto_sel[0], estados_auto_sel[0]) if estados_auto_sel else ""
+                            localidade_auto = [f"{c}, {_est_nome}" if _est_nome else c for c in _cidades_auto_lista]
+                        else:
+                            localidade_auto = [ESTADOS.get(e, e) for e in estados_auto_sel]
                     else:
                         localidade_auto = (
-                            f"{cidade_auto}, {pais_final_auto}" if cidade_auto and pais_final_auto
-                            else cidade_auto or pais_final_auto
+                            [f"{c}, {pais_final_auto}" if pais_final_auto else c for c in _cidades_auto_lista]
+                            if _cidades_auto_lista else ([pais_final_auto] if pais_final_auto else [])
                         )
                     filtros_auto: dict = {
                         "query_base":  query_auto,
                         "localidade":  localidade_auto,
                         "nicho":       nicho_auto if not is_custom_a else query_auto,
                         "subnicho":    sub_auto,
-                        "cidade":      cidade_auto,
-                        "estado":      estado_auto,
+                        "cidade":      ", ".join(_cidades_auto_lista),
+                        "estado":      ", ".join(estados_auto_sel),
                         "pais":        pais_auto,
                         "limite":      int(lim_auto_m),
                         "show_phone":  st.toggle("📞 Buscar telefone e site", value=True, key="an_show_phone",
@@ -2624,9 +2642,10 @@ def pagina_automacoes():
                     )
                     ca, cb, cc = st.columns([2, 2, 2])
                     with ca:
-                        uf_a = st.selectbox("Estado *", SIGLAS_ESTADOS, index=SIGLAS_ESTADOS.index("SP"), key="an_uf")
+                        uf_a_sel = st.multiselect("Estado *", SIGLAS_ESTADOS, default=["SP"], key="an_uf")
                     with cb:
-                        mun_a = st.text_input("Município (opcional)", key="an_mun")
+                        mun_a = st.text_input("Município (opcional)", key="an_mun",
+                                               help="Pode informar mais de um separando por vírgula.")
                     with cc:
                         lim_auto_c = st.number_input("Máx. resultados", 1, 2000, 100, 50, key="an_lim_c")
 
@@ -2687,8 +2706,8 @@ def pagina_automacoes():
                         "cnaes":              cnaes_codigos_a,
                         "cnae_tipo":          _cnae_tipo_val_a,
                         "recuperacao_judicial": rj_a,
-                        "uf":                 uf_a,
-                        "municipio":          mun_a.strip(),
+                        "uf":                 uf_a_sel,
+                        "municipio":          [m.strip() for m in mun_a.split(",") if m.strip()],
                         "limite":             int(lim_auto_c),
                         "porte":              [op.split(" — ")[0].strip() for op in portes_a] or None,
                         "matriz_filial":      mf_map_a.get(matriz_a, ""),
@@ -2755,8 +2774,12 @@ def pagina_automacoes():
                     erros.append("Informe um nome para a automação.")
                 if tipo_val == "maps" and not localidade_auto:
                     erros.append("Informe ao menos a cidade ou o estado.")
+                if tipo_val == "maps" and len(_cidades_auto_lista) > 1 and len(estados_auto_sel) > 1:
+                    erros.append("Ao informar mais de uma cidade, selecione apenas um estado.")
                 if tipo_val == "cnpj" and not filtros_auto.get("cnaes") and not filtros_auto.get("recuperacao_judicial"):
                     erros.append("Selecione ao menos um CNAE.")
+                if tipo_val == "cnpj" and not filtros_auto.get("uf"):
+                    erros.append("Selecione ao menos um estado.")
                 if not dias_sel:
                     erros.append("Selecione ao menos um dia da semana.")
                 if not horarios_sel:

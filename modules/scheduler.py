@@ -305,14 +305,22 @@ def executar_automacao(auto: dict) -> None:
     logger.info("Automação %s encontrou %d leads", auto_id, total)
 
     # 6. Salvar no histórico
+    def _como_texto(v) -> str:
+        """cidade/estado/uf/municipio/localidade podem ser string (automações
+        antigas) ou lista (múltiplas cidades/estados) — normaliza pra string
+        antes de gravar nas colunas de texto do histórico."""
+        if isinstance(v, list):
+            return ", ".join(str(x) for x in v if x)
+        return v or ""
+
     fonte = "maps" if tipo == "maps" else "receita_federal"
     search_id = salvar_pesquisa_scheduler(
         user_id=user_id,
         nicho=filtros.get("nicho", "") or filtros.get("cnaes", [""])[0],
         subnicho=filtros.get("subnicho", ""),
-        cidade=filtros.get("cidade", ""),
-        estado=filtros.get("estado", "") or filtros.get("uf", ""),
-        localidade=filtros.get("localidade", "") or filtros.get("municipio", ""),
+        cidade=_como_texto(filtros.get("cidade", "")),
+        estado=_como_texto(filtros.get("estado", "") or filtros.get("uf", "")),
+        localidade=_como_texto(filtros.get("localidade", "") or filtros.get("municipio", "")),
         fonte=fonte,
         total=total,
     )
