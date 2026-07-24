@@ -27,8 +27,8 @@ _MAX_POR_PAGINA = 1000  # limite máximo aceito pela API por requisição
 def buscar(
     api_key: str,
     cnaes: list[str],
-    uf: str,
-    municipio: str = "",
+    uf: str | list[str],
+    municipio: str | list[str] = "",
     porte: list[str] | None = None,
     matriz_filial: str = "",
     simples_optante: bool | None = None,
@@ -59,8 +59,8 @@ def buscar(
     Parâmetros:
         api_key             — chave de API (CDD_API_KEY)
         cnaes               — lista de códigos CNAE principal (ex: ["6911701"])
-        uf                  — sigla do estado (ex: "SP")
-        municipio           — nome do município (ex: "São Paulo") — opcional
+        uf                  — sigla do estado (ex: "SP") ou lista de siglas (ex: ["SP","RJ"])
+        municipio           — nome do município (ex: "São Paulo") ou lista de nomes — opcional
         porte               — códigos de porte: "01"=Micro, "03"=EPP, "05"=Demais
         matriz_filial       — "MATRIZ", "FILIAL" ou "" (todos)
         simples_optante     — True=apenas Simples Nacional, False=excluir
@@ -197,6 +197,15 @@ def buscar(
 # Montagem do body da requisição
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _to_list(v) -> list:
+    """Normaliza um valor único ou lista para lista, removendo vazios."""
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return [x for x in v if x]
+    return [v] if v else []
+
+
 def _montar_body(
     cnaes, uf, municipio, porte, matriz_filial,
     simples_optante, excluir_simples, mei_optante, excluir_mei,
@@ -224,12 +233,14 @@ def _montar_body(
         if cnae_tipo in ("secundario", "ambos"):
             body["codigo_atividade_secundaria"] = _cnaes_limpos
 
-    if uf:
-        body["uf"] = [uf.lower()]
+    _ufs = _to_list(uf)
+    if _ufs:
+        body["uf"] = [u.lower() for u in _ufs]
 
-    if municipio:
+    _municipios = _to_list(municipio)
+    if _municipios:
         # API aceita sem acentos em minúsculas
-        body["municipio"] = [_normalizar_municipio(municipio)]
+        body["municipio"] = [_normalizar_municipio(m) for m in _municipios]
 
     if porte:
         body["porte_empresa"] = {"codigos": porte}

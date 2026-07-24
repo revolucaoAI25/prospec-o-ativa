@@ -36,15 +36,31 @@ DETAIL_FIELDS = (
 def _apenas_digitos(s: str) -> str:
     return "".join(c for c in (s or "") if c.isdigit())
 
-_MODIFICADORES = [
+# Variações usadas quando a busca tem uma CIDADE específica — bairros/zonas
+# são um conceito de cidade, então só fazem sentido nesse caso.
+_MODIFICADORES_CIDADE = [
     "",
     "centro",
     "zona norte",
     "zona sul",
     "zona leste",
     "zona oeste",
+    "região central",
     "região metropolitana",
     "bairros",
+    "periferia",
+    "centro histórico",
+    "arredores",
+]
+
+# Variações usadas quando a busca é só por ESTADO (sem cidade) — termos que
+# fazem sentido numa escala estadual, não zonas de bairro.
+_MODIFICADORES_ESTADO = [
+    "",
+    "capital",
+    "interior",
+    "litoral",
+    "região metropolitana",
     "norte",
     "sul",
 ]
@@ -74,27 +90,33 @@ def _get_details(place_id: str, api_key: str) -> dict:
 
 
 def _coletar_places(
-    query_base: str,
+    nicho_query: str,
+    localidade: str,
     api_key: str,
     limite: int,
     log: Callable,
+    modificadores: list[str],
 ) -> list[dict]:
     """
     Coleta dados básicos de places via Text Search até atingir o limite.
     Retorna rating/user_ratings_total diretamente do Text Search (Essentials, grátis).
+
+    Cada variação insere o modificador ANTES da localidade (ex: "advogado em
+    centro de São Paulo, SP"), nunca depois dela — evita frases sem sentido
+    como "advogado em São Paulo, SP centro".
     """
     vistos: set[str] = set()
     places: list[dict] = []
 
     # Sempre roda ao menos 3 variações de query para cobrir mais resultados
-    max_queries = min(len(_MODIFICADORES), max(3, -(-limite // 60)))
+    max_queries = min(len(modificadores), max(3, -(-limite // 60)))
 
     for mod_idx in range(max_queries):
         if len(places) >= limite:
             break
 
-        mod   = _MODIFICADORES[mod_idx]
-        query = f"{query_base} {mod}".strip() if mod else query_base
+        mod   = modificadores[mod_idx]
+        query = f"{nicho_query} em {mod} de {localidade}" if mod else f"{nicho_query} em {localidade}"
         log(0, 0, f"Buscando: {query}")
 
         page_token = None
@@ -150,58 +172,37 @@ def _coletar_places(
     return places[:limite]
 
 
-def buscar(
+def _buscar_uma_localidade(
     query_base: str,
     localidade: str,
-    limite: int = 60,
-    api_key: str = None,
-    nicho: str = "",
-    subnicho: str = "",
-    cidade: str = "",
-    estado: str = "",
-    progress_callback: Callable[[int, int, str], None] = None,
-    exclude_phones: set = None,
-    show_phone: bool = True,
-    show_rating: bool = True,
+    limite: int,
+    api_key: str,
+    nicho: str,
+    subnicho: str,
+    cidade: str,
+    estado: str,
+    log: Callable,
+    exclude_phones: set,
+    show_phone: bool,
+    show_rating: bool,
 ) -> list[dict]:
-    """
-    Busca estabelecimentos no Google Maps e retorna lista de dicts.
+    """Busca numa única localidade (cidade+estado, ou só estado). Uso interno de buscar()."""
+    nicho_query = f"{query_base} {subnicho.lower()}".strip() if subnicho else query_base
 
-    show_phone  — busca telefone e site via Place Details (Contact Data, 1.000 gratuitas/mês)
-    show_rating — inclui avaliação nos resultados (vem do Text Search, sempre gratuito)
+    # Zonas de bairro (centro, zona norte...) só existem numa cidade — pra
+    # busca por estado inteiro usam-se termos de escala estadual (litoral,
+    # interior, capital...), senão vira "centro do estado" sem sentido.
+    modificadores = _MODIFICADORES_CIDADE if cidade else _MODIFICADORES_ESTADO
 
-    Com show_phone=False: apenas Text Search → 5.000 resultados gratuitos/mês.
-    Com show_phone=True:  Text Search + Place Details → 1.000 resultados gratuitos/mês.
-    """
-    if api_key is None:
-        api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
-    if not api_key:
-        raise ValueError(
-            "Chave da API do Google Maps não encontrada.\n"
-            "Configure GOOGLE_MAPS_API_KEY no .env ou nos Secrets do Streamlit."
-        )
-
-    exclude_phones = exclude_phones or set()
-
-    def log(atual, total, msg):
-        if progress_callback:
-            progress_callback(atual, total, msg)
-        else:
-            print(msg)
-
-    query_completa = f"{query_base} em {localidade}"
-    if subnicho:
-        query_completa = f"{query_base} {subnicho.lower()} em {localidade}"
-
-    _max_pool = len(_MODIFICADORES) * 60
+    _max_pool = len(modificadores) * 60
     if exclude_phones:
         fetch_limit = min(_max_pool, limite * 3)
     else:
         # Busca o dobro para compensar deduplicação entre queries, mínimo 60
         fetch_limit = min(_max_pool, max(limite * 2, 60))
 
-    log(0, limite, f"Coletando resultados para: {query_completa}")
-    places = _coletar_places(query_completa, api_key, fetch_limit, log)
+    log(0, limite, f"Coletando resultados para: {nicho_query} em {localidade}")
+    places = _coletar_places(nicho_query, localidade, api_key, fetch_limit, log, modificadores)
     detalhe_label = "Buscando detalhes..." if show_phone else "Montando resultados..."
     log(0, limite, f"{len(places)} candidatos encontrados. {detalhe_label}")
 
@@ -262,8 +263,88 @@ def buscar(
             time.sleep(0.1)
 
     sufixo = f" ({pulados} repetidos ignorados)" if pulados else ""
-    log(limite, limite, f"Concluído: {len(resultados)} resultados{sufixo}.")
+    log(len(resultados), limite, f"'{localidade}': {len(resultados)} resultados{sufixo}.")
     return resultados
+
+
+def buscar(
+    query_base: str,
+    localidade,
+    limite: int = 60,
+    api_key: str = None,
+    nicho: str = "",
+    subnicho: str = "",
+    cidade: str = "",
+    estado: str = "",
+    progress_callback: Callable[[int, int, str], None] = None,
+    exclude_phones: set = None,
+    show_phone: bool = True,
+    show_rating: bool = True,
+) -> list[dict]:
+    """
+    Busca estabelecimentos no Google Maps e retorna lista de dicts.
+
+    `localidade` aceita uma string única ("São Paulo, SP" ou só "SP") OU uma
+    lista de strings — nesse caso cada localidade é buscada e os resultados
+    são mesclados e deduplicados por telefone entre si, respeitando `limite`
+    no total (não por localidade).
+
+    show_phone  — busca telefone e site via Place Details (Contact Data, 1.000 gratuitas/mês)
+    show_rating — inclui avaliação nos resultados (vem do Text Search, sempre gratuito)
+
+    Com show_phone=False: apenas Text Search → 5.000 resultados gratuitos/mês.
+    Com show_phone=True:  Text Search + Place Details → 1.000 resultados gratuitos/mês.
+    """
+    if api_key is None:
+        api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    if not api_key:
+        raise ValueError(
+            "Chave da API do Google Maps não encontrada.\n"
+            "Configure GOOGLE_MAPS_API_KEY no .env ou nos Secrets do Streamlit."
+        )
+
+    localidades = localidade if isinstance(localidade, list) else [localidade]
+    localidades = [l.strip() for l in localidades if l and l.strip()]
+    if not localidades:
+        raise ValueError("Informe ao menos uma cidade ou estado.")
+
+    def log(atual, total, msg):
+        if progress_callback:
+            progress_callback(atual, total, msg)
+        else:
+            print(msg)
+
+    vistos_tel = set(exclude_phones or [])
+    resultados: list[dict] = []
+    multiplas = len(localidades) > 1
+
+    for idx, loc in enumerate(localidades):
+        if len(resultados) >= limite:
+            break
+        if multiplas:
+            log(len(resultados), limite, f"[{idx+1}/{len(localidades)}] Buscando em {loc}…")
+
+        if not multiplas and (cidade or estado):
+            _cidade_loc, _estado_loc = cidade, estado
+        elif "," in loc:
+            _cidade_loc, _estado_loc = [p.strip() for p in loc.split(",", 1)]
+        else:
+            _cidade_loc, _estado_loc = "", loc
+
+        parcial = _buscar_uma_localidade(
+            query_base=query_base, localidade=loc, limite=limite - len(resultados), api_key=api_key,
+            nicho=nicho, subnicho=subnicho, cidade=_cidade_loc, estado=_estado_loc,
+            log=log, exclude_phones=vistos_tel, show_phone=show_phone, show_rating=show_rating,
+        )
+        for r in parcial:
+            tel_d = _apenas_digitos(r.get("telefone", ""))
+            if tel_d:
+                vistos_tel.add(tel_d)
+        resultados.extend(parcial)
+
+    sufixo = f" ({len(localidades)} localidades)" if multiplas else ""
+    log(len(resultados), limite, f"Concluído: {len(resultados)} resultados{sufixo}.")
+    return resultados[:limite]
 
 
 # Mantém compatibilidade com código antigo

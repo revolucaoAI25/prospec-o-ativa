@@ -61,31 +61,20 @@ def _buscar_items(token: str, dataset_id: str) -> list[dict]:
     return resp.json()
 
 
-def buscar(
+def _buscar_uma_localidade(
     query_base: str,
     localidade: str,
-    limite: int = 60,
-    api_key: str = "",
-    nicho: str = "",
-    subnicho: str = "",
-    cidade: str = "",
-    estado: str = "",
-    progress_callback: Optional[Callable] = None,
-    exclude_phones: Optional[set] = None,
-    show_phone: bool = True,
-    show_rating: bool = True,
+    limite: int,
+    api_key: str,
+    nicho: str,
+    subnicho: str,
+    cidade: str,
+    estado: str,
+    log: Callable,
+    exclude_phones: set,
+    show_phone: bool,
+    show_rating: bool,
 ) -> list[dict]:
-    """
-    Busca lugares via Apify Google Maps Scraper.
-    Retorna lista no mesmo formato que google_maps.buscar().
-    """
-    if not api_key:
-        raise ValueError("Chave de API do Apify não configurada.")
-
-    def log(a, t, msg):
-        if progress_callback:
-            progress_callback(a, t, msg)
-
     query = f"{query_base} {subnicho}".strip() if subnicho else query_base
     log(0, limite, f"[Apify] Iniciando busca: {query} em {localidade}…")
 
@@ -103,7 +92,6 @@ def buscar(
 
     items = _buscar_items(api_key, dataset_id)
 
-    exclude_phones = exclude_phones or set()
     resultados = []
 
     for item in items:
@@ -139,5 +127,71 @@ def buscar(
         })
         log(len(resultados), limite, f"[Apify] {len(resultados)}/{limite}")
 
-    log(limite, limite, f"[Apify] Concluído: {len(resultados)} resultados.")
+    log(len(resultados), limite, f"[Apify] '{localidade}': {len(resultados)} resultados.")
     return resultados
+
+
+def buscar(
+    query_base: str,
+    localidade,
+    limite: int = 60,
+    api_key: str = "",
+    nicho: str = "",
+    subnicho: str = "",
+    cidade: str = "",
+    estado: str = "",
+    progress_callback: Optional[Callable] = None,
+    exclude_phones: Optional[set] = None,
+    show_phone: bool = True,
+    show_rating: bool = True,
+) -> list[dict]:
+    """
+    Busca lugares via Apify Google Maps Scraper.
+    Retorna lista no mesmo formato que google_maps.buscar().
+
+    `localidade` aceita uma string única ou uma lista de strings — nesse
+    caso roda um run do Apify por localidade e mescla os resultados,
+    deduplicados por telefone, respeitando `limite` no total.
+    """
+    if not api_key:
+        raise ValueError("Chave de API do Apify não configurada.")
+
+    localidades = localidade if isinstance(localidade, list) else [localidade]
+    localidades = [l.strip() for l in localidades if l and l.strip()]
+    if not localidades:
+        raise ValueError("Informe ao menos uma cidade ou estado.")
+
+    def log(a, t, msg):
+        if progress_callback:
+            progress_callback(a, t, msg)
+
+    vistos_tel = set(exclude_phones or [])
+    resultados: list[dict] = []
+    multiplas = len(localidades) > 1
+
+    for idx, loc in enumerate(localidades):
+        if len(resultados) >= limite:
+            break
+        if multiplas:
+            log(len(resultados), limite, f"[Apify] [{idx+1}/{len(localidades)}] Buscando em {loc}…")
+
+        if not multiplas and (cidade or estado):
+            _cidade_loc, _estado_loc = cidade, estado
+        elif "," in loc:
+            _cidade_loc, _estado_loc = [p.strip() for p in loc.split(",", 1)]
+        else:
+            _cidade_loc, _estado_loc = "", loc
+
+        parcial = _buscar_uma_localidade(
+            query_base=query_base, localidade=loc, limite=limite - len(resultados), api_key=api_key,
+            nicho=nicho, subnicho=subnicho, cidade=_cidade_loc, estado=_estado_loc,
+            log=log, exclude_phones=vistos_tel, show_phone=show_phone, show_rating=show_rating,
+        )
+        for r in parcial:
+            tel_d = _apenas_digitos(r.get("telefone", ""))
+            if tel_d:
+                vistos_tel.add(tel_d)
+        resultados.extend(parcial)
+
+    log(len(resultados), limite, f"[Apify] Concluído: {len(resultados)} resultados.")
+    return resultados[:limite]
