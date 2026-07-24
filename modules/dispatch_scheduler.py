@@ -77,7 +77,8 @@ def _processar_instancia(instance: dict) -> None:
     if not step:
         # Defensivo — não deveria acontecer (marcar_enviado já marca 'concluido'
         # quando não há próxima etapa, então o claim não devolveria esse alvo de novo).
-        dispatch_db.marcar_enviado(target, campaign_id, {"id": None, "ordem": 10**9}, "", "")
+        # Marca concluído direto, sem log de mensagem — nada foi enviado de fato.
+        dispatch_db.atualizar_target(target["id"], status="concluido", atualizado_em=datetime.now(timezone.utc).isoformat())
         return
 
     texto = _renderizar_mensagem(step["corpo_mensagem"], target.get("lead_snapshot") or {})

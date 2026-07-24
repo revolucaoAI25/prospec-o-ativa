@@ -294,34 +294,60 @@ def registrar_opt_out(telefone: str, motivo: str = "") -> bool:
 
 # ── Alvos (targets) ───────────────────────────────────────────────────────────
 
-def enroll_targets(campaign_id: str, leads: list[dict]) -> int:
+def enroll_targets(campaign_id: str, leads: list[dict]) -> dict:
     """
     Inscreve leads numa campanha. `leads` é uma lista de dicts com pelo menos
     'nome' e 'telefone'. Normaliza telefone pra E.164, ignora quem estiver em
     opt-out, ignora duplicata (mesmo telefone já inscrito nesta campanha —
     a constraint UNIQUE(campaign_id, telefone) é a rede de segurança real).
-    Retorna quantos foram inscritos de fato.
+    Retorna {"inscritos", "invalidos", "duplicados", "opt_out"} com as contagens.
     """
+    vazio = {"inscritos": 0, "invalidos": 0, "duplicados": 0, "opt_out": 0}
     sb = _sb()
     if not sb:
-        return 0
+        return vazio
 
     etapas = listar_etapas(campaign_id)
     if not etapas:
-        return 0
+        return vazio
     primeira = etapas[0]
     atraso_inicial = timedelta(hours=float(primeira.get("atraso_horas") or 0))
     proxima_em = (datetime.now(timezone.utc) + atraso_inicial).isoformat()
 
-    linhas = []
-    vistos_no_lote = set()
+    # Normaliza e deduplica telefones em memória primeiro — evita 1 consulta
+    # de opt-out por lead (uma planilha de milhares de linhas travaria a UI
+    # fazendo centenas de round-trips sequenciais ao banco).
+    por_telefone: dict[str, dict] = {}
+    invalidos = 0
+    duplicados_lote = 0
     for lead in leads:
         tel = normalizar_e164(lead.get("telefone", ""))
-        if not tel or tel in vistos_no_lote:
+        if not tel:
+            invalidos += 1
             continue
-        if esta_opt_out(tel):
+        if tel in por_telefone:
+            duplicados_lote += 1
             continue
-        vistos_no_lote.add(tel)
+        por_telefone[tel] = lead
+
+    if not por_telefone:
+        return {"inscritos": 0, "invalidos": invalidos, "duplicados": duplicados_lote, "opt_out": 0}
+
+    opt_outs: set[str] = set()
+    try:
+        todos_tels = list(por_telefone.keys())
+        for i in range(0, len(todos_tels), 500):
+            resp = sb.table("dispatch_opt_outs").select("telefone").in_("telefone", todos_tels[i:i + 500]).execute()
+            opt_outs.update(r["telefone"] for r in (resp.data or []))
+    except Exception as e:
+        logger.error("enroll_targets (checar opt-outs): %s", e)
+
+    linhas = []
+    opt_out_count = 0
+    for tel, lead in por_telefone.items():
+        if tel in opt_outs:
+            opt_out_count += 1
+            continue
         linhas.append({
             "campaign_id": campaign_id,
             "nome": str(lead.get("nome", "") or ""),
@@ -333,19 +359,27 @@ def enroll_targets(campaign_id: str, leads: list[dict]) -> int:
         })
 
     if not linhas:
-        return 0
+        return {"inscritos": 0, "invalidos": invalidos, "duplicados": duplicados_lote, "opt_out": opt_out_count}
 
     inscritos = 0
     try:
         for i in range(0, len(linhas), 500):
             resp = (sb.table("dispatch_targets")
-                      .upsert(linhas[i:i+500], on_conflict="campaign_id,telefone", ignore_duplicates=True)
+                      .upsert(linhas[i:i + 500], on_conflict="campaign_id,telefone", ignore_duplicates=True)
                       .execute())
             inscritos += len(resp.data or [])
-        return inscritos
     except Exception as e:
         logger.error("enroll_targets: %s", e)
-        return inscritos
+
+    # Diferença entre o que foi enviado ao upsert e o que voltou = já
+    # existia nesta campanha (ignore_duplicates descartou silenciosamente).
+    duplicados_db = max(0, len(linhas) - inscritos)
+    return {
+        "inscritos": inscritos,
+        "invalidos": invalidos,
+        "duplicados": duplicados_lote + duplicados_db,
+        "opt_out": opt_out_count,
+    }
 
 
 def listar_targets_campanha(campaign_id: str) -> list[dict]:
@@ -372,6 +406,18 @@ def stats_campanha(campaign_id: str) -> dict:
 
 
 # ── Fila de disparo (usada pelo scheduler) ────────────────────────────────────
+
+def atualizar_target(target_id: str, **campos) -> bool:
+    sb = _sb()
+    if not sb:
+        return False
+    try:
+        sb.table("dispatch_targets").update(campos).eq("id", target_id).execute()
+        return True
+    except Exception as e:
+        logger.error("atualizar_target: %s", e)
+        return False
+
 
 def claim_target_para_instancia(instance_id: str) -> Optional[dict]:
     """Reivindica atomicamente 1 alvo pronto pra envio pra essa instância (RPC claim_dispatch_target)."""

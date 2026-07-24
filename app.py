@@ -351,6 +351,17 @@ button[kind="primaryFormSubmit"]:active {
     0 8px 24px rgba(239,68,68,0.35) !important;
 }
 
+/* Card verde de formulários "+ Nova X" — st.container(key="form_card_...")
+   envolve de fato os elementos filhos (diferente de abrir/fechar uma <div>
+   crua em st.markdown()s separados, que não agrupa nada e sobra uma faixa
+   verde vazia — bug corrigido aqui). */
+[class*="st-key-form_card_"] {
+  background: rgba(0, 217, 126, 0.05) !important;
+  border: 1px solid rgba(0, 217, 126, 0.2) !important;
+  border-radius: 16px !important;
+  padding: 20px 24px !important;
+}
+
 /* Download */
 [data-testid="stDownloadButton"] > button {
   background: var(--surface) !important;
@@ -2582,12 +2593,7 @@ def pagina_automacoes():
     # ── Formulário de criação ─────────────────────────────────────────────────
     if st.session_state.get("_auto_form_aberto"):
         st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
-        with st.container():
-            st.markdown(
-                '<div style="background:rgba(0,217,126,0.05);border:1px solid rgba(0,217,126,0.2);'
-                'border-radius:16px;padding:20px 24px">',
-                unsafe_allow_html=True,
-            )
+        with st.container(key="form_card_nova_automacao"):
             st.markdown("#### Nova Automação")
 
             # Tipo — FORA do form para ser reativo
@@ -2884,8 +2890,6 @@ def pagina_automacoes():
                         st.rerun()
                     else:
                         st.error("Não foi possível salvar a automação. Tente novamente.")
-
-            st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Lista de automações ───────────────────────────────────────────────────
     st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
@@ -3812,12 +3816,7 @@ def _tab_disparo_campanhas(user_id: str):
 
     if st.session_state.get("_camp_form_aberto"):
         st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
-        with st.container():
-            st.markdown(
-                '<div style="background:rgba(0,217,126,0.05);border:1px solid rgba(0,217,126,0.2);'
-                'border-radius:16px;padding:20px 24px">',
-                unsafe_allow_html=True,
-            )
+        with st.container(key="form_card_nova_campanha"):
             st.markdown("#### Nova campanha")
 
             nome_camp = st.text_input("Nome da campanha", key="disparo_camp_nome")
@@ -3941,8 +3940,10 @@ def _tab_disparo_campanhas(user_id: str):
                 steps = st.session_state["_disparo_steps"]
                 if not nome_camp.strip():
                     st.warning("Dê um nome pra campanha.")
-                elif not any(s["corpo_mensagem"].strip() for s in steps):
+                elif not steps[0]["corpo_mensagem"].strip():
                     st.warning("Preencha ao menos a mensagem da primeira etapa.")
+                elif not all(s["corpo_mensagem"].strip() for s in steps):
+                    st.warning("Todas as etapas da cadência precisam ter uma mensagem — preencha ou remova as vazias.")
                 elif origem == "Busca existente (Histórico)" and not origem_search_id:
                     st.warning("Selecione uma pesquisa.")
                 elif origem == "Upload de planilha" and not leads_prontos:
@@ -3968,15 +3969,23 @@ def _tab_disparo_campanhas(user_id: str):
                             dispatch_db.criar_etapa(camp_id, i, s["atraso_horas"], s["corpo_mensagem"])
                         if tipo_origem == "busca_existente":
                             leads_prontos = buscar_leads_da_pesquisa(origem_search_id)
-                        n = dispatch_db.enroll_targets(camp_id, leads_prontos)
+                        resultado_enroll = dispatch_db.enroll_targets(camp_id, leads_prontos)
                         dispatch_db.atualizar_campanha(camp_id, status="ativa")
                         st.session_state["_disparo_steps"] = [{"atraso_horas": 0.0, "corpo_mensagem": ""}]
                         st.session_state["_camp_form_aberto"] = False
-                        st.success(f"Campanha criada e ativada com {n} contato(s) inscrito(s)!")
+                        msg = f"Campanha criada e ativada com {resultado_enroll['inscritos']} contato(s) inscrito(s)!"
+                        _extras = []
+                        if resultado_enroll["invalidos"]:
+                            _extras.append(f"{resultado_enroll['invalidos']} com telefone inválido")
+                        if resultado_enroll["duplicados"]:
+                            _extras.append(f"{resultado_enroll['duplicados']} duplicado(s)")
+                        if resultado_enroll["opt_out"]:
+                            _extras.append(f"{resultado_enroll['opt_out']} em opt-out")
+                        if _extras:
+                            msg += " (" + ", ".join(_extras) + " ignorado(s))"
+                        st.success(msg)
                         time.sleep(0.5)
                         st.rerun()
-
-            st.markdown('</div>', unsafe_allow_html=True)
 
     campanhas = dispatch_db.listar_campanhas(user_id)
     if not campanhas:
@@ -4034,7 +4043,14 @@ def _tab_disparo_relatorios(user_id: str):
     targets = dispatch_db.listar_targets_campanha(camp_id)
     if targets:
         import pandas as pd
-        df_t = pd.DataFrame(targets)[["nome", "telefone", "status", "proxima_etapa_em", "atualizado_em"]]
+        df_t = pd.DataFrame(targets)[["nome", "telefone", "status", "proxima_etapa_em", "atualizado_em"]].copy()
+        for _col in ("proxima_etapa_em", "atualizado_em"):
+            df_t[_col] = pd.to_datetime(df_t[_col], errors="coerce", utc=True) \
+                .dt.tz_convert("America/Sao_Paulo").dt.strftime("%d/%m/%Y %H:%M").fillna("—")
+        df_t = df_t.rename(columns={
+            "nome": "Nome", "telefone": "Telefone", "status": "Status",
+            "proxima_etapa_em": "Próxima etapa", "atualizado_em": "Atualizado em",
+        })
         st.dataframe(df_t, use_container_width=True, height=320)
 
 
