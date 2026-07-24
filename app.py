@@ -701,6 +701,18 @@ button[kind="primaryFormSubmit"]:active {
 .b-err  { background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
 
 /* ═══════════════════════════════════════════════════════════
+   EMPTY STATE — "nada por aqui ainda"
+═══════════════════════════════════════════════════════════ */
+.empty-state {
+  text-align: center; padding: 48px 24px;
+  color: var(--text-3); font-size: 0.875rem;
+}
+.empty-state .empty-hint {
+  font-size: 0.75rem; color: var(--text-3); opacity: 0.85;
+  display: block; margin-top: 4px;
+}
+
+/* ═══════════════════════════════════════════════════════════
    LOGIN PAGE — Cinematic glass card
 ═══════════════════════════════════════════════════════════ */
 .login-wrapper {
@@ -1919,7 +1931,12 @@ def pagina_historico():
 
     pesquisas = listar_pesquisas()
     if not pesquisas:
-        st.info("Nenhuma pesquisa salva ainda. Faça sua primeira busca!", icon="💡")
+        st.markdown(
+            '<div class="empty-state">💡 Nenhuma pesquisa salva ainda.'
+            '<span class="empty-hint">Vá em "Busca" no menu lateral e faça sua primeira extração de leads.</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         return
 
     for p in pesquisas:
@@ -1995,21 +2012,19 @@ def _card_automacao(auto: dict) -> None:
     data_fim = (auto.get("filtros") or {}).get("data_fim", "")
 
     tipo_badge = ("🗺️ Maps" if tipo == "maps" else "🏢 CNPJ")
-    status_cor  = "#00D97E" if ativa else "#4b5a72"
-    status_txt  = "Ativa" if ativa else "Pausada"
+    status_cls = "b-ok" if ativa else "b-warn"
+    status_txt = "Ativa" if ativa else "Pausada"
 
     with st.container():
         st.markdown(
-            f'<div style="background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.07);'
-            f'border-radius:14px;padding:16px 20px;margin-bottom:12px">'
+            f'<div style="background:var(--surface);border:1px solid var(--border);'
+            f'border-radius:var(--radius-md);padding:16px 20px;margin-bottom:12px">'
             f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-            f'<span style="font-weight:700;font-size:15px;color:#f1f5f9">{nome}</span>'
-            f'<span style="background:rgba(0,217,126,0.12);color:#00D97E;font-size:11px;'
-            f'padding:2px 8px;border-radius:99px;font-weight:600">{tipo_badge}</span>'
-            f'<span style="background:rgba(255,255,255,0.06);color:{status_cor};font-size:11px;'
-            f'padding:2px 8px;border-radius:99px">{status_txt}</span>'
+            f'<span style="font-weight:700;font-size:15px;color:var(--text-1)">{nome}</span>'
+            f'<span class="badge b-ok">{tipo_badge}</span>'
+            f'<span class="badge {status_cls}">{status_txt}</span>'
             f'</div>'
-            f'<div style="margin-top:8px;font-size:12px;color:#94a3b8;display:flex;gap:20px;flex-wrap:wrap">'
+            f'<div style="margin-top:8px;font-size:12px;color:var(--text-2);display:flex;gap:20px;flex-wrap:wrap">'
             f'<span>🗓️ {formatar_dias(dias)} às {formatar_horarios(hora)}</span>'
             f'<span>⏭️ {formatar_proxima_execucao(prox)}</span>'
             + (f'<span>🔚 Encerra em {data_fim[8:10]}/{data_fim[5:7]}/{data_fim[:4]}</span>' if data_fim else '')
@@ -2092,9 +2107,9 @@ def _card_automacao(auto: dict) -> None:
                     erro = r.get("erro") or ""
                     st.markdown(
                         f'<div style="font-size:12px;padding:6px 12px;margin-bottom:4px;'
-                        f'background:rgba(255,255,255,0.03);border-radius:8px;color:#94a3b8">'
+                        f'background:var(--surface);border-radius:var(--radius-sm);color:var(--text-2)">'
                         f'{ts} &nbsp;·&nbsp; {lbl} &nbsp;·&nbsp; {leads} leads'
-                        + (f' &nbsp;·&nbsp; <span style="color:#ef4444">{erro[:80]}</span>' if erro else "")
+                        + (f' &nbsp;·&nbsp; <span style="color:#f87171">{erro[:80]}</span>' if erro else "")
                         + "</div>",
                         unsafe_allow_html=True,
                     )
@@ -2109,7 +2124,7 @@ def _card_automacao(auto: dict) -> None:
             planilhas_cfg_e = st.session_state.get("sheets_planilhas", [])
             sheets_ok_e = bool(st.session_state.get("sheets_creds") and planilhas_cfg_e)
 
-            st.markdown("---")
+            st.markdown('<hr class="hr">', unsafe_allow_html=True)
             st.markdown("**✏️ Editar automação**")
 
             # País selector (Maps) — fora do form para ser reativo
@@ -2132,7 +2147,7 @@ def _card_automacao(auto: dict) -> None:
                 st.caption(f"Tipo: **{'Google Maps' if tipo == 'maps' else 'CNPJ / Receita Federal'}** (não pode ser alterado após a criação)")
 
                 if tipo == "maps":
-                    st.markdown("**Busca no Maps**")
+                    st.markdown('<div class="sec">Busca no Maps</div>', unsafe_allow_html=True)
                     _nicho_stored = filtros_e.get("nicho", "")
                     _nicho_idx_e  = NOMES_NICHOS.index(_nicho_stored) if _nicho_stored in NOMES_NICHOS else 0
                     em1, em2 = st.columns([3, 3])
@@ -2164,7 +2179,7 @@ def _card_automacao(auto: dict) -> None:
                         lim_ed_m = st.number_input("Máx. resultados", 10, 500, int(filtros_e.get("limite", 50)), 10, key=f"ed_{aid}_lim_m")
 
                 else:  # cnpj
-                    st.markdown("**Busca por CNPJ**")
+                    st.markdown('<div class="sec">Busca por CNPJ</div>', unsafe_allow_html=True)
                     _cnaes_stored   = filtros_e.get("cnaes") or []
                     _cnaes_default_e = [op for op in _CNAES_OPTS if op.split(" — ")[0].strip() in _cnaes_stored]
                     cnaes_ed = st.multiselect("CNAE(s) *", _CNAES_OPTS, default=_cnaes_default_e,
@@ -2245,7 +2260,7 @@ def _card_automacao(auto: dict) -> None:
                                                           key=f"ed_{aid}_excl_contab")
 
                 # ── Planilha destino ──
-                st.markdown("**Exportação → Google Sheets**")
+                st.markdown('<div class="sec">Exportação → Google Sheets</div>', unsafe_allow_html=True)
                 if not sheets_ok_e:
                     st.warning("Planilha não configurada. Acesse ⚙️ Configurações.", icon="📊")
                     sheet_id_ed  = auto.get("sheet_id", "")
@@ -2262,7 +2277,7 @@ def _card_automacao(auto: dict) -> None:
                     sheet_aba_ed  = plan_sel_e["aba"]
 
                 # ── Agenda ──
-                st.markdown("**Agenda de execução** (fuso: Brasília / BRT)")
+                st.markdown('<div class="sec">Agenda de execução (fuso: Brasília / BRT)</div>', unsafe_allow_html=True)
                 _ag1e, _ag2e = st.columns([3, 4])
                 with _ag1e:
                     dias_ed = st.multiselect("Dias da semana", options=list(range(7)), default=dias,
@@ -2461,7 +2476,7 @@ def pagina_automacoes():
 
                 # ── Filtros condicionais por tipo ─────────────────────────────
                 if tipo_val == "maps":
-                    st.markdown("**Busca Google Maps**")
+                    st.markdown('<div class="sec">Busca Google Maps</div>', unsafe_allow_html=True)
                     c1, c2 = st.columns(2)
                     with c1:
                         nicho_auto = st.selectbox("Nicho *", NOMES_NICHOS, key="an_nicho")
@@ -2524,7 +2539,7 @@ def pagina_automacoes():
                     }
 
                 else:  # cnpj
-                    st.markdown("**Busca por CNPJ**")
+                    st.markdown('<div class="sec">Busca por CNPJ</div>', unsafe_allow_html=True)
                     from modules.cnaes import OPCOES_MULTISELECT
                     cnaes_a = st.multiselect(
                         "CNAE(s) *", OPCOES_MULTISELECT,
@@ -2628,7 +2643,7 @@ def pagina_automacoes():
                     }
 
                 # ── Planilha destino ──────────────────────────────────────────
-                st.markdown("**Exportação → Google Sheets**")
+                st.markdown('<div class="sec">Exportação → Google Sheets</div>', unsafe_allow_html=True)
                 if not sheets_ok:
                     st.warning("Conecte sua conta Google e configure uma planilha em ⚙️ Configurações para ativar a exportação automática.", icon="📊")
                     sheet_id_sel  = ""
@@ -2642,7 +2657,7 @@ def pagina_automacoes():
                     sheet_aba_sel = plan_sel["aba"]
 
                 # ── Agenda ───────────────────────────────────────────────────
-                st.markdown("**Agenda de execução** (fuso: Brasília / BRT)")
+                st.markdown('<div class="sec">Agenda de execução (fuso: Brasília / BRT)</div>', unsafe_allow_html=True)
                 _ag1, _ag2 = st.columns([3, 4])
                 with _ag1:
                     dias_sel = st.multiselect(
@@ -2717,9 +2732,8 @@ def pagina_automacoes():
 
     if not autos:
         st.markdown(
-            '<div style="text-align:center;padding:48px 24px;color:#4b5a72;font-size:14px">'
-            '⚡ Nenhuma automação criada ainda.<br>'
-            '<span style="font-size:12px">Clique em "+ Nova Automação" para agendar sua primeira busca automática.</span>'
+            '<div class="empty-state">⚡ Nenhuma automação criada ainda.'
+            '<span class="empty-hint">Clique em "+ Nova Automação" para agendar sua primeira busca automática.</span>'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -2763,8 +2777,8 @@ def pagina_configuracoes():
                         _plim = int(_pe.get("limit", 900))
                         _pmon = _pe.get("month", "—")
                         _ppct = min(_puse / max(_plim, 1), 1.0)
-                        _pcor = "🔴" if _ppct >= 1.0 else ("🟡" if _ppct >= 0.8 else "🟢")
-                        st.caption(f"{_pcor} {_pmon}: **{_puse}/{_plim}**")
+                        _pcls = "b-err" if _ppct >= 1.0 else ("b-warn" if _ppct >= 0.8 else "b-ok")
+                        st.markdown(f'<span class="badge {_pcls}">{_pmon}: {_puse}/{_plim}</span>', unsafe_allow_html=True)
                     with _pc3:
                         if st.button("🗑️", key=f"del_cfg_mk_{_pi}", help="Remover"):
                             _np = [k for j, k in enumerate(_cfg_pool) if j != _pi]
@@ -2842,8 +2856,8 @@ def pagina_configuracoes():
                     st.session_state["auto_export_enabled"] = auto_new
                     _salvar_planilhas()
 
-                st.markdown("---")
-                st.markdown("**📋 Planilhas configuradas**")
+                st.markdown('<hr class="hr">', unsafe_allow_html=True)
+                st.markdown('<div class="sec">📋 Planilhas configuradas</div>', unsafe_allow_html=True)
 
                 # ── Lista de planilhas cadastradas ──────────────────────────────
                 planilhas_cfg = st.session_state.get("sheets_planilhas", [])
@@ -3030,8 +3044,8 @@ def pagina_configuracoes():
                     _aplim = int(_ape.get("limit", 900))
                     _apmon = _ape.get("month", "—")
                     _appct = min(_apuse / max(_aplim, 1), 1.0)
-                    _apcor = "🔴" if _appct >= 1.0 else ("🟡" if _appct >= 0.8 else "🟢")
-                    st.caption(f"{_apcor} {_apmon}: **{_apuse}/{_aplim}**")
+                    _apcls = "b-err" if _appct >= 1.0 else ("b-warn" if _appct >= 0.8 else "b-ok")
+                    st.markdown(f'<span class="badge {_apcls}">{_apmon}: {_apuse}/{_aplim}</span>', unsafe_allow_html=True)
                 with _apc3:
                     if st.button("🗑️", key=f"del_cfg_ak_{_api}", help="Remover"):
                         _nap = [k for j, k in enumerate(_cfg_apool) if j != _api]
@@ -3124,7 +3138,7 @@ def pagina_admin():
                 (st.success if ok else st.error)(msg)
                 if ok: time.sleep(0.3); st.rerun()
 
-    st.markdown("---")
+    st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
     # ── Lista de usuários ────────────────────────────────────────────────────────
     ok, usuarios, err = listar_usuarios()
@@ -3133,7 +3147,7 @@ def pagina_admin():
         st.error("Não foi possível carregar a lista de usuários.")
         return
     if not usuarios:
-        st.info("Nenhum usuário cadastrado.")
+        st.markdown('<div class="empty-state">👤 Nenhum usuário cadastrado.</div>', unsafe_allow_html=True)
         return
 
     st.markdown(f"**{len(usuarios)} usuário(s) cadastrado(s)**")
@@ -3183,7 +3197,7 @@ def pagina_admin():
                     (st.success if ok4 else st.error)(msg4)
                     if ok4: time.sleep(0.3); st.rerun()
 
-            st.markdown("---")
+            st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
             # ── Créditos CNPJ ──────────────────────────────────────
             st.markdown(f"**🪙 Créditos CNPJ** — saldo atual: **{cdd_bal}**  ·  Mensal: **{monthly_cdd}**/mês")
@@ -3208,7 +3222,7 @@ def pagina_admin():
                     if ok7: time.sleep(0.3); st.rerun()
 
             # ── Créditos Maps ───────────────────────────────────────
-            st.markdown("**🗺️ Créditos Maps**")
+            st.markdown('<div class="sec">🗺️ Créditos Maps</div>', unsafe_allow_html=True)
             maps_toggle = st.toggle("Habilitar créditos Maps (oculta chave própria do usuário)", value=maps_en, key=f"maps_en_{uid}")
             if maps_toggle != maps_en:
                 ok8, msg8 = configurar_creditos_admin(uid, maps_credits_enabled=maps_toggle)
@@ -3219,7 +3233,7 @@ def pagina_admin():
                 # ── Pool de chaves Maps ──────────────────────────────────
                 from modules.auth import obter_pool_maps_usuario_admin
                 _upool = obter_pool_maps_usuario_admin(uid)
-                st.markdown("**Chaves de API Maps** (rodízio automático por mês)")
+                st.markdown('<div class="sec">Chaves de API Maps (rodízio automático por mês)</div>', unsafe_allow_html=True)
                 if _upool:
                     for _ki, _ke in enumerate(_upool):
                         _kc1, _kc2, _kc3 = st.columns([3, 3, 1])
@@ -3230,8 +3244,8 @@ def pagina_admin():
                             _klim = int(_ke.get("limit", 900))
                             _kmon = _ke.get("month", "—")
                             _kpct = min(_kuse / max(_klim, 1), 1.0)
-                            _cor  = "🔴" if _kpct >= 1.0 else ("🟡" if _kpct >= 0.8 else "🟢")
-                            st.caption(f"{_cor} {_kmon}: **{_kuse}/{_klim}**")
+                            _kcls = "b-err" if _kpct >= 1.0 else ("b-warn" if _kpct >= 0.8 else "b-ok")
+                            st.markdown(f'<span class="badge {_kcls}">{_kmon}: {_kuse}/{_klim}</span>', unsafe_allow_html=True)
                         with _kc3:
                             if st.button("🗑️", key=f"del_mk_{uid}_{_ki}", help="Remover chave"):
                                 _np = [k for j, k in enumerate(_upool) if j != _ki]
@@ -3285,7 +3299,7 @@ def pagina_admin():
             # de Maps) quanto na busca Instagram, sempre que o usuário não
             # tiver chave própria. Rodízio mensal por chave — se todas
             # estourarem o limite, a busca continua na última em vez de travar.
-            st.markdown("**🤖 Chaves de API Apify** (rodízio automático por mês — fallback Maps + busca Instagram)")
+            st.markdown('<div class="sec">🤖 Chaves de API Apify (rodízio automático por mês — fallback Maps + busca Instagram)</div>', unsafe_allow_html=True)
             from modules.auth import obter_pool_apify_usuario_admin
             _apool = obter_pool_apify_usuario_admin(uid)
             if _apool:
@@ -3298,8 +3312,8 @@ def pagina_admin():
                         _alim = int(_ae.get("limit", 900))
                         _amon = _ae.get("month", "—")
                         _apct = min(_ause / max(_alim, 1), 1.0)
-                        _acor = "🔴" if _apct >= 1.0 else ("🟡" if _apct >= 0.8 else "🟢")
-                        st.caption(f"{_acor} {_amon}: **{_ause}/{_alim}**")
+                        _acls = "b-err" if _apct >= 1.0 else ("b-warn" if _apct >= 0.8 else "b-ok")
+                        st.markdown(f'<span class="badge {_acls}">{_amon}: {_ause}/{_alim}</span>', unsafe_allow_html=True)
                     with _apc3:
                         if st.button("🗑️", key=f"del_ak_{uid}_{_ai}", help="Remover chave"):
                             _nap = [k for j, k in enumerate(_apool) if j != _ai]
@@ -3342,7 +3356,7 @@ def pagina_admin():
             insta_bal    = int(u.get("instagram_credits", 0) or 0)
             monthly_insta = int(u.get("monthly_instagram_credits", 0) or 0)
 
-            st.markdown("**📸 Créditos Instagram**")
+            st.markdown('<div class="sec">📸 Créditos Instagram</div>', unsafe_allow_html=True)
             insta_toggle = st.toggle(
                 "Habilitar créditos Instagram (usa chave Apify da plataforma acima)",
                 value=insta_en, key=f"insta_en_{uid}",
@@ -3423,7 +3437,7 @@ def _tab_disparo_instancias(user_id: str):
                     st.session_state.pop("_disparo_conectando", None)
                     st.session_state.pop("_disparo_qr_b64", None)
                     st.rerun()
-            st.markdown("---")
+            st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
     with st.expander("➕ Conectar novo número", expanded=not _conectando):
         novo_nome = st.text_input("Nome (só pra identificar internamente)", key="disparo_novo_nome", placeholder="Ex: WhatsApp Comercial")
@@ -3542,14 +3556,14 @@ def _tab_disparo_campanhas(user_id: str):
                         for _, r in df_up.iterrows()
                     ]
 
-        st.markdown("**Ritmo de disparo** (intervalo aleatório entre mensagens, anti-banimento)")
+        st.markdown('<div class="sec">Ritmo de disparo (intervalo aleatório entre mensagens, anti-banimento)</div>', unsafe_allow_html=True)
         rc1, rc2 = st.columns(2)
         with rc1:
             intervalo_min = st.number_input("Mínimo (segundos)", min_value=5, value=30, step=5, key="disparo_int_min")
         with rc2:
             intervalo_max = st.number_input("Máximo (segundos)", min_value=5, value=90, step=5, key="disparo_int_max")
 
-        st.markdown("**Cadência de mensagens**")
+        st.markdown('<div class="sec">Cadência de mensagens</div>', unsafe_allow_html=True)
         for i, step in enumerate(st.session_state["_disparo_steps"]):
             sc1, sc2, sc3 = st.columns([2, 6, 1])
             with sc1:
@@ -3575,7 +3589,7 @@ def _tab_disparo_campanhas(user_id: str):
             st.session_state["_disparo_steps"].append({"atraso_horas": 24.0, "corpo_mensagem": ""})
             st.rerun()
 
-        st.markdown("---")
+        st.markdown('<hr class="hr">', unsafe_allow_html=True)
         if st.button("✅ Criar campanha", type="primary", key="disparo_criar_campanha", use_container_width=True):
             steps = st.session_state["_disparo_steps"]
             if not nome_camp.strip():
