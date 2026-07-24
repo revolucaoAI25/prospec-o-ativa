@@ -1223,7 +1223,11 @@ def pagina_busca():
             if is_brasil and not cidades_lista and not estados_sel:
                 _maps_err = "Informe ao menos uma cidade ou um estado."
             elif is_brasil and cidades_lista and len(estados_sel) > 1:
-                _maps_err = "Ao informar cidade, selecione apenas um estado (a cidade é buscada dentro dele)."
+                _maps_err = (
+                    "Você pode selecionar **vários estados sem informar cidade** (busca ampla), "
+                    "ou informar **cidade(s) dentro de um único estado** — mas não as duas coisas juntas. "
+                    "Remova a cidade ou deixe selecionado apenas um estado."
+                )
             elif not is_brasil and not cidades_lista:
                 _maps_err = "Informe o país ou cidade."
             elif is_custom and not query_custom.strip():
@@ -2399,7 +2403,10 @@ def _card_automacao(auto: dict) -> None:
                     if not _loc_ed:
                         _erros_ed.append("Informe ao menos a cidade ou o estado.")
                     if _cidades_ed_lista and len(estados_ed_sel) > 1:
-                        _erros_ed.append("Ao informar cidade, selecione apenas um estado.")
+                        _erros_ed.append(
+                            "Você pode selecionar vários estados sem informar cidade (busca ampla), "
+                            "ou informar cidade(s) dentro de um único estado — mas não as duas coisas juntas."
+                        )
                     _sub_val_ed = sub_ed if isinstance(sub_ed, str) and sub_ed != "—" else ""
                     novos_filtros_ed = {
                         "query_base": query_ed if _is_custom_e else query_ed,
@@ -2775,7 +2782,10 @@ def pagina_automacoes():
                 if tipo_val == "maps" and not localidade_auto:
                     erros.append("Informe ao menos a cidade ou o estado.")
                 if tipo_val == "maps" and _cidades_auto_lista and len(estados_auto_sel) > 1:
-                    erros.append("Ao informar cidade, selecione apenas um estado.")
+                    erros.append(
+                        "Você pode selecionar vários estados sem informar cidade (busca ampla), "
+                        "ou informar cidade(s) dentro de um único estado — mas não as duas coisas juntas."
+                    )
                 if tipo_val == "cnpj" and not filtros_auto.get("cnaes") and not filtros_auto.get("recuperacao_judicial"):
                     erros.append("Selecione ao menos um CNAE.")
                 if tipo_val == "cnpj" and not filtros_auto.get("uf"):
