@@ -1181,17 +1181,18 @@ def pagina_busca():
                 if pais_sel == "Outro…":
                     cidade = st.text_input("País / Cidade", placeholder="Ex: Dubai, Singapura…", label_visibility="collapsed")
                 elif is_brasil:
-                    cidade = st.text_input("Cidade", placeholder="Ex: São Paulo", label_visibility="collapsed")
+                    cidade = st.text_input("Cidade", placeholder="Ex: São Paulo, Campinas, Santos…", label_visibility="collapsed",
+                                            help="Pode informar mais de uma cidade separando por vírgula. Nesse caso, escolha só um estado.")
                 else:
                     cidade = st.text_input("Cidade / Região (opcional)", placeholder="Ex: Miami, Los Angeles…", label_visibility="collapsed")
             with ce:
                 if is_brasil:
-                    eopts = ["—"] + SIGLAS_ESTADOS
-                    edef = eopts.index("SP") if "SP" in eopts else 0
-                    est_raw = st.selectbox("Estado", eopts, index=edef, label_visibility="collapsed")
-                    estado = "" if est_raw == "—" else est_raw
+                    estados_sel = st.multiselect(
+                        "Estado", SIGLAS_ESTADOS, default=["SP"], label_visibility="collapsed",
+                        help="Selecione vários estados só quando o campo Cidade estiver vazio (busca ampla, sem cidade específica).",
+                    )
                 else:
-                    estado = ""
+                    estados_sel = []
             with cl:
                 lim = st.slider("Resultados", 20, 500, 60, 20, label_visibility="collapsed")
                 st.caption(f"Máx. **{lim}** resultados")
@@ -1216,12 +1217,14 @@ def pagina_busca():
             buscar_btn = st.form_submit_button("🔍 Buscar no Google Maps", disabled=not maps_ok, use_container_width=True, type="primary")
 
         if buscar_btn:
-            cv, ev = cidade.strip(), estado.strip()
+            cidades_lista = [c.strip() for c in cidade.split(",") if c.strip()]
             pais_final = "" if pais_sel in ("Brasil", "Outro…") else pais_sel
             _maps_err = None
-            if is_brasil and not cv and not ev:
-                _maps_err = "Informe ao menos a cidade ou o estado."
-            elif not is_brasil and not cv:
+            if is_brasil and not cidades_lista and not estados_sel:
+                _maps_err = "Informe ao menos uma cidade ou um estado."
+            elif is_brasil and len(cidades_lista) > 1 and len(estados_sel) > 1:
+                _maps_err = "Ao informar mais de uma cidade, selecione apenas um estado (todas as cidades são buscadas dentro dele)."
+            elif not is_brasil and not cidades_lista:
                 _maps_err = "Informe o país ou cidade."
             elif is_custom and not query_custom.strip():
                 _maps_err = "Informe o termo personalizado."
@@ -1241,10 +1244,19 @@ def pagina_busca():
                 nicho_lbl = qbase if is_custom else nicho_sel
                 sub_final = "" if (is_custom or subnicho_sel=="Todos (sem filtro)") else (sub_custom.strip() if subnicho_sel=="✏️ Personalizado..." else subnicho_sel)
                 if is_brasil:
-                    localidade = f"{cv}, {ESTADOS.get(ev,ev)}" if cv and ev else cv or ESTADOS.get(ev, ev)
+                    if cidades_lista:
+                        _estado_nome = ESTADOS.get(estados_sel[0], estados_sel[0]) if estados_sel else ""
+                        localidade = [f"{c}, {_estado_nome}" if _estado_nome else c for c in cidades_lista]
+                    else:
+                        localidade = [ESTADOS.get(e, e) for e in estados_sel]
+                    cv = ", ".join(cidades_lista)
+                    ev = ", ".join(estados_sel)
                 else:
-                    localidade = f"{cv}, {pais_final}" if cv and pais_final else cv or pais_final
-                slug = f"{nicho_lbl[:15]}_{localidade[:15]}".lower().replace(" ","_").replace(",","")
+                    localidade = [f"{c}, {pais_final}" if pais_final else c for c in cidades_lista] if cidades_lista else ([pais_final] if pais_final else [])
+                    cv = ", ".join(cidades_lista)
+                    ev = ""
+                localidade_str = "; ".join(localidade)
+                slug = f"{nicho_lbl[:15]}_{localidade_str[:15]}".lower().replace(" ","_").replace(",","")
                 excl_tels_maps = set()
                 if apenas_novos_maps:
                     from modules.database import buscar_identificadores_existentes
@@ -1348,7 +1360,7 @@ def pagina_busca():
                         )
                     try:
                         from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos_maps
-                        sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade, "maps", len(res))
+                        sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade_str, "maps", len(res))
                         if sid: salvar_leads(sid, res)
                         # Só debita créditos da plataforma se a busca de fato usou
                         # um recurso da plataforma — Google Maps API, ou o fallback
@@ -1428,9 +1440,11 @@ def pagina_busca():
                 # ── Localização ───────────────────────────────────────────────
                 c1, c2 = st.columns(2)
                 with c1:
-                    uf_cdd = st.selectbox("Estado *", SIGLAS_ESTADOS, index=SIGLAS_ESTADOS.index("SP"), key="cdd_uf")
+                    uf_cdd_sel = st.multiselect("Estado *", SIGLAS_ESTADOS, default=["SP"], key="cdd_uf",
+                                                 help="Pode selecionar mais de um estado.")
                 with c2:
-                    mun_cdd = st.text_input("Município (opcional)", placeholder="Ex: São Paulo", key="cdd_mun")
+                    mun_cdd = st.text_input("Município (opcional)", placeholder="Ex: São Paulo, Campinas…", key="cdd_mun",
+                                             help="Pode informar mais de um município separando por vírgula.")
 
                 lim_cdd = st.slider("Máx. resultados", 1, 2000, 300, 50, key="cdd_lim")
 
@@ -1522,8 +1536,12 @@ def pagina_busca():
                     # o status ATIVA por atraso em obrigações fiscais
                     _situacoes_cdd = ["ATIVA", "SUSPENSA", "INAPTA"]
 
+                mun_lista = [m.strip() for m in mun_cdd.split(",") if m.strip()]
+
                 if not cnaes_codigos and not rj_cdd:
                     st.error("Selecione ao menos um CNAE para buscar.")
+                elif not uf_cdd_sel:
+                    st.error("Selecione ao menos um estado.")
                 else:
                     from modules.database import obter_creditos
                     _saldo_cdd = obter_creditos()
@@ -1567,7 +1585,7 @@ def pagina_busca():
                             from modules.database import buscar_identificadores_existentes
                             excl_tels_cdd, excl_cnpjs_cdd = buscar_identificadores_existentes()
 
-                        local_cdd = mun_cdd.strip() or uf_cdd
+                        local_cdd = ", ".join(mun_lista) if mun_lista else ", ".join(uf_cdd_sel)
                         nicho_label = CODIGO_PARA_DESC.get(cnaes_codigos[0], cnaes_codigos[0]) if cnaes_codigos else "CDD"
 
                         bar_cdd = st.progress(0, text="Buscando…")
@@ -1580,8 +1598,8 @@ def pagina_busca():
                             res_cdd = cdd_buscar(
                                 api_key=cdd_key,
                                 cnaes=cnaes_codigos,
-                                uf=uf_cdd,
-                                municipio=mun_cdd.strip(),
+                                uf=uf_cdd_sel,
+                                municipio=mun_lista,
                                 porte=porte_codigos,
                                 matriz_filial=mf_val,
                                 simples_optante=simples_optante,
@@ -1672,7 +1690,7 @@ def pagina_busca():
                         else:
                             try:
                                 from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos
-                                sid = salvar_pesquisa(nicho_label, ", ".join(cnaes_codigos), mun_cdd.strip(), uf_cdd, local_cdd, "receita_federal", len(res_cdd))
+                                sid = salvar_pesquisa(nicho_label, ", ".join(cnaes_codigos), ", ".join(mun_lista), ", ".join(uf_cdd_sel), local_cdd, "receita_federal", len(res_cdd))
                                 if sid: salvar_leads(sid, res_cdd)
                                 debitar_creditos(len(res_cdd))
                             except Exception:
