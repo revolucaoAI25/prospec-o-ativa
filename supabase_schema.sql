@@ -318,6 +318,11 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS disparo_habilitado BOOLEAN NOT NUL
 -- instagram_visible foi adicionado como coluna bem depois da última vez que
 -- essa view foi definida, então listar_usuarios() nunca enxergava o valor
 -- real (sempre caía no default True do .get() no app.py).
+-- IMPORTANTE: CREATE OR REPLACE VIEW só aceita ACRESCENTAR colunas no fim
+-- da lista — reordenar/inserir no meio dá erro 42P16 ("cannot change name
+-- of view column"). Por isso as colunas originais ficam na mesma ordem de
+-- sempre e as duas novas (instagram_visible, disparo_habilitado) vão coladas
+-- no final.
 CREATE OR REPLACE VIEW user_stats AS
 SELECT
     p.id,
@@ -332,14 +337,14 @@ SELECT
     p.credits_renewed_at,
     p.instagram_credits,
     p.instagram_credits_enabled,
-    p.instagram_visible,
     p.apify_api_key_admin,
     p.monthly_instagram_credits,
-    p.disparo_habilitado,
     p.created_at,
     COUNT(DISTINCT s.id)  AS total_searches,
     COUNT(DISTINCT l.id)  AS total_leads,
-    MAX(s.created_at)     AS last_search_at
+    MAX(s.created_at)     AS last_search_at,
+    p.instagram_visible,
+    p.disparo_habilitado
 FROM profiles p
 LEFT JOIN searches s ON s.user_id = p.id
 LEFT JOIN leads    l ON l.user_id = p.id
@@ -347,8 +352,8 @@ GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
          p.maps_credits_enabled, p.maps_api_key_admin,
          p.monthly_cdd_credits, p.monthly_maps_credits,
          p.credits_renewed_at, p.instagram_credits, p.instagram_credits_enabled,
-         p.instagram_visible, p.apify_api_key_admin, p.monthly_instagram_credits,
-         p.disparo_habilitado, p.created_at;
+         p.apify_api_key_admin, p.monthly_instagram_credits, p.created_at,
+         p.instagram_visible, p.disparo_habilitado;
 
 -- ============================================================
 -- Ferramenta de Disparo WhatsApp (admin-only)
