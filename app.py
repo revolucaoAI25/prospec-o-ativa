@@ -3252,11 +3252,16 @@ def pagina_configuracoes():
                     if ok:
                         st.session_state["user_gmaps_key"] = gmk
 
-        st.markdown('<div class="sec">Quando as chaves Google Maps esgotarem o limite mensal</div>', unsafe_allow_html=True)
+    # ── Comportamento geral ao esgotar limites (Maps e/ou Apify) ────────────────────
+    with st.expander("⚙️ Ao esgotar o limite das chaves de API", expanded=False):
+        st.markdown(
+            "Vale pra Google Maps e Apify juntos — sempre que a busca esgotar a chave "
+            "que está usando no momento, o que fazer a seguir:"
+        )
         _pausar_atual = bool(cfg.get("maps_pausar_ao_esgotar", False))
         _opcao_esgotar = st.radio(
             "Comportamento ao esgotar",
-            ["Continuar buscando via Apify (pode gerar cobrança, $4/1.000)", "Pausar a busca"],
+            ["Continuar buscando (pode gerar cobrança de outra API)", "Pausar a busca"],
             index=1 if _pausar_atual else 0,
             key="cfg_maps_pausar", label_visibility="collapsed",
         )
@@ -3267,6 +3272,11 @@ def pagina_configuracoes():
             if ok_pz:
                 time.sleep(0.3)
                 st.rerun()
+        st.caption(
+            "Se você só tem chave de um dos dois configurada e ela esgotar, a busca sempre "
+            "para (não tem pra onde continuar). Isso só muda o comportamento quando há uma "
+            "segunda chave disponível pra continuar buscando."
+        )
 
     # ── Apify API Key ─────────────────────────────────────────────────────────────
     with st.expander("🤖 Apify API Key", expanded=False):

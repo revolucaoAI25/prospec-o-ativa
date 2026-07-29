@@ -90,101 +90,57 @@ def _get_details(place_id: str, api_key: str) -> dict:
     return resp.json().get("result", {})
 
 
-def _coletar_places(
-    nicho_query: str,
-    localidade: str,
-    api_key: str,
-    limite: int,
-    log: Callable,
-    modificadores: list[str],
-) -> list[dict]:
-    """
-    Coleta dados básicos de places via Text Search até atingir o limite.
-    Retorna rating/user_ratings_total diretamente do Text Search (Essentials, grátis).
-
-    Cada variação insere o modificador ANTES da localidade (ex: "advogado em
-    centro de São Paulo, SP"), nunca depois dela — evita frases sem sentido
-    como "advogado em São Paulo, SP centro".
-    """
-    vistos: set[str] = set()
+def _coletar_places_uma_query(query: str, api_key: str, log: Callable) -> list[dict]:
+    """Coleta candidatos de UMA única query de texto (até 3 páginas / ~60 resultados)."""
     places: list[dict] = []
+    page_token = None
+    paginas = 0
 
-    # Embaralha a ordem dos modificadores (menos o "" sem modificador, que
-    # sempre roda primeiro por ser a busca mais confiável). Sem isso, buscas
-    # com poucas variações (limite pequeno) sempre pegavam as mesmas
-    # primeiras da lista (ex: sempre "centro"/"zona norte") e nunca
-    # chegavam nas últimas (ex: "zona oeste") — resultado repetitivo em
-    # buscas sucessivas na mesma cidade.
-    _mods = list(modificadores)
-    if _mods and _mods[0] == "":
-        _resto = _mods[1:]
-        random.shuffle(_resto)
-        _mods = [""] + _resto
-    else:
-        random.shuffle(_mods)
-
-    # Sempre roda ao menos 3 variações de query para cobrir mais resultados
-    max_queries = min(len(_mods), max(3, -(-limite // 60)))
-
-    for mod_idx in range(max_queries):
-        if len(places) >= limite:
+    while paginas < 3:
+        try:
+            data = _text_search(query, api_key, page_token)
+        except requests.HTTPError as e:
+            log(0, 0, f"Erro na busca: {e}")
             break
 
-        mod   = _mods[mod_idx]
-        query = f"{nicho_query} em {mod} de {localidade}" if mod else f"{nicho_query} em {localidade}"
-        log(0, 0, f"Buscando: {query}")
+        status = data.get("status")
+        if status == "ZERO_RESULTS":
+            break
+        if status == "REQUEST_DENIED":
+            raise ValueError(
+                f"API negou o acesso: {data.get('error_message', '')}.\n"
+                "Verifique se a chave está correta e se a Places API está ativada."
+            )
+        if status == "OVER_QUERY_LIMIT":
+            raise QuotaExceededError(
+                "Cota diária da API Google Maps esgotada."
+            )
+        if status == "INVALID_REQUEST":
+            # Geralmente ocorre quando o page_token ainda não está pronto
+            # ou a requisição tem parâmetros inválidos — encerra esta página
+            break
+        if status != "OK":
+            raise RuntimeError(
+                f"Erro da API: {status} — {data.get('error_message', '')}"
+            )
 
-        page_token = None
-        paginas    = 0
+        for place in data.get("results", []):
+            places.append({
+                "place_id":            place["place_id"],
+                "nome":                place.get("name", ""),
+                "endereco":            place.get("formatted_address", ""),
+                "avaliacao":           place.get("rating", ""),
+                "total_avaliacoes":    place.get("user_ratings_total", ""),
+                "status_funcionamento": place.get("business_status", ""),
+            })
 
-        while len(places) < limite and paginas < 3:
-            try:
-                data = _text_search(query, api_key, page_token)
-            except requests.HTTPError as e:
-                log(0, 0, f"Erro na busca: {e}")
-                break
+        page_token = data.get("next_page_token")
+        paginas += 1
+        if not page_token:
+            break
+        time.sleep(2)
 
-            status = data.get("status")
-            if status == "ZERO_RESULTS":
-                break
-            if status == "REQUEST_DENIED":
-                raise ValueError(
-                    f"API negou o acesso: {data.get('error_message', '')}.\n"
-                    "Verifique se a chave está correta e se a Places API está ativada."
-                )
-            if status == "OVER_QUERY_LIMIT":
-                raise QuotaExceededError(
-                    "Cota diária da API Google Maps esgotada."
-                )
-            if status == "INVALID_REQUEST":
-                # Geralmente ocorre quando o page_token ainda não está pronto
-                # ou a requisição tem parâmetros inválidos — encerra esta página
-                break
-            if status != "OK":
-                raise RuntimeError(
-                    f"Erro da API: {status} — {data.get('error_message', '')}"
-                )
-
-            for place in data.get("results", []):
-                pid = place["place_id"]
-                if pid not in vistos:
-                    vistos.add(pid)
-                    places.append({
-                        "place_id":            pid,
-                        "nome":                place.get("name", ""),
-                        "endereco":            place.get("formatted_address", ""),
-                        "avaliacao":           place.get("rating", ""),
-                        "total_avaliacoes":    place.get("user_ratings_total", ""),
-                        "status_funcionamento": place.get("business_status", ""),
-                    })
-
-            page_token = data.get("next_page_token")
-            paginas += 1
-            if not page_token:
-                break
-            time.sleep(2)
-
-    return places[:limite]
+    return places
 
 
 def _buscar_uma_localidade(
@@ -201,7 +157,20 @@ def _buscar_uma_localidade(
     show_phone: bool,
     show_rating: bool,
 ) -> list[dict]:
-    """Busca numa única localidade (cidade+estado, ou só estado). Uso interno de buscar()."""
+    """
+    Busca numa única localidade (cidade+estado, ou só estado). Uso interno de buscar().
+
+    Cada modificador (variação de bairro/zona/região) é tentado UM DE CADA
+    VEZ, resolvendo telefone e checando duplicata do histórico ANTES de
+    decidir se precisa do próximo — em vez de coletar de antemão um "pool"
+    de candidatos com base numa estimativa de quantos seriam necessários
+    (o que fazia buscas recorrentes numa cidade já bastante explorada
+    desistirem cedo demais: os primeiros modificadores sorteados traziam
+    quase só candidatos já vistos, mas como isso só era descoberto DEPOIS
+    de já ter parado de coletar mais, os modificadores seguintes — que
+    poderiam ter leads novos de verdade — nunca chegavam a ser tentados).
+    Agora só passa pro próximo modificador quando o atual não bastou.
+    """
     nicho_query = f"{query_base} {subnicho.lower()}".strip() if subnicho else query_base
 
     # Zonas de bairro (centro, zona norte...) só existem numa cidade — pra
@@ -209,73 +178,88 @@ def _buscar_uma_localidade(
     # interior, capital...), senão vira "centro do estado" sem sentido.
     modificadores = _MODIFICADORES_CIDADE if cidade else _MODIFICADORES_ESTADO
 
-    _max_pool = len(modificadores) * 60
-    if exclude_phones:
-        fetch_limit = min(_max_pool, limite * 3)
+    # Embaralha a ordem (menos o "" sem modificador, que sempre roda primeiro
+    # por ser a busca mais confiável). Sem isso, buscas com poucas variações
+    # sempre pegavam as mesmas primeiras da lista e nunca chegavam nas
+    # últimas — resultado repetitivo em buscas sucessivas na mesma cidade.
+    _mods = list(modificadores)
+    if _mods and _mods[0] == "":
+        _resto = _mods[1:]
+        random.shuffle(_resto)
+        _mods = [""] + _resto
     else:
-        # Busca o dobro para compensar deduplicação entre queries, mínimo 60
-        fetch_limit = min(_max_pool, max(limite * 2, 60))
+        random.shuffle(_mods)
 
     log(0, limite, f"Coletando resultados para: {nicho_query} em {localidade}")
-    places = _coletar_places(nicho_query, localidade, api_key, fetch_limit, log, modificadores)
-    detalhe_label = "Buscando detalhes..." if show_phone else "Montando resultados..."
-    log(0, limite, f"{len(places)} candidatos encontrados. {detalhe_label}")
 
-    resultados = []
-    pulados    = 0
+    resultados: list[dict] = []
+    pulados = 0
+    vistos_pid: set[str] = set()
 
-    for p in places:
+    for mod in _mods:
         if len(resultados) >= limite:
             break
 
-        pid      = p["place_id"]
-        telefone = ""
-        tel_int  = ""
-        site     = ""
-        endereco = p["endereco"]
-        maps_url = f"https://www.google.com/maps/place/?q=place_id:{pid}"
+        query = f"{nicho_query} em {mod} de {localidade}" if mod else f"{nicho_query} em {localidade}"
+        log(len(resultados), limite, f"Buscando: {query}")
+        places_mod = _coletar_places_uma_query(query, api_key, log)
 
-        if show_phone:
-            try:
-                det      = _get_details(pid, api_key)
-                telefone = det.get("formatted_phone_number", "")
-                tel_int  = det.get("international_phone_number", "")
-                site     = det.get("website", "")
-                maps_url = det.get("url") or maps_url
-                endereco = det.get("formatted_address") or endereco
-            except requests.HTTPError:
-                pass
+        for p in places_mod:
+            if len(resultados) >= limite:
+                break
 
-        if exclude_phones and telefone and _apenas_digitos(telefone) in exclude_phones:
-            pulados += 1
+            pid = p["place_id"]
+            if pid in vistos_pid:
+                continue
+            vistos_pid.add(pid)
+
+            telefone = ""
+            tel_int  = ""
+            site     = ""
+            endereco = p["endereco"]
+            maps_url = f"https://www.google.com/maps/place/?q=place_id:{pid}"
+
+            if show_phone:
+                try:
+                    det      = _get_details(pid, api_key)
+                    telefone = det.get("formatted_phone_number", "")
+                    tel_int  = det.get("international_phone_number", "")
+                    site     = det.get("website", "")
+                    maps_url = det.get("url") or maps_url
+                    endereco = det.get("formatted_address") or endereco
+                except requests.HTTPError:
+                    pass
+
+            if exclude_phones and telefone and _apenas_digitos(telefone) in exclude_phones:
+                pulados += 1
+                log(len(resultados), limite,
+                    f"{'Detalhes' if show_phone else 'Resultados'}: "
+                    f"{len(resultados)}/{limite} (pulados {pulados} repetidos)")
+                if show_phone:
+                    time.sleep(0.1)
+                continue
+
+            resultados.append({
+                "nome":                   p["nome"],
+                "telefone":               telefone,
+                "telefone_internacional": tel_int,
+                "endereco":               endereco,
+                "site":                   site,
+                "maps_url":               maps_url,
+                "avaliacao":              p["avaliacao"] if show_rating else "",
+                "total_avaliacoes":       p["total_avaliacoes"] if show_rating else "",
+                "status_funcionamento":   p["status_funcionamento"],
+                "nicho_busca":            nicho,
+                "subnicho_busca":         subnicho,
+                "cidade_busca":           cidade,
+                "estado_busca":           estado,
+                "fonte":                  "Google Maps",
+            })
+
             log(len(resultados), limite,
-                f"{'Detalhes' if show_phone else 'Resultados'}: "
-                f"{len(resultados)}/{limite} (pulados {pulados} repetidos)")
+                f"{'Detalhes' if show_phone else 'Resultados'}: {len(resultados)}/{limite}")
             if show_phone:
                 time.sleep(0.1)
-            continue
-
-        resultados.append({
-            "nome":                   p["nome"],
-            "telefone":               telefone,
-            "telefone_internacional": tel_int,
-            "endereco":               endereco,
-            "site":                   site,
-            "maps_url":               maps_url,
-            "avaliacao":              p["avaliacao"] if show_rating else "",
-            "total_avaliacoes":       p["total_avaliacoes"] if show_rating else "",
-            "status_funcionamento":   p["status_funcionamento"],
-            "nicho_busca":            nicho,
-            "subnicho_busca":         subnicho,
-            "cidade_busca":           cidade,
-            "estado_busca":           estado,
-            "fonte":                  "Google Maps",
-        })
-
-        log(len(resultados), limite,
-            f"{'Detalhes' if show_phone else 'Resultados'}: {len(resultados)}/{limite}")
-        if show_phone:
-            time.sleep(0.1)
 
     sufixo = f" ({pulados} repetidos ignorados)" if pulados else ""
     log(len(resultados), limite, f"'{localidade}': {len(resultados)} resultados{sufixo}.")
