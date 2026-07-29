@@ -257,7 +257,14 @@ def executar_automacao(auto: dict) -> None:
                 try:
                     resultados = maps_buscar(api_key=api_key, **_maps_kwargs)
                 except QuotaExceededError:
-                    if not _apify_permitido_sched:
+                    # Chegar aqui já É o sinal de esgotamento em tempo real,
+                    # independente do que o contador interno achava antes —
+                    # por isso reconsulta a preferência de pausa aqui direto,
+                    # em vez de confiar só no _apify_permitido_sched calculado
+                    # antes da tentativa (que assumia o pool ainda não esgotado).
+                    if _pausar_ao_esgotar_sched:
+                        raise RuntimeError("Cota Google Maps esgotada. Configurado para pausar nesse caso em vez de usar Apify.")
+                    if not _apify_key_sched:
                         raise
                     logger.info("Automação %s: cota Google Maps esgotada, usando Apify", auto_id)
                     _sched_used_apify = True
