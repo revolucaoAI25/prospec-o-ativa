@@ -196,15 +196,31 @@ def executar_automacao(auto: dict) -> None:
         _pool_sched = perfil.get("maps_keys_pool") or []
         _pool_idx   = -1
         api_key     = ""
+        _pool_esgotado = False
         if _pool_sched:
             api_key, _pool_idx, _pool_sched = selecionar_chave_maps(_pool_sched)
+            if not api_key:
+                _pool_esgotado = True
         if not api_key:
             if perfil.get("maps_credits_enabled"):
                 api_key = perfil.get("maps_api_key_admin", "")
             else:
                 api_key = perfil.get("google_maps_api_key", "")
-        if not api_key and not _apify_key_sched:
-            registrar_execucao(auto_id, user_id, "error", erro="Chave Google Maps não configurada")
+            if api_key:
+                _pool_esgotado = False  # achou por outro caminho — não está de fato esgotado
+
+        # Se o pool esgotou de verdade E o usuário escolheu "pausar ao esgotar"
+        # em Configurações, não usa Apify como fallback nesse ciclo — mesmo que
+        # uma chave Apify esteja configurada. Não afeta quem usa Apify-only de
+        # propósito (nunca configurou pool/chave Maps).
+        _pausar_ao_esgotar_sched = bool(perfil.get("maps_pausar_ao_esgotar", False))
+        _apify_permitido_sched = bool(_apify_key_sched) and not (_pool_esgotado and _pausar_ao_esgotar_sched)
+
+        if not api_key and not _apify_permitido_sched:
+            if _pool_esgotado and _pausar_ao_esgotar_sched:
+                registrar_execucao(auto_id, user_id, "error", erro="Chaves Maps esgotadas — pausado nesse ciclo (configurado para não usar Apify).")
+            else:
+                registrar_execucao(auto_id, user_id, "error", erro="Chave Google Maps não configurada")
             _reagendar(auto)
             return
     else:
@@ -241,7 +257,7 @@ def executar_automacao(auto: dict) -> None:
                 try:
                     resultados = maps_buscar(api_key=api_key, **_maps_kwargs)
                 except QuotaExceededError:
-                    if not _apify_key_sched:
+                    if not _apify_permitido_sched:
                         raise
                     logger.info("Automação %s: cota Google Maps esgotada, usando Apify", auto_id)
                     _sched_used_apify = True

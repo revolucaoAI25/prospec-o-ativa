@@ -637,3 +637,7 @@ CREATE POLICY "own_or_admin_dispatch_opt_outs" ON dispatch_opt_outs
 DROP POLICY IF EXISTS "admin_only_message_templates" ON message_templates;
 CREATE POLICY "own_or_admin_message_templates" ON message_templates
     FOR ALL USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- ── Comportamento ao esgotar as chaves Google Maps (fallback Apify ou pausar) ──
+-- Execute no SQL Editor do Supabase se o banco já existia.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS maps_pausar_ao_esgotar BOOLEAN NOT NULL DEFAULT FALSE;

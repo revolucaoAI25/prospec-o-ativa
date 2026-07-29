@@ -1281,6 +1281,8 @@ def pagina_busca():
                     v = min(a / t, 1.0) if t and t > 0 else 0
                     prog.progress(v, text=str(m)[:120])
                 # ── Seleção de chave via pool (se configurado) ────────────────
+                from modules.database import carregar_configuracoes as _carregar_cfg_maps
+                _pausar_ao_esgotar = bool(_carregar_cfg_maps().get("maps_pausar_ao_esgotar", False))
                 _pool_ativo   = []
                 _pool_key_idx = -1
                 _chave_busca  = gmaps_key
@@ -1292,16 +1294,19 @@ def pagina_busca():
                         if _c:
                             _chave_busca = _c
                         elif not _chave_busca:
-                            _chave_busca = ""  # esgotado — tenta fallback Apify abaixo
+                            _chave_busca = ""  # esgotado — tenta fallback Apify abaixo (se não estiver pausando)
 
                 # ── Seleção de chave Apify: pessoal (grátis) > pool do admin
                 # (rodízio por mês; se todas estourarem o limite, continua na
                 # última em vez de bloquear) ──────────────────────────────────
-                _apify_key_resolvido = _apify_maps_key
+                # Se o usuário escolheu "pausar ao esgotar" em Configurações,
+                # nem tenta resolver uma chave Apify — some faltar Maps já é
+                # motivo pra parar, mesmo que Apify esteja configurado.
+                _apify_key_resolvido = "" if _pausar_ao_esgotar else _apify_maps_key
                 _apify_platform_used = False
                 _apify_pool_ativo    = []
                 _apify_pool_idx      = -1
-                if not _apify_key_resolvido:
+                if not _apify_key_resolvido and not _pausar_ao_esgotar:
                     from modules.database import obter_pool_apify_usuario, selecionar_chave_apify
                     _apify_pool_ativo = obter_pool_apify_usuario()
                     if _apify_pool_ativo:
@@ -1315,7 +1320,13 @@ def pagina_busca():
 
                 if not _chave_busca and not _apify_key_resolvido:
                     prog.empty()
-                    st.error("Todas as chaves Maps atingiram o limite mensal e nenhuma chave Apify está disponível como fallback.")
+                    if _pausar_ao_esgotar:
+                        st.error(
+                            "Todas as chaves Maps atingiram o limite mensal. Você optou por pausar a busca "
+                            "nesse caso, em vez de continuar via Apify — mude isso em Configurações se quiser."
+                        )
+                    else:
+                        st.error("Todas as chaves Maps atingiram o limite mensal e nenhuma chave Apify está disponível como fallback.")
                     st.stop()
 
                 _used_apify = False
@@ -1331,6 +1342,8 @@ def pagina_busca():
                                               show_phone=show_phone_maps, show_rating=show_rating_maps)
                         except QuotaExceededError:
                             if not _apify_key_resolvido:
+                                if _pausar_ao_esgotar:
+                                    raise RuntimeError("Cota Google Maps esgotada. Você optou por pausar nesse caso em vez de usar Apify — mude isso em Configurações se quiser.")
                                 raise RuntimeError("Cota Google Maps esgotada e nenhuma chave Apify configurada como fallback.")
                             prog.progress(0, text="Cota Google Maps esgotada. Usando Apify como fallback…")
                             _used_apify = True
@@ -1560,13 +1573,16 @@ def pagina_busca():
                 else:
                     from modules.database import obter_creditos
                     _saldo_cdd = obter_creditos()
-                    if _saldo_cdd < lim_cdd:
-                        st.error(
-                            f"Créditos insuficientes. Você tem **{_saldo_cdd}** créditos "
-                            f"e a busca requer **{lim_cdd}**. "
-                            f"Reduza o limite de resultados ou solicite mais créditos ao administrador."
-                        )
+                    if _saldo_cdd <= 0:
+                        st.error("Você não tem créditos CNPJ disponíveis. Solicite mais ao administrador.")
                     else:
+                        if _saldo_cdd < lim_cdd:
+                            st.info(
+                                f"Você tem **{_saldo_cdd}** créditos — a busca vai considerar esse teto em "
+                                f"vez dos {lim_cdd} solicitados. Você só é cobrado pelos resultados que "
+                                f"realmente vierem (podendo ser menos que isso), nunca pelo valor pedido."
+                            )
+                            lim_cdd = _saldo_cdd
                         # Porte
                         porte_codigos = [op.split(" — ")[0].strip() for op in portes_sel] or None
 
@@ -1609,6 +1625,7 @@ def pagina_busca():
                             bar_cdd.progress(v, text=str(m)[:120])
 
                         _cnae_tipo_map = {"Primário": "principal", "Secundário": "secundario", "Primário ou Secundário": "ambos"}
+                        _cdd_stats = {}
                         try:
                             res_cdd = cdd_buscar(
                                 api_key=cdd_key,
@@ -1638,7 +1655,9 @@ def pagina_busca():
                                 busca_textual=_busca_textual_cdd,
                                 situacoes_cadastrais=_situacoes_cdd,
                                 dedup_raiz=bool(rj_cdd),
+                                stats=_cdd_stats,
                             )
+                            st.session_state["rf_total_api"] = _cdd_stats.get("total_api", 0)
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
 
@@ -1742,6 +1761,15 @@ def pagina_busca():
                 else:
                     st.warning("Exportação automática não realizada: nenhuma planilha principal configurada.")
             st.success(f"✅ **{len(res)}** resultados")
+            _total_api_cdd = st.session_state.get("rf_total_api", 0)
+            if _total_api_cdd:
+                st.caption(
+                    f"📊 Esse filtro tem **{_total_api_cdd}** empresa(s) no total cadastradas na Receita Federal "
+                    "(antes da deduplicação com seu histórico). Se buscas recorrentes com esse mesmo filtro "
+                    "retornarem cada vez menos leads novos, é sinal de que a maior parte já foi extraída — "
+                    "tente considerar CNAE **Secundário** ou **Primário ou Secundário**, incluir mais "
+                    "estados/municípios, ou revisar os filtros de Simples/MEI."
+                )
             _stats(res)
             if gmaps_ok and not st.session_state.get("_rf_enriched"):
                 _n_enr = len(res)
@@ -3223,6 +3251,22 @@ def pagina_configuracoes():
                     (st.success if ok else st.error)(msg)
                     if ok:
                         st.session_state["user_gmaps_key"] = gmk
+
+        st.markdown('<div class="sec">Quando as chaves Google Maps esgotarem o limite mensal</div>', unsafe_allow_html=True)
+        _pausar_atual = bool(cfg.get("maps_pausar_ao_esgotar", False))
+        _opcao_esgotar = st.radio(
+            "Comportamento ao esgotar",
+            ["Continuar buscando via Apify (pode gerar cobrança, $4/1.000)", "Pausar a busca"],
+            index=1 if _pausar_atual else 0,
+            key="cfg_maps_pausar", label_visibility="collapsed",
+        )
+        _novo_pausar = _opcao_esgotar.startswith("Pausar")
+        if _novo_pausar != _pausar_atual:
+            ok_pz, msg_pz = salvar_configuracoes({"maps_pausar_ao_esgotar": _novo_pausar})
+            (st.success if ok_pz else st.error)(msg_pz)
+            if ok_pz:
+                time.sleep(0.3)
+                st.rerun()
 
     # ── Apify API Key ─────────────────────────────────────────────────────────────
     with st.expander("🤖 Apify API Key", expanded=False):

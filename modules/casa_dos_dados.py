@@ -52,6 +52,7 @@ def buscar(
     busca_textual: list | None = None,
     situacoes_cadastrais: list | None = None,
     dedup_raiz: bool = False,
+    stats: dict | None = None,
 ) -> list[dict]:
     """
     Busca empresas na API da Casa dos Dados com filtros avançados.
@@ -79,6 +80,12 @@ def buscar(
         exclude_phones      — set de telefones já salvos (deduplicação)
         exclude_cnpjs       — set de CNPJs já salvos (deduplicação)
         callback            — fn(atual, total, msg) para barra de progresso
+        stats               — dict opcional preenchido in-place com
+                              {"total_api": N} (total de empresas que batem
+                              com o filtro na Receita Federal, segundo a
+                              própria API) — usado pra avisar o usuário
+                              quando um filtro já está saturado, sem quebrar
+                              quem chama buscar() sem passar esse parâmetro.
     """
     resultados: list[dict] = []
     pagina = 1
@@ -189,6 +196,9 @@ def buscar(
                 seen_raiz.add(raiz)
             deduped.append(r)
         resultados = deduped
+
+    if stats is not None:
+        stats["total_api"] = total_api or 0
 
     return resultados[:limite]
 

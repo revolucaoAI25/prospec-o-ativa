@@ -426,7 +426,8 @@ def carregar_configuracoes() -> dict:
         return {}
     try:
         resp = (sb.table("profiles")
-                  .select("google_maps_api_key, google_client_id, google_client_secret, google_sheets_creds, app_url")
+                  .select("google_maps_api_key, google_client_id, google_client_secret, google_sheets_creds, "
+                          "app_url, maps_pausar_ao_esgotar")
                   .eq("id", user_id)
                   .single()
                   .execute())
@@ -451,7 +452,7 @@ def salvar_configuracoes(dados: dict) -> tuple[bool, str]:
         campos = {k: v for k, v in dados.items() if k in (
             "google_maps_api_key", "google_client_id",
             "google_client_secret", "google_sheets_creds", "app_url",
-            "apify_api_key",
+            "apify_api_key", "maps_pausar_ao_esgotar",
         )}
         sb.table("profiles").update(campos).eq("id", user_id).execute()
         return True, "Configurações salvas."
