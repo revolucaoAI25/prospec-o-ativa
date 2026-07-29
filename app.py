@@ -1625,7 +1625,6 @@ def pagina_busca():
                             bar_cdd.progress(v, text=str(m)[:120])
 
                         _cnae_tipo_map = {"Primário": "principal", "Secundário": "secundario", "Primário ou Secundário": "ambos"}
-                        _cdd_stats = {}
                         try:
                             res_cdd = cdd_buscar(
                                 api_key=cdd_key,
@@ -1655,9 +1654,7 @@ def pagina_busca():
                                 busca_textual=_busca_textual_cdd,
                                 situacoes_cadastrais=_situacoes_cdd,
                                 dedup_raiz=bool(rj_cdd),
-                                stats=_cdd_stats,
                             )
-                            st.session_state["rf_total_api"] = _cdd_stats.get("total_api", 0)
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
 
@@ -1761,15 +1758,6 @@ def pagina_busca():
                 else:
                     st.warning("Exportação automática não realizada: nenhuma planilha principal configurada.")
             st.success(f"✅ **{len(res)}** resultados")
-            _total_api_cdd = st.session_state.get("rf_total_api", 0)
-            if _total_api_cdd:
-                st.caption(
-                    f"📊 Esse filtro tem **{_total_api_cdd}** empresa(s) no total cadastradas na Receita Federal "
-                    "(antes da deduplicação com seu histórico). Se buscas recorrentes com esse mesmo filtro "
-                    "retornarem cada vez menos leads novos, é sinal de que a maior parte já foi extraída — "
-                    "tente considerar CNAE **Secundário** ou **Primário ou Secundário**, incluir mais "
-                    "estados/municípios, ou revisar os filtros de Simples/MEI."
-                )
             _stats(res)
             if gmaps_ok and not st.session_state.get("_rf_enriched"):
                 _n_enr = len(res)
