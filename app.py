@@ -1701,43 +1701,82 @@ def pagina_busca():
                             res_cdd = remover_duplicados_lote(res_cdd, _dedup_cnpjs, _dedup_tels)
 
                             if enriquecer_maps_cdd and res_cdd:
-                                # Seleciona a chave do pool com rodízio (mesma lógica da aba Maps),
-                                # em vez de sempre usar a primeira chave do pool sem registrar uso.
-                                _enr_pool, _enr_pool_idx, _enr_key = [], -1, gmaps_key
-                                if _maps_credits_enabled:
-                                    from modules.auth import obter_pool_maps_usuario_admin
-                                    from modules.database import selecionar_chave_maps
-                                    _enr_pool = obter_pool_maps_usuario_admin(
-                                        st.session_state.get("user", {}).get("id", "")
+                                # Mesma lógica de seleção/rotação/pausa da busca direta do
+                                # Google Maps: usa o pool do usuário com limite (visível +
+                                # teto oculto de Text Search) e só passa do limite quando a
+                                # preferência "Ao esgotar o limite das chaves de API" estiver
+                                # configurada pra continuar buscando. Sem isso, o enriquecimento
+                                # rodava sem registrar uso nenhum na maioria dos casos — uma
+                                # brecha real de cota que passava despercebida.
+                                from modules.database import (
+                                    carregar_configuracoes as _carregar_cfg_enr,
+                                    obter_pool_maps_usuario, selecionar_chave_maps,
+                                )
+                                _pausar_ao_esgotar_enr = bool(_carregar_cfg_enr().get("maps_pausar_ao_esgotar", False))
+                                _enr_pool      = obter_pool_maps_usuario()
+                                _enr_pool_idx  = -1
+                                _enr_key       = gmaps_key
+                                _enr_bloqueado = False
+                                if _enr_pool:
+                                    _c, _enr_pool_idx, _enr_pool = selecionar_chave_maps(_enr_pool)
+                                    if _c:
+                                        _enr_key = _c
+                                    elif _pausar_ao_esgotar_enr:
+                                        _enr_bloqueado = True
+                                    else:
+                                        _c2, _enr_pool_idx, _enr_pool = selecionar_chave_maps(_enr_pool, permitir_overflow=True)
+                                        if _c2:
+                                            _enr_key = _c2
+
+                                if _enr_bloqueado:
+                                    st.error(
+                                        "Todas as chaves Google Maps atingiram o limite mensal. Você "
+                                        "optou por pausar a busca nesse caso — mude isso em Configurações "
+                                        "se quiser continuar além da cota. Os leads de CNPJ já buscados "
+                                        "foram mantidos, só o enriquecimento com Maps não rodou."
                                     )
-                                    if _enr_pool:
-                                        _c, _enr_pool_idx, _enr_pool = selecionar_chave_maps(_enr_pool)
-                                        if _c:
-                                            _enr_key = _c
-                                _bar_enr2 = st.progress(0, text="Enriquecendo com Google Maps…")
-                                def _cb_enr2(a, t, m): _bar_enr2.progress(min(a / max(t, 1), 1.0), text=str(m)[:100])
-                                from modules.google_maps import enriquecer_com_maps
-                                enriquecer_com_maps(res_cdd, _enr_key, _cb_enr2)
-                                _bar_enr2.empty()
-                                st.session_state["_rf_enriched"] = True
-                                if _enr_pool_idx >= 0:
-                                    from modules.database import registrar_uso_maps, salvar_pool_maps_por_user_id
-                                    salvar_pool_maps_por_user_id(
-                                        st.session_state.get("user", {}).get("id", ""),
-                                        registrar_uso_maps(_enr_pool, _enr_pool_idx, len(res_cdd)),
-                                    )
-                                if _maps_credits_enabled:
-                                    from modules.database import debitar_creditos_maps
-                                    debitar_creditos_maps(len(res_cdd))
-                                # Remove duplicados que só ficaram visíveis DEPOIS do
-                                # enriquecimento (o Maps pode preencher um telefone que bate
-                                # com outro lead já salvo ou já presente neste lote). Usa sets
-                                # NOVOS (só com o histórico) — reaproveitar os sets da passada
-                                # anterior faria cada lead "bater" com o próprio CNPJ/telefone
-                                # que ele mesmo registrou ali, zerando o resultado inteiro.
-                                _dedup_cnpjs = set(excl_cnpjs_cdd) if apenas_novos_cdd else set()
-                                _dedup_tels  = set(excl_tels_cdd) if apenas_novos_cdd else set()
-                                res_cdd = remover_duplicados_lote(res_cdd, _dedup_cnpjs, _dedup_tels)
+                                    st.session_state.pop("_rf_enriched", None)
+                                elif not _enr_key:
+                                    st.error("Nenhuma chave Google Maps configurada para enriquecimento.")
+                                    st.session_state.pop("_rf_enriched", None)
+                                else:
+                                    _bar_enr2 = st.progress(0, text="Enriquecendo com Google Maps…")
+                                    def _cb_enr2(a, t, m): _bar_enr2.progress(min(a / max(t, 1), 1.0), text=str(m)[:100])
+                                    from modules.google_maps import enriquecer_com_maps, QuotaExceededError
+                                    _enr_stats: dict = {}
+                                    try:
+                                        enriquecer_com_maps(res_cdd, _enr_key, _cb_enr2, stats=_enr_stats)
+                                    except QuotaExceededError:
+                                        st.warning(
+                                            "Cota Google Maps esgotada durante o enriquecimento — parte "
+                                            "das empresas pode ter ficado sem dados do Maps. Os leads de "
+                                            "CNPJ já buscados foram mantidos normalmente."
+                                        )
+                                    finally:
+                                        _bar_enr2.empty()
+                                    st.session_state["_rf_enriched"] = True
+                                    if _enr_pool_idx >= 0:
+                                        from modules.database import registrar_uso_maps, salvar_pool_maps_por_user_id
+                                        salvar_pool_maps_por_user_id(
+                                            st.session_state.get("user", {}).get("id", ""),
+                                            registrar_uso_maps(
+                                                _enr_pool, _enr_pool_idx,
+                                                _enr_stats.get("contact_data_calls", len(res_cdd)),
+                                                _enr_stats.get("text_search_calls", 0),
+                                            ),
+                                        )
+                                    if _maps_credits_enabled:
+                                        from modules.database import debitar_creditos_maps
+                                        debitar_creditos_maps(len(res_cdd))
+                                    # Remove duplicados que só ficaram visíveis DEPOIS do
+                                    # enriquecimento (o Maps pode preencher um telefone que bate
+                                    # com outro lead já salvo ou já presente neste lote). Usa sets
+                                    # NOVOS (só com o histórico) — reaproveitar os sets da passada
+                                    # anterior faria cada lead "bater" com o próprio CNPJ/telefone
+                                    # que ele mesmo registrou ali, zerando o resultado inteiro.
+                                    _dedup_cnpjs = set(excl_cnpjs_cdd) if apenas_novos_cdd else set()
+                                    _dedup_tels  = set(excl_tels_cdd) if apenas_novos_cdd else set()
+                                    res_cdd = remover_duplicados_lote(res_cdd, _dedup_cnpjs, _dedup_tels)
                             else:
                                 st.session_state.pop("_rf_enriched", None)
                             st.session_state["rf_res"] = res_cdd
@@ -1818,19 +1857,77 @@ def pagina_busca():
                     if _cred_ok:
                         _bar_enr = st.progress(0, text="Iniciando enriquecimento…")
                         def _cb_enr(a, t, m): _bar_enr.progress(min(a / max(t, 1), 1.0), text=str(m)[:100])
-                        from modules.google_maps import enriquecer_com_maps
-                        try:
-                            enriquecer_com_maps(res, gmaps_key, _cb_enr)
-                            st.session_state["rf_res"] = res
-                            st.session_state["_rf_enriched"] = True
-                            if _maps_credits_enabled:
-                                from modules.database import debitar_creditos_maps
-                                debitar_creditos_maps(_n_enr)
+                        # Mesma lógica de seleção/rotação/pausa da busca direta do Google
+                        # Maps (ver bloco de busca CNPJ acima) — esse botão de enriquecimento
+                        # manual usava a chave direta sem registrar uso nenhum.
+                        from modules.database import (
+                            carregar_configuracoes as _carregar_cfg_enr2,
+                            obter_pool_maps_usuario, selecionar_chave_maps,
+                        )
+                        _pausar_ao_esgotar_enr2 = bool(_carregar_cfg_enr2().get("maps_pausar_ao_esgotar", False))
+                        _enr2_pool      = obter_pool_maps_usuario()
+                        _enr2_pool_idx  = -1
+                        _enr2_key       = gmaps_key
+                        _enr2_bloqueado = False
+                        if _enr2_pool:
+                            _c, _enr2_pool_idx, _enr2_pool = selecionar_chave_maps(_enr2_pool)
+                            if _c:
+                                _enr2_key = _c
+                            elif _pausar_ao_esgotar_enr2:
+                                _enr2_bloqueado = True
+                            else:
+                                _c2, _enr2_pool_idx, _enr2_pool = selecionar_chave_maps(_enr2_pool, permitir_overflow=True)
+                                if _c2:
+                                    _enr2_key = _c2
+
+                        if _enr2_bloqueado:
                             _bar_enr.empty()
-                            st.rerun()
-                        except Exception as _enr_e:
+                            st.error(
+                                "Todas as chaves Google Maps atingiram o limite mensal. Você "
+                                "optou por pausar a busca nesse caso — mude isso em Configurações "
+                                "se quiser continuar além da cota."
+                            )
+                        elif not _enr2_key:
                             _bar_enr.empty()
-                            st.error(f"Erro no enriquecimento: {_enr_e}")
+                            st.error("Nenhuma chave Google Maps configurada para enriquecimento.")
+                        else:
+                            from modules.google_maps import enriquecer_com_maps, QuotaExceededError
+                            _enr2_stats: dict = {}
+                            _enr2_erro = None
+                            try:
+                                enriquecer_com_maps(res, _enr2_key, _cb_enr, stats=_enr2_stats)
+                            except QuotaExceededError:
+                                _enr2_erro = "quota"
+                            except Exception as _enr_e:
+                                _enr2_erro = str(_enr_e)
+                            _bar_enr.empty()
+
+                            if _enr2_pool_idx >= 0:
+                                from modules.database import registrar_uso_maps, salvar_pool_maps_por_user_id
+                                salvar_pool_maps_por_user_id(
+                                    st.session_state.get("user", {}).get("id", ""),
+                                    registrar_uso_maps(
+                                        _enr2_pool, _enr2_pool_idx,
+                                        _enr2_stats.get("contact_data_calls", _n_enr),
+                                        _enr2_stats.get("text_search_calls", 0),
+                                    ),
+                                )
+
+                            if _enr2_erro and _enr2_erro != "quota":
+                                st.error(f"Erro no enriquecimento: {_enr2_erro}")
+                            else:
+                                st.session_state["rf_res"] = res
+                                st.session_state["_rf_enriched"] = True
+                                if _maps_credits_enabled:
+                                    from modules.database import debitar_creditos_maps
+                                    debitar_creditos_maps(_n_enr)
+                                if _enr2_erro == "quota":
+                                    st.warning(
+                                        "Cota Google Maps esgotada durante o enriquecimento — parte "
+                                        "das empresas pode ter ficado sem dados do Maps. O que já foi "
+                                        "enriquecido foi mantido."
+                                    )
+                                st.rerun()
             _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
 

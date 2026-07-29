@@ -406,12 +406,21 @@ def enriquecer_com_maps(
     progress_callback: Callable = None,
     show_phone: bool = True,
     show_rating: bool = True,
+    stats: dict | None = None,
 ) -> list[dict]:
     """
     Enriquece cada empresa com dados do Google Maps.
     show_phone=True  → busca telefone/site via Place Details (Contact Data)
     show_rating=True → inclui avaliação (vem do Text Search, sempre gratuito)
     Não sobrescreve campos já preenchidos pelo CNPJ.
+
+    stats — dict opcional preenchido in-place com {"text_search_calls": N,
+    "contact_data_calls": M} — mesma finalidade do stats de buscar(), usado
+    pra registrar uso/cota da chave com a mesma lógica da busca direta.
+
+    Levanta QuotaExceededError/ValueError se a cota esgotar ou a chave for
+    negada (mesmo sinal usado por buscar()) — interrompe o enriquecimento
+    em vez de engolir o erro e seguir tentando o resto da lista sem avisar.
     """
     total = len(resultados)
 
@@ -430,11 +439,25 @@ def enriquecer_com_maps(
             continue
 
         query = f"{nome} {municipio} {uf}".strip()
+        if stats is not None:
+            stats["text_search_calls"] = stats.get("text_search_calls", 0) + 1
         try:
             resp = _text_search(query, api_key)
-            if resp.get("status") != "OK" or not resp.get("results"):
-                continue
+        except requests.HTTPError:
+            continue
 
+        status = resp.get("status")
+        if status == "REQUEST_DENIED":
+            raise ValueError(
+                f"API negou o acesso: {resp.get('error_message', '')}.\n"
+                "Verifique se a chave está correta e se a Places API está ativada."
+            )
+        if status == "OVER_QUERY_LIMIT":
+            raise QuotaExceededError("Cota diária da API Google Maps esgotada.")
+        if status != "OK" or not resp.get("results"):
+            continue
+
+        try:
             place = resp["results"][0]
             pid   = place.get("place_id", "")
 
@@ -451,6 +474,8 @@ def enriquecer_com_maps(
 
             # Place Details: apenas se show_phone=True
             if pid and show_phone:
+                if stats is not None:
+                    stats["contact_data_calls"] = stats.get("contact_data_calls", 0) + 1
                 det = _get_details(pid, api_key)
                 if det.get("url"):
                     r["maps_url"] = det["url"]
@@ -465,7 +490,7 @@ def enriquecer_com_maps(
                 if det.get("website") and not r.get("site"):
                     r["site"] = det["website"]
 
-        except Exception:
+        except requests.HTTPError:
             pass
 
         time.sleep(0.05)
