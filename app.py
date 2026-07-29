@@ -1018,12 +1018,15 @@ def _export_to_planilha(rows, planilha: dict):
 def _dl_buttons(rows, prefix, sheets_auth):
     ts = int(time.time())
 
-    # Executa exportação pendente FORA do popover (evita contexto fechado)
-    _req_id = st.session_state.pop(f"_exp_req_{prefix}", None)
-    if _req_id:
-        _p = next((p for p in st.session_state.get("sheets_planilhas", []) if p["id"] == _req_id), None)
-        if _p:
-            _export_to_planilha(rows, _p)
+    # Executa exportação pendente FORA do popover (evita contexto fechado).
+    # Usa o ÍNDICE na lista (não o "id" da planilha) porque duas configurações
+    # podem apontar pra mesma planilha do Google em abas diferentes — nesse
+    # caso o "id" se repete e não identifica sozinho qual entrada foi clicada.
+    _req_idx = st.session_state.pop(f"_exp_req_{prefix}", None)
+    if _req_idx is not None:
+        _pl = st.session_state.get("sheets_planilhas", [])
+        if 0 <= _req_idx < len(_pl):
+            _export_to_planilha(rows, _pl[_req_idx])
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -1039,12 +1042,12 @@ def _dl_buttons(rows, prefix, sheets_auth):
             if sheets_auth and planilhas_cfg:
                 with st.popover("📊 Google Sheets", use_container_width=True):
                     st.markdown("**Exportar para:**")
-                    for p in planilhas_cfg:
+                    for _pi, p in enumerate(planilhas_cfg):
                         badge = " ⭐" if p.get("padrao") else ""
                         lbl = f"{p['nome']}{badge} → {p['aba']} ({p.get('modo','substituir')})"
-                        if st.button(lbl, key=f"exp_{p['id'][:8]}_{prefix}", use_container_width=True):
-                            # Guarda flag — exportação roda fora do popover no próximo render
-                            st.session_state[f"_exp_req_{prefix}"] = p["id"]
+                        if st.button(lbl, key=f"exp_{_pi}_{prefix}", use_container_width=True):
+                            # Guarda o índice — exportação roda fora do popover no próximo render
+                            st.session_state[f"_exp_req_{prefix}"] = _pi
                             st.rerun()
             elif sheets_auth:
                 st.button("📊 Google Sheets", use_container_width=True, disabled=True,
@@ -2151,12 +2154,14 @@ def pagina_historico():
             slug = f"{nicho[:12]}_{loc[:12]}".lower().replace(" ","_").replace(",","")
             _planilhas_h = st.session_state.get("sheets_planilhas", [])
 
-            # Executa exportação pendente fora do popover
+            # Executa exportação pendente fora do popover. Usa o ÍNDICE na
+            # lista (não o "id" da planilha) porque duas configurações podem
+            # apontar pra mesma planilha do Google em abas diferentes — nesse
+            # caso o "id" se repete e não identifica sozinho qual entrada foi
+            # clicada (sempre resolvia pra primeira da lista).
             _hreq = st.session_state.pop(f"_hexp_req_{p['id']}", None)
-            if _hreq and leads:
-                _hp = next((x for x in _planilhas_h if x["id"] == _hreq), None)
-                if _hp:
-                    _export_to_planilha(leads, _hp)
+            if _hreq is not None and leads and 0 <= _hreq < len(_planilhas_h):
+                _export_to_planilha(leads, _planilhas_h[_hreq])
 
             c1, c2, c3 = st.columns(3)
             with c1: st.download_button("⬇️ Excel",_xlsx(leads),f"{slug}_{ts}.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",use_container_width=True,key=f"xl_{p['id']}")
@@ -2169,7 +2174,7 @@ def pagina_historico():
                             _badge = " ⭐" if _ph.get("padrao") else ""
                             _lbl = f"{_ph['nome']}{_badge} → {_ph['aba']} ({_ph.get('modo','substituir')})"
                             if st.button(_lbl, key=f"hexp_{_pi}_{_ph['id']}_{p['id']}", use_container_width=True):
-                                st.session_state[f"_hexp_req_{p['id']}"] = _ph["id"]
+                                st.session_state[f"_hexp_req_{p['id']}"] = _pi
                                 st.rerun()
                 else:
                     sheets_tip = "Conecte sua conta Google em ⚙️ Configurações." if "sheets_creds" not in st.session_state else "Adicione uma planilha em ⚙️ Configurações."
@@ -2479,8 +2484,15 @@ def _card_automacao(auto: dict) -> None:
                     sheet_aba_ed = auto.get("sheet_aba", "Leads")
                 else:
                     _pln_nomes_e  = [f"{p['nome']} → {p['aba']}" for p in planilhas_cfg_e]
-                    _cur_sheet_id = auto.get("sheet_id", "")
-                    _cur_idx_e    = next((i for i, p in enumerate(planilhas_cfg_e) if p["id"] == _cur_sheet_id), 0)
+                    _cur_sheet_id  = auto.get("sheet_id", "")
+                    _cur_sheet_aba = auto.get("sheet_aba", "")
+                    # Casa por id + aba — o mesmo id de planilha pode aparecer em
+                    # várias entradas (abas diferentes da mesma planilha); só o id
+                    # não identifica qual delas estava selecionada.
+                    _cur_idx_e = next(
+                        (i for i, p in enumerate(planilhas_cfg_e) if p["id"] == _cur_sheet_id and p["aba"] == _cur_sheet_aba),
+                        next((i for i, p in enumerate(planilhas_cfg_e) if p["id"] == _cur_sheet_id), 0),
+                    )
                     plan_idx_e    = st.selectbox("Planilha destino", range(len(_pln_nomes_e)),
                                                   format_func=lambda i: _pln_nomes_e[i],
                                                   index=_cur_idx_e, key=f"ed_{aid}_plan")
