@@ -1283,17 +1283,12 @@ def pagina_busca():
                 # ── Seleção de chave via pool (se configurado) ────────────────
                 from modules.database import carregar_configuracoes as _carregar_cfg_maps
                 _pausar_ao_esgotar = bool(_carregar_cfg_maps().get("maps_pausar_ao_esgotar", False))
+
+                from modules.database import obter_pool_maps_usuario, selecionar_chave_maps
                 _pool_ativo   = []
                 _pool_key_idx = -1
                 _chave_busca  = gmaps_key
-                # Só True quando TODAS as chaves do pool Maps estouraram o limite
-                # mensal — trocar de uma chave pra outra dentro do pool não conta
-                # como "esgotado" (isso é rodízio normal, resolvido dentro de
-                # selecionar_chave_maps). Também não conta quem simplesmente nunca
-                # configurou chave Maps (Apify-only por opção, não por esgotamento).
-                _pool_esgotado = False
                 if gmaps_ok:
-                    from modules.database import obter_pool_maps_usuario, selecionar_chave_maps
                     _pool_ativo = obter_pool_maps_usuario()
                     if _pool_ativo:
                         _c, _pool_key_idx, _pool_ativo = selecionar_chave_maps(_pool_ativo)
@@ -1301,24 +1296,17 @@ def pagina_busca():
                             _chave_busca = _c
                         elif not _chave_busca:
                             _chave_busca = ""
-                            _pool_esgotado = True
 
-                # ── Seleção de chave Apify: pessoal (grátis) > pool do admin
-                # (rodízio por mês; se todas estourarem o limite, continua na
-                # última em vez de bloquear) ──────────────────────────────────
-                # Apify só fica indisponível como fallback quando o Maps REALMENTE
-                # esgotou (pool todo estourado) e o usuário escolheu pausar nesse
-                # caso — nunca por causa de quem não tinha chave Maps configurada.
-                _apify_bloqueado_por_pausa = _pool_esgotado and _pausar_ao_esgotar
-                _apify_key_resolvido = "" if _apify_bloqueado_por_pausa else _apify_maps_key
+                # ── Seleção de chave Apify: pessoal (grátis) > pool do admin ──────
+                from modules.database import obter_pool_apify_usuario, selecionar_chave_apify
+                _apify_key_resolvido = _apify_maps_key
                 _apify_platform_used = False
                 _apify_pool_ativo    = []
                 _apify_pool_idx      = -1
-                if not _apify_key_resolvido and not _apify_bloqueado_por_pausa:
-                    from modules.database import obter_pool_apify_usuario, selecionar_chave_apify
+                if not _apify_key_resolvido:
                     _apify_pool_ativo = obter_pool_apify_usuario()
                     if _apify_pool_ativo:
-                        _ac, _apify_pool_idx, _apify_pool_ativo = selecionar_chave_apify(_apify_pool_ativo)
+                        _ac, _apify_pool_idx, _apify_pool_ativo, _ = selecionar_chave_apify(_apify_pool_ativo)
                         if _ac:
                             _apify_key_resolvido = _ac
                             # Só cobra créditos da plataforma se a conta for
@@ -1326,19 +1314,40 @@ def pagina_busca():
                             # usuário quem configurou, o uso é dele, de graça.
                             _apify_platform_used = _maps_credits_enabled
 
+                # ── Decisão pausar/continuar: só entra em jogo quando NEM Maps
+                # NEM Apify têm chave dentro do limite normal — trocar de recurso
+                # (Maps → Apify, ou entre chaves do mesmo pool) dentro dos limites
+                # configurados é rodízio normal e não passa por aqui.
                 if not _chave_busca and not _apify_key_resolvido:
-                    prog.empty()
-                    if _apify_bloqueado_por_pausa:
-                        st.error(
-                            "Todas as chaves Maps atingiram o limite mensal. Você optou por pausar a busca "
-                            "nesse caso, em vez de continuar via Apify — mude isso em Configurações se quiser."
-                        )
-                    else:
-                        st.error("Todas as chaves Maps atingiram o limite mensal e nenhuma chave Apify está disponível como fallback.")
-                    st.stop()
+                    if not _pausar_ao_esgotar:
+                        # "Continuar buscando": prefere Apify (mais barato) além do
+                        # limite; se não tiver Apify, continua pelo próprio Maps
+                        # além do limite (o único recurso que sobrou).
+                        if _apify_pool_ativo:
+                            _ac, _apify_pool_idx, _apify_pool_ativo, _ = selecionar_chave_apify(_apify_pool_ativo, permitir_overflow=True)
+                            if _ac:
+                                _apify_key_resolvido = _ac
+                                _apify_platform_used = _maps_credits_enabled
+                        if not _apify_key_resolvido and _pool_ativo:
+                            _c2, _pool_key_idx, _pool_ativo = selecionar_chave_maps(_pool_ativo, permitir_overflow=True)
+                            if _c2:
+                                _chave_busca = _c2
+
+                    if not _chave_busca and not _apify_key_resolvido:
+                        prog.empty()
+                        if _pausar_ao_esgotar:
+                            st.error(
+                                "Todas as chaves Maps e Apify configuradas atingiram o limite mensal. Você "
+                                "optou por pausar a busca nesse caso — mude isso em Configurações se quiser "
+                                "continuar além da cota."
+                            )
+                        else:
+                            st.error("Nenhuma chave Google Maps ou Apify configurada — não há como buscar.")
+                        st.stop()
 
                 _used_apify = False
                 _excl = excl_tels_maps if apenas_novos_maps else None
+                _maps_stats: dict = {}
                 try:
                     if _chave_busca:
                         from modules.google_maps import buscar as maps_buscar, QuotaExceededError
@@ -1347,14 +1356,20 @@ def pagina_busca():
                                               api_key=_chave_busca, nicho=nicho_lbl, subnicho=sub_final,
                                               cidade=cv, estado=ev, progress_callback=_cb,
                                               exclude_phones=_excl,
-                                              show_phone=show_phone_maps, show_rating=show_rating_maps)
+                                              show_phone=show_phone_maps, show_rating=show_rating_maps,
+                                              stats=_maps_stats)
                         except QuotaExceededError:
-                            # Chegar aqui já É o sinal de esgotamento em tempo real,
-                            # independente do que o contador interno achava antes —
-                            # por isso reconsulta a preferência de pausa aqui direto.
-                            if _pausar_ao_esgotar:
-                                raise RuntimeError("Cota Google Maps esgotada. Você optou por pausar nesse caso em vez de usar Apify — mude isso em Configurações se quiser.")
+                            # Chegar aqui já É o sinal de esgotamento em tempo real —
+                            # se ainda não tem Apify resolvido e a preferência é
+                            # continuar, tenta de novo permitindo passar do limite.
+                            if not _apify_key_resolvido and not _pausar_ao_esgotar and _apify_pool_ativo:
+                                _ac, _apify_pool_idx, _apify_pool_ativo, _ = selecionar_chave_apify(_apify_pool_ativo, permitir_overflow=True)
+                                if _ac:
+                                    _apify_key_resolvido = _ac
+                                    _apify_platform_used = _maps_credits_enabled
                             if not _apify_key_resolvido:
+                                if _pausar_ao_esgotar:
+                                    raise RuntimeError("Cota Google Maps esgotada. Você optou por pausar nesse caso em vez de usar Apify — mude isso em Configurações se quiser.")
                                 raise RuntimeError("Cota Google Maps esgotada e nenhuma chave Apify configurada como fallback.")
                             prog.progress(0, text="Cota Google Maps esgotada. Usando Apify como fallback…")
                             _used_apify = True
@@ -1383,11 +1398,13 @@ def pagina_busca():
                     logger.exception("Erro na busca Google Maps")
                     prog.empty(); st.error("Ocorreu um erro inesperado na busca. Tente novamente."); st.session_state["maps_res"] = []
                 else:
-                    # Registra uso no pool Maps (somente se usou Google Maps)
+                    # Registra uso no pool Maps (somente se usou Google Maps) —
+                    # inclui o contador oculto de chamadas de Text Search, além
+                    # do contador visível (leads retornados).
                     if not _used_apify and _pool_ativo and _pool_key_idx >= 0:
                         from modules.database import registrar_uso_maps, salvar_pool_maps_usuario
                         salvar_pool_maps_usuario(
-                            registrar_uso_maps(_pool_ativo, _pool_key_idx, len(res))
+                            registrar_uso_maps(_pool_ativo, _pool_key_idx, len(res), _maps_stats.get("text_search_calls", 0))
                         )
                     # Registra uso no pool Apify sempre que uma chave do pool foi usada
                     # (independente de ser cobrado ou não — o contador é o que faz o
@@ -1832,7 +1849,13 @@ def pagina_busca():
             _apify_pool_ativo = obter_pool_apify_usuario()
             _apify_key = ""
             if _apify_pool_ativo:
-                _apify_key, _apify_pool_idx, _apify_pool_ativo = selecionar_chave_apify(_apify_pool_ativo)
+                _apify_key, _apify_pool_idx, _apify_pool_ativo, _apify_esgotado_insta = selecionar_chave_apify(_apify_pool_ativo)
+                if not _apify_key and _apify_esgotado_insta:
+                    # Mesma preferência geral de pausar/continuar ao esgotar as
+                    # chaves — aqui só existe Apify (Instagram não usa Maps).
+                    from modules.database import carregar_configuracoes as _carregar_cfg_insta
+                    if not bool(_carregar_cfg_insta().get("maps_pausar_ao_esgotar", False)):
+                        _apify_key, _apify_pool_idx, _apify_pool_ativo, _ = selecionar_chave_apify(_apify_pool_ativo, permitir_overflow=True)
             if not _apify_key:
                 _apify_key = _s("APIFY_API_KEY")
             _usar_creditos_insta = _insta_credits_en

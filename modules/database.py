@@ -492,11 +492,29 @@ def salvar_pool_maps_usuario(pool: list[dict]) -> bool:
         return False
 
 
-def selecionar_chave_maps(pool: list[dict]) -> tuple[str, int, list[dict]]:
+# Teto oculto de chamadas de Text Search por chave/mês — não é o mesmo
+# limite que o cliente configura (esse é sobre Contact Data/telefone,
+# ~1.000 grátis). Text Search tem cota bem maior (~5.000 grátis), mas
+# como as variações de busca (bairro/zona) agora tentam mais modificadores
+# quando necessário, faz sentido ter uma trava interna separada — só pra
+# nunca estourar de fato o lado do Google, sem expor mais um número pro
+# cliente entender. Fica com uma margem de segurança (4.500, não 5.000).
+_TEXT_SEARCH_LIMITE_OCULTO = 4500
+
+
+def selecionar_chave_maps(pool: list[dict], permitir_overflow: bool = False) -> tuple[str, int, list[dict]]:
     """
-    Seleciona a primeira chave disponível no mês atual.
-    Reseta o contador de chaves de meses anteriores automaticamente.
-    Retorna (api_key, index, pool_atualizado) ou ("", -1, pool) se todas esgotadas.
+    Seleciona a primeira chave disponível no mês atual — considerando dois
+    limites: o visível (`usage`/`limit`, configurado pelo cliente, proxy do
+    Contact Data/telefone) e um oculto (`text_search_usage` vs.
+    _TEXT_SEARCH_LIMITE_OCULTO, interno, nunca mostrado). Uma chave só é
+    considerada disponível se estiver dentro dos dois.
+    Reseta os contadores de chaves de meses anteriores automaticamente.
+
+    Retorna (api_key, index, pool_atualizado). Se todas esgotarem: com
+    `permitir_overflow=True` (preferência "continuar buscando" e nenhuma
+    chave Apify disponível pra usar em vez disso) retorna a ÚLTIMA chave
+    do pool mesmo acima dos limites; com False (padrão) retorna ("", -1, pool).
     """
     from datetime import date
     mes = date.today().strftime("%Y-%m")
@@ -504,17 +522,34 @@ def selecionar_chave_maps(pool: list[dict]) -> tuple[str, int, list[dict]]:
     for i, entry in enumerate(pool_copia):
         if entry.get("month") != mes:
             entry["usage"] = 0
+            entry["text_search_usage"] = 0
             entry["month"] = mes
-        if int(entry.get("usage", 0)) < int(entry.get("limit", 900)):
+        dentro_limite_visivel = int(entry.get("usage", 0)) < int(entry.get("limit", 900))
+        dentro_limite_oculto = int(entry.get("text_search_usage", 0)) < _TEXT_SEARCH_LIMITE_OCULTO
+        if dentro_limite_visivel and dentro_limite_oculto:
             return entry.get("key", ""), i, pool_copia
+    if permitir_overflow and pool_copia:
+        ultimo = len(pool_copia) - 1
+        return pool_copia[ultimo].get("key", ""), ultimo, pool_copia
     return "", -1, pool_copia
 
 
-def registrar_uso_maps(pool: list[dict], key_idx: int, calls: int) -> list[dict]:
-    """Incrementa o contador de uso de uma chave no pool."""
+def registrar_uso_maps(pool: list[dict], key_idx: int, calls: int, text_search_calls: int = 0) -> list[dict]:
+    """
+    Incrementa os contadores de uso de uma chave no pool. `calls` é o
+    contador visível (leads retornados, proxy do limite de Contact
+    Data/telefone que o cliente configura). `text_search_calls` é o
+    contador oculto de chamadas de Text Search feitas de fato (pode ser
+    bem maior que `calls` quando a busca precisa tentar várias variações
+    de bairro/zona pra achar leads novos).
+    """
     pool_copia = [dict(k) for k in pool]
     if 0 <= key_idx < len(pool_copia):
         pool_copia[key_idx]["usage"] = int(pool_copia[key_idx].get("usage", 0)) + calls
+        if text_search_calls:
+            pool_copia[key_idx]["text_search_usage"] = (
+                int(pool_copia[key_idx].get("text_search_usage", 0)) + text_search_calls
+            )
     return pool_copia
 
 
@@ -552,23 +587,28 @@ def obter_pool_apify_usuario() -> list[dict]:
         return []
 
 
-def selecionar_chave_apify(pool: list[dict]) -> tuple[str, int, list[dict]]:
+def selecionar_chave_apify(pool: list[dict], permitir_overflow: bool = False) -> tuple[str, int, list[dict], bool]:
     """
     Seleciona a primeira chave Apify disponível no mês atual (dentro do limite).
     Reseta o contador de chaves de meses anteriores automaticamente.
 
-    Se TODAS as chaves já estourarem o limite, não bloqueia a busca —
-    continua usando a ÚLTIMA chave do pool mesmo acima do limite (overflow
-    suave), já que o Apify é cobrado por uso e não corta o acesso como o
-    Google Maps. O contador só volta a respeitar o limite quando o mês
-    virar e os contadores forem resetados.
+    Retorna (api_key, index, pool_atualizado, esgotado):
+      - esgotado=False — achou uma chave dentro do limite, uso normal.
+      - esgotado=True e permitir_overflow=True — todas as chaves passaram do
+        limite configurado, mas a preferência do usuário é continuar
+        buscando mesmo assim (ver Configurações → "Ao esgotar o limite das
+        chaves de API") — retorna a ÚLTIMA chave do pool pra uso além da
+        cota (overflow suave, sabendo que vai gerar mais custo).
+      - esgotado=True e permitir_overflow=False — todas esgotadas e o
+        usuário prefere pausar nesse caso: retorna ("", -1, pool, True) pra
+        quem chamar decidir parar a busca.
 
-    Retorna (api_key, index, pool_atualizado) ou ("", -1, pool) se o pool
-    estiver vazio.
+    Se o pool estiver vazio, retorna ("", -1, pool, False) — pool vazio não
+    é "esgotado", é "não configurado".
     """
     from datetime import date
     if not pool:
-        return "", -1, pool
+        return "", -1, pool, False
     mes = date.today().strftime("%Y-%m")
     pool_copia = [dict(k) for k in pool]
     for i, entry in enumerate(pool_copia):
@@ -576,10 +616,12 @@ def selecionar_chave_apify(pool: list[dict]) -> tuple[str, int, list[dict]]:
             entry["usage"] = 0
             entry["month"] = mes
         if int(entry.get("usage", 0)) < int(entry.get("limit", 900)):
-            return entry.get("key", ""), i, pool_copia
-    # Todas esgotadas — mantém overflow na última chave em vez de bloquear
-    ultimo = len(pool_copia) - 1
-    return pool_copia[ultimo].get("key", ""), ultimo, pool_copia
+            return entry.get("key", ""), i, pool_copia, False
+    # Todas esgotadas
+    if permitir_overflow:
+        ultimo = len(pool_copia) - 1
+        return pool_copia[ultimo].get("key", ""), ultimo, pool_copia, True
+    return "", -1, pool_copia, True
 
 
 def registrar_uso_apify(pool: list[dict], key_idx: int, calls: int) -> list[dict]:

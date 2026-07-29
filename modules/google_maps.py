@@ -90,13 +90,15 @@ def _get_details(place_id: str, api_key: str) -> dict:
     return resp.json().get("result", {})
 
 
-def _coletar_places_uma_query(query: str, api_key: str, log: Callable) -> list[dict]:
+def _coletar_places_uma_query(query: str, api_key: str, log: Callable, stats: dict | None = None) -> list[dict]:
     """Coleta candidatos de UMA única query de texto (até 3 páginas / ~60 resultados)."""
     places: list[dict] = []
     page_token = None
     paginas = 0
 
     while paginas < 3:
+        if stats is not None:
+            stats["text_search_calls"] = stats.get("text_search_calls", 0) + 1
         try:
             data = _text_search(query, api_key, page_token)
         except requests.HTTPError as e:
@@ -156,6 +158,7 @@ def _buscar_uma_localidade(
     exclude_phones: set,
     show_phone: bool,
     show_rating: bool,
+    stats: dict | None = None,
 ) -> list[dict]:
     """
     Busca numa única localidade (cidade+estado, ou só estado). Uso interno de buscar().
@@ -202,7 +205,7 @@ def _buscar_uma_localidade(
 
         query = f"{nicho_query} em {mod} de {localidade}" if mod else f"{nicho_query} em {localidade}"
         log(len(resultados), limite, f"Buscando: {query}")
-        places_mod = _coletar_places_uma_query(query, api_key, log)
+        places_mod = _coletar_places_uma_query(query, api_key, log, stats=stats)
 
         for p in places_mod:
             if len(resultados) >= limite:
@@ -279,6 +282,7 @@ def buscar(
     exclude_phones: set = None,
     show_phone: bool = True,
     show_rating: bool = True,
+    stats: dict | None = None,
 ) -> list[dict]:
     """
     Busca estabelecimentos no Google Maps e retorna lista de dicts.
@@ -293,6 +297,12 @@ def buscar(
 
     Com show_phone=False: apenas Text Search → 5.000 resultados gratuitos/mês.
     Com show_phone=True:  Text Search + Place Details → 1.000 resultados gratuitos/mês.
+
+    stats — dict opcional preenchido in-place com {"text_search_calls": N},
+    o número real de chamadas de Text Search feitas (pode ser bem maior que
+    o número de leads retornados quando a busca precisa tentar várias
+    variações de bairro/zona) — usado internamente pra proteger a cota de
+    Text Search sem quebrar quem chama buscar() sem passar esse parâmetro.
     """
     if api_key is None:
         api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
@@ -333,6 +343,7 @@ def buscar(
             query_base=query_base, localidade=loc, limite=cota, api_key=api_key,
             nicho=nicho, subnicho=subnicho, cidade=_cidade_loc, estado=_estado_loc,
             log=log, exclude_phones=vistos_tel, show_phone=show_phone, show_rating=show_rating,
+            stats=stats,
         )
         for r in parcial:
             tel_d = _apenas_digitos(r.get("telefone", ""))
