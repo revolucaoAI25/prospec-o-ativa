@@ -1116,8 +1116,18 @@ def pagina_busca():
     # Chave do Google Maps — usa chave admin (ou pool) se maps_credits_enabled
     from modules.database import carregar_configuracoes
     _cfg_busca = carregar_configuracoes()
+    _conta_teste          = bool(st.session_state.get("conta_teste", False))
     _maps_credits_enabled = st.session_state.get("maps_credits_enabled", False)
-    if _maps_credits_enabled:
+    if _conta_teste:
+        # Conta de teste: chave fixa da plataforma, nunca a do cliente/admin —
+        # compartilhada entre todas as contas de teste. Prioriza o pool
+        # configurado em Admin (com rodízio/limite rastreado); a variável de
+        # ambiente MAPS_API_KEY_TESTE é só o fallback pra quem não quis
+        # configurar o pool.
+        from modules.auth import obter_pool_maps_teste
+        _pool_teste_check = obter_pool_maps_teste()
+        gmaps_key = (_pool_teste_check[0].get("key", "") if _pool_teste_check else "") or _s("MAPS_API_KEY_TESTE")
+    elif _maps_credits_enabled:
         gmaps_key = st.session_state.get("maps_api_key_admin", "")
         if not gmaps_key:
             # Verifica se há pool configurado (para gmaps_ok)
@@ -1292,7 +1302,11 @@ def pagina_busca():
                 _pool_key_idx = -1
                 _chave_busca  = gmaps_key
                 if gmaps_ok:
-                    _pool_ativo = obter_pool_maps_usuario()
+                    if _conta_teste:
+                        from modules.auth import obter_pool_maps_teste
+                        _pool_ativo = obter_pool_maps_teste()
+                    else:
+                        _pool_ativo = obter_pool_maps_usuario()
                     if _pool_ativo:
                         _c, _pool_key_idx, _pool_ativo = selecionar_chave_maps(_pool_ativo)
                         if _c:
@@ -1405,10 +1419,14 @@ def pagina_busca():
                     # inclui o contador oculto de chamadas de Text Search, além
                     # do contador visível (leads retornados).
                     if not _used_apify and _pool_ativo and _pool_key_idx >= 0:
-                        from modules.database import registrar_uso_maps, salvar_pool_maps_usuario
-                        salvar_pool_maps_usuario(
-                            registrar_uso_maps(_pool_ativo, _pool_key_idx, len(res), _maps_stats.get("text_search_calls", 0))
-                        )
+                        from modules.database import registrar_uso_maps
+                        _novo_pool_maps = registrar_uso_maps(_pool_ativo, _pool_key_idx, len(res), _maps_stats.get("text_search_calls", 0))
+                        if _conta_teste:
+                            from modules.auth import salvar_pool_maps_teste
+                            salvar_pool_maps_teste(_novo_pool_maps)
+                        else:
+                            from modules.database import salvar_pool_maps_usuario
+                            salvar_pool_maps_usuario(_novo_pool_maps)
                     # Registra uso no pool Apify sempre que uma chave do pool foi usada
                     # (independente de ser cobrado ou não — o contador é o que faz o
                     # rodízio funcionar corretamente pro dono das chaves).
@@ -1713,7 +1731,11 @@ def pagina_busca():
                                     obter_pool_maps_usuario, selecionar_chave_maps,
                                 )
                                 _pausar_ao_esgotar_enr = bool(_carregar_cfg_enr().get("maps_pausar_ao_esgotar", False))
-                                _enr_pool      = obter_pool_maps_usuario()
+                                if _conta_teste:
+                                    from modules.auth import obter_pool_maps_teste
+                                    _enr_pool = obter_pool_maps_teste()
+                                else:
+                                    _enr_pool = obter_pool_maps_usuario()
                                 _enr_pool_idx  = -1
                                 _enr_key       = gmaps_key
                                 _enr_bloqueado = False
@@ -1756,15 +1778,20 @@ def pagina_busca():
                                         _bar_enr2.empty()
                                     st.session_state["_rf_enriched"] = True
                                     if _enr_pool_idx >= 0:
-                                        from modules.database import registrar_uso_maps, salvar_pool_maps_por_user_id
-                                        salvar_pool_maps_por_user_id(
-                                            st.session_state.get("user", {}).get("id", ""),
-                                            registrar_uso_maps(
-                                                _enr_pool, _enr_pool_idx,
-                                                _enr_stats.get("contact_data_calls", len(res_cdd)),
-                                                _enr_stats.get("text_search_calls", 0),
-                                            ),
+                                        from modules.database import registrar_uso_maps
+                                        _novo_enr_pool = registrar_uso_maps(
+                                            _enr_pool, _enr_pool_idx,
+                                            _enr_stats.get("contact_data_calls", len(res_cdd)),
+                                            _enr_stats.get("text_search_calls", 0),
                                         )
+                                        if _conta_teste:
+                                            from modules.auth import salvar_pool_maps_teste
+                                            salvar_pool_maps_teste(_novo_enr_pool)
+                                        else:
+                                            from modules.database import salvar_pool_maps_por_user_id
+                                            salvar_pool_maps_por_user_id(
+                                                st.session_state.get("user", {}).get("id", ""), _novo_enr_pool,
+                                            )
                                     if _maps_credits_enabled:
                                         from modules.database import debitar_creditos_maps
                                         debitar_creditos_maps(len(res_cdd))
@@ -1865,7 +1892,11 @@ def pagina_busca():
                             obter_pool_maps_usuario, selecionar_chave_maps,
                         )
                         _pausar_ao_esgotar_enr2 = bool(_carregar_cfg_enr2().get("maps_pausar_ao_esgotar", False))
-                        _enr2_pool      = obter_pool_maps_usuario()
+                        if _conta_teste:
+                            from modules.auth import obter_pool_maps_teste
+                            _enr2_pool = obter_pool_maps_teste()
+                        else:
+                            _enr2_pool = obter_pool_maps_usuario()
                         _enr2_pool_idx  = -1
                         _enr2_key       = gmaps_key
                         _enr2_bloqueado = False
@@ -1903,15 +1934,20 @@ def pagina_busca():
                             _bar_enr.empty()
 
                             if _enr2_pool_idx >= 0:
-                                from modules.database import registrar_uso_maps, salvar_pool_maps_por_user_id
-                                salvar_pool_maps_por_user_id(
-                                    st.session_state.get("user", {}).get("id", ""),
-                                    registrar_uso_maps(
-                                        _enr2_pool, _enr2_pool_idx,
-                                        _enr2_stats.get("contact_data_calls", _n_enr),
-                                        _enr2_stats.get("text_search_calls", 0),
-                                    ),
+                                from modules.database import registrar_uso_maps
+                                _novo_enr2_pool = registrar_uso_maps(
+                                    _enr2_pool, _enr2_pool_idx,
+                                    _enr2_stats.get("contact_data_calls", _n_enr),
+                                    _enr2_stats.get("text_search_calls", 0),
                                 )
+                                if _conta_teste:
+                                    from modules.auth import salvar_pool_maps_teste
+                                    salvar_pool_maps_teste(_novo_enr2_pool)
+                                else:
+                                    from modules.database import salvar_pool_maps_por_user_id
+                                    salvar_pool_maps_por_user_id(
+                                        st.session_state.get("user", {}).get("id", ""), _novo_enr2_pool,
+                                    )
 
                             if _enr2_erro and _enr2_erro != "quota":
                                 st.error(f"Erro no enriquecimento: {_enr2_erro}")
@@ -3315,10 +3351,13 @@ def pagina_configuracoes():
     )
 
     cfg = carregar_configuracoes()
+    _conta_teste_cfg = bool(st.session_state.get("conta_teste", False))
 
     # ── Google Maps ─────────────────────────────────────────────────────────────
     with st.expander("🗺️ Google Maps API", expanded=True):
-        if st.session_state.get("maps_credits_enabled"):
+        if _conta_teste_cfg:
+            st.info("Esta é uma conta de teste — usa a chave Google Maps da plataforma, sem custo pra você.", icon="🧪")
+        elif st.session_state.get("maps_credits_enabled"):
             st.info("As chaves do Google Maps são gerenciadas pelo administrador nesta conta.", icon="ℹ️")
         else:
             st.markdown("Configure uma ou mais chaves de API do Google Maps. O sistema usa rodízio automático quando uma chave atinge o limite mensal.")
@@ -3411,78 +3450,81 @@ def pagina_configuracoes():
 
     # ── Apify API Key ─────────────────────────────────────────────────────────────
     with st.expander("🤖 Apify API Key", expanded=False):
-        _apify_desc = "Usada como **fallback automático** na busca Google Maps (quando a cota é esgotada, $4/1.000 resultados) e na busca Instagram."
-        st.markdown(_apify_desc)
-        st.markdown("Configure uma ou mais chaves Apify. O sistema usa rodízio automático quando uma chave atinge o limite mensal.")
-        from modules.database import obter_pool_apify_usuario, salvar_pool_apify_usuario
-        _cfg_apool = obter_pool_apify_usuario()
-        if _cfg_apool:
-            for _api, _ape in enumerate(_cfg_apool):
-                _apc1, _apc2, _apc3 = st.columns([3, 3, 1])
-                with _apc1:
-                    st.caption(_ape.get("nickname") or f"Chave {_api+1}")
-                with _apc2:
-                    _apuse = int(_ape.get("usage", 0))
-                    _aplim = int(_ape.get("limit", 900))
-                    _apmon = _ape.get("month", "—")
-                    _appct = min(_apuse / max(_aplim, 1), 1.0)
-                    _apcls = "b-err" if _appct >= 1.0 else ("b-warn" if _appct >= 0.8 else "b-ok")
-                    st.markdown(f'<span class="badge {_apcls}">{_apmon}: {_apuse}/{_aplim}</span>', unsafe_allow_html=True)
-                with _apc3:
-                    if st.button("🗑️", key=f"del_cfg_ak_{_api}", help="Remover"):
-                        st.session_state["_conf_del_cfg_ak_idx"] = _api
-                        st.rerun()
-
-            _del_aidx = st.session_state.get("_conf_del_cfg_ak_idx")
-            if _del_aidx is not None and _del_aidx < len(_cfg_apool):
-                _del_anome = _cfg_apool[_del_aidx].get("nickname") or f"Chave {_del_aidx+1}"
-                st.warning(f"Remover a chave **{_del_anome}** do pool?")
-                _dac1, _dac2 = st.columns(2)
-                with _dac1, st.container(key="danger_del_cfg_ak"):
-                    if st.button("✅ Sim, remover", key="conf_del_cfg_ak_ok", type="primary"):
-                        _nap = [k for j, k in enumerate(_cfg_apool) if j != _del_aidx]
-                        st.session_state.pop("_conf_del_cfg_ak_idx", None)
-                        if salvar_pool_apify_usuario(_nap):
+        if _conta_teste_cfg:
+            st.info("Esta é uma conta de teste — usa a chave Apify da plataforma, sem custo pra você.", icon="🧪")
+        else:
+            _apify_desc = "Usada como **fallback automático** na busca Google Maps (quando a cota é esgotada, $4/1.000 resultados) e na busca Instagram."
+            st.markdown(_apify_desc)
+            st.markdown("Configure uma ou mais chaves Apify. O sistema usa rodízio automático quando uma chave atinge o limite mensal.")
+            from modules.database import obter_pool_apify_usuario, salvar_pool_apify_usuario
+            _cfg_apool = obter_pool_apify_usuario()
+            if _cfg_apool:
+                for _api, _ape in enumerate(_cfg_apool):
+                    _apc1, _apc2, _apc3 = st.columns([3, 3, 1])
+                    with _apc1:
+                        st.caption(_ape.get("nickname") or f"Chave {_api+1}")
+                    with _apc2:
+                        _apuse = int(_ape.get("usage", 0))
+                        _aplim = int(_ape.get("limit", 900))
+                        _apmon = _ape.get("month", "—")
+                        _appct = min(_apuse / max(_aplim, 1), 1.0)
+                        _apcls = "b-err" if _appct >= 1.0 else ("b-warn" if _appct >= 0.8 else "b-ok")
+                        st.markdown(f'<span class="badge {_apcls}">{_apmon}: {_apuse}/{_aplim}</span>', unsafe_allow_html=True)
+                    with _apc3:
+                        if st.button("🗑️", key=f"del_cfg_ak_{_api}", help="Remover"):
+                            st.session_state["_conf_del_cfg_ak_idx"] = _api
                             st.rerun()
-                with _dac2:
-                    if st.button("Cancelar", key="conf_del_cfg_ak_no"):
-                        st.session_state.pop("_conf_del_cfg_ak_idx", None)
-                        st.rerun()
-        with st.form("add_cfg_ak"):
-            _afc1, _afc2, _afc3 = st.columns([2, 4, 2])
-            with _afc1:
-                _afn = st.text_input("Apelido", placeholder="Chave 1", key="cfg_ak_nick")
-            with _afc2:
-                _afk = st.text_input("Chave API", placeholder="apify_api_...", type="password", key="cfg_ak_val")
-            with _afc3:
-                _afl = st.number_input("Limite/mês", min_value=100, value=1000, step=100, key="cfg_ak_lim")
-            if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
-                if _afk:
-                    _nap = list(_cfg_apool) + [{
-                        "key": _afk, "nickname": _afn or f"Chave {len(_cfg_apool)+1}",
-                        "usage": 0, "month": "", "limit": int(_afl),
-                    }]
-                    if salvar_pool_apify_usuario(_nap):
-                        st.success("Chave adicionada!")
-                        st.rerun()
-        # Chave única (compatibilidade)
-        with st.expander("Ou use chave única (modo legado)"):
-            _apify_cur = st.session_state.get("apify_api_key_user", "")
-            apify_inp = st.text_input(
-                "Apify API Key",
-                value=_apify_cur,
-                type="password",
-                placeholder="apify_api_...",
-                key="cfg_apify_key",
-            )
-            if st.button("💾 Salvar chave única", key="save_apify"):
-                from modules.database import salvar_configuracoes
-                ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
-                if ok_ap:
-                    st.session_state["apify_api_key_user"] = apify_inp.strip()
-                    st.success("Chave Apify salva com sucesso.")
-                else:
-                    st.error(msg_ap)
+
+                _del_aidx = st.session_state.get("_conf_del_cfg_ak_idx")
+                if _del_aidx is not None and _del_aidx < len(_cfg_apool):
+                    _del_anome = _cfg_apool[_del_aidx].get("nickname") or f"Chave {_del_aidx+1}"
+                    st.warning(f"Remover a chave **{_del_anome}** do pool?")
+                    _dac1, _dac2 = st.columns(2)
+                    with _dac1, st.container(key="danger_del_cfg_ak"):
+                        if st.button("✅ Sim, remover", key="conf_del_cfg_ak_ok", type="primary"):
+                            _nap = [k for j, k in enumerate(_cfg_apool) if j != _del_aidx]
+                            st.session_state.pop("_conf_del_cfg_ak_idx", None)
+                            if salvar_pool_apify_usuario(_nap):
+                                st.rerun()
+                    with _dac2:
+                        if st.button("Cancelar", key="conf_del_cfg_ak_no"):
+                            st.session_state.pop("_conf_del_cfg_ak_idx", None)
+                            st.rerun()
+            with st.form("add_cfg_ak"):
+                _afc1, _afc2, _afc3 = st.columns([2, 4, 2])
+                with _afc1:
+                    _afn = st.text_input("Apelido", placeholder="Chave 1", key="cfg_ak_nick")
+                with _afc2:
+                    _afk = st.text_input("Chave API", placeholder="apify_api_...", type="password", key="cfg_ak_val")
+                with _afc3:
+                    _afl = st.number_input("Limite/mês", min_value=100, value=1000, step=100, key="cfg_ak_lim")
+                if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
+                    if _afk:
+                        _nap = list(_cfg_apool) + [{
+                            "key": _afk, "nickname": _afn or f"Chave {len(_cfg_apool)+1}",
+                            "usage": 0, "month": "", "limit": int(_afl),
+                        }]
+                        if salvar_pool_apify_usuario(_nap):
+                            st.success("Chave adicionada!")
+                            st.rerun()
+            # Chave única (compatibilidade)
+            with st.expander("Ou use chave única (modo legado)"):
+                _apify_cur = st.session_state.get("apify_api_key_user", "")
+                apify_inp = st.text_input(
+                    "Apify API Key",
+                    value=_apify_cur,
+                    type="password",
+                    placeholder="apify_api_...",
+                    key="cfg_apify_key",
+                )
+                if st.button("💾 Salvar chave única", key="save_apify"):
+                    from modules.database import salvar_configuracoes
+                    ok_ap, msg_ap = salvar_configuracoes({"apify_api_key": apify_inp.strip()})
+                    if ok_ap:
+                        st.session_state["apify_api_key_user"] = apify_inp.strip()
+                        st.success("Chave Apify salva com sucesso.")
+                    else:
+                        st.error(msg_ap)
 
     # ── Google Sheets OAuth ─────────────────────────────────────────────────────
     with st.expander("📊 Google Sheets (OAuth)", expanded=True):
@@ -3753,16 +3795,115 @@ def pagina_admin():
         c1, c2, c3 = st.columns([3,2,1])
         with c1: new_email = st.text_input("E-mail", key="adm_email", placeholder="usuario@empresa.com")
         with c2: new_senha = st.text_input("Senha inicial", type="password", key="adm_senha", placeholder="Mín. 6 caracteres")
-        with c3: new_role  = st.selectbox("Papel", ["user","admin"], key="adm_role")
+        with c3: new_role_ui = st.selectbox("Papel", ["user","admin","🧪 teste"], key="adm_role")
+
+        _eh_teste_novo = (new_role_ui == "🧪 teste")
+        _teste_cdd, _teste_maps, _teste_dias = 100, 100, 7
+        _teste_disparo, _teste_insta = False, True
+        if _eh_teste_novo:
+            st.markdown('<div class="sec">🧪 Configuração da conta de teste</div>', unsafe_allow_html=True)
+            tc1, tc2, tc3 = st.columns(3)
+            with tc1:
+                _teste_cdd = st.number_input("Créditos CNPJ iniciais", min_value=0, value=100, step=50, key="adm_teste_cdd")
+            with tc2:
+                _teste_maps = st.number_input("Créditos Maps iniciais", min_value=0, value=100, step=50, key="adm_teste_maps")
+            with tc3:
+                _teste_dias = st.number_input("Validade (dias)", min_value=1, value=7, step=1, key="adm_teste_dias")
+            td1, td2 = st.columns(2)
+            with td1:
+                _teste_disparo = st.toggle("Habilitar Disparos (WhatsApp)", value=False, key="adm_teste_disparo")
+            with td2:
+                _teste_insta = st.toggle("Exibir aba Instagram", value=True, key="adm_teste_insta")
+            st.caption(
+                "Usa a chave Google Maps compartilhada de contas de teste (configure em "
+                "🧪 Chave Maps — Contas de Teste, mais abaixo) e a chave CNPJ da plataforma — "
+                "não pode configurar chaves próprias."
+            )
+
         if st.button("✅ Criar usuário", key="btn_criar_user"):
             if not new_email or not new_senha:
                 st.warning("Preencha e-mail e senha.")
             elif len(new_senha) < 6:
                 st.error("Senha deve ter pelo menos 6 caracteres.")
             else:
-                ok, msg = criar_usuario(new_email.strip(), new_senha, new_role)
+                _extra = None
+                if _eh_teste_novo:
+                    from datetime import datetime, timedelta, timezone
+                    _extra = {
+                        "conta_teste":          True,
+                        "teste_expira_em":      (datetime.now(timezone.utc) + timedelta(days=int(_teste_dias))).isoformat(),
+                        "cdd_credits":          int(_teste_cdd),
+                        "maps_credits":         int(_teste_maps),
+                        "maps_credits_enabled": True,
+                        "disparo_habilitado":   bool(_teste_disparo),
+                        "instagram_visible":    bool(_teste_insta),
+                    }
+                _role_final = "admin" if new_role_ui == "admin" else "user"
+                ok, msg = criar_usuario(new_email.strip(), new_senha, _role_final, extra=_extra)
                 (st.success if ok else st.error)(msg)
                 if ok: time.sleep(0.3); st.rerun()
+
+    # ── Chave Maps compartilhada entre contas de teste ────────────────────────────
+    with st.expander("🧪 Chave Maps — Contas de Teste", expanded=False):
+        st.markdown(
+            "Chave (ou pool de chaves) do Google Maps usada por **todas** as contas de teste — "
+            "elas não configuram chave própria. Configure aqui, ou defina a variável de ambiente "
+            "`MAPS_API_KEY_TESTE` (Secrets do Streamlit / variável no Railway) como alternativa fixa. "
+            "Se as duas existirem, essa aqui (pool com rodízio e limite) tem prioridade."
+        )
+        from modules.auth import obter_pool_maps_teste, salvar_pool_maps_teste
+        _tpool = obter_pool_maps_teste()
+        if _tpool:
+            for _ti, _te in enumerate(_tpool):
+                _tc1, _tc2, _tc3 = st.columns([3, 3, 1])
+                with _tc1:
+                    st.caption(_te.get("nickname") or f"Chave {_ti+1}")
+                with _tc2:
+                    _tuse = int(_te.get("usage", 0))
+                    _tlim = int(_te.get("limit", 900))
+                    _tmon = _te.get("month", "—")
+                    _tpct = min(_tuse / max(_tlim, 1), 1.0)
+                    _tcls = "b-err" if _tpct >= 1.0 else ("b-warn" if _tpct >= 0.8 else "b-ok")
+                    st.markdown(f'<span class="badge {_tcls}">{_tmon}: {_tuse}/{_tlim}</span>', unsafe_allow_html=True)
+                with _tc3:
+                    if st.button("🗑️", key=f"del_tk_{_ti}", help="Remover"):
+                        st.session_state["_conf_del_tk_idx"] = _ti
+                        st.rerun()
+
+            _del_tidx = st.session_state.get("_conf_del_tk_idx")
+            if _del_tidx is not None and _del_tidx < len(_tpool):
+                _del_tnome = _tpool[_del_tidx].get("nickname") or f"Chave {_del_tidx+1}"
+                st.warning(f"Remover a chave **{_del_tnome}** do pool de teste?")
+                _dtc1, _dtc2 = st.columns(2)
+                with _dtc1, st.container(key="danger_del_tk"):
+                    if st.button("✅ Sim, remover", key="conf_del_tk_ok", type="primary"):
+                        _ntp = [k for j, k in enumerate(_tpool) if j != _del_tidx]
+                        st.session_state.pop("_conf_del_tk_idx", None)
+                        if salvar_pool_maps_teste(_ntp):
+                            st.rerun()
+                with _dtc2:
+                    if st.button("Cancelar", key="conf_del_tk_no"):
+                        st.session_state.pop("_conf_del_tk_idx", None)
+                        st.rerun()
+        else:
+            st.caption("Nenhuma chave configurada — contas de teste cairão na variável `MAPS_API_KEY_TESTE`, se existir.")
+        with st.form("add_tk"):
+            _ttc1, _ttc2, _ttc3 = st.columns([2, 4, 2])
+            with _ttc1:
+                _ttn = st.text_input("Apelido", placeholder="Chave Teste", key="tk_nick")
+            with _ttc2:
+                _ttk = st.text_input("Chave API", placeholder="AIzaSy...", type="password", key="tk_val")
+            with _ttc3:
+                _ttl = st.number_input("Limite/mês", min_value=100, value=900, step=100, key="tk_lim")
+            if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
+                if _ttk:
+                    _ntp = list(_tpool) + [{
+                        "key": _ttk, "nickname": _ttn or f"Chave {len(_tpool)+1}",
+                        "usage": 0, "month": "", "limit": int(_ttl),
+                    }]
+                    if salvar_pool_maps_teste(_ntp):
+                        st.success("Chave adicionada!")
+                        st.rerun()
 
     st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
@@ -3793,13 +3934,55 @@ def pagina_admin():
         leads_tot    = u.get("total_leads", 0) or 0
         last_s       = (u.get("last_search_at","") or "")[:10] or "nunca"
         me           = st.session_state.get("user",{}).get("id","") == uid
+        conta_teste_u = bool(u.get("conta_teste", False))
+        teste_exp_u   = u.get("teste_expira_em") or ""
 
         badge = "🟢 admin" if role == "admin" else "⚪ user"
+        if conta_teste_u:
+            from datetime import datetime, timezone
+            _teste_expirada_u = False
+            _dias_rest_u = None
+            if teste_exp_u:
+                try:
+                    _exp_dt_u = datetime.fromisoformat(str(teste_exp_u).replace("Z", "+00:00"))
+                    _dias_rest_u = (_exp_dt_u - datetime.now(timezone.utc)).days
+                    _teste_expirada_u = _dias_rest_u < 0
+                except Exception:
+                    pass
+            badge = "🔴 teste expirada" if _teste_expirada_u else f"🧪 teste ({_dias_rest_u}d restantes)" if _dias_rest_u is not None else "🧪 teste"
         maps_tag = "  ·  🗺️ Maps ativo" if maps_en else ""
         label = f"{badge}  **{email}**  ·  🪙 CNPJ: {cdd_bal}{maps_tag}" + ("  *(você)*" if me else "")
 
         with st.expander(label):
             st.caption(f"ID: `{uid}`  ·  Criado em {created}  ·  {searches} pesquisas  ·  {leads_tot} leads  ·  Última busca: {last_s}")
+
+            if conta_teste_u:
+                st.markdown('<div class="sec">🧪 Conta de Teste</div>', unsafe_allow_html=True)
+                _exp_txt_u = str(teste_exp_u)[:10] if teste_exp_u else "—"
+                if _teste_expirada_u:
+                    st.error(f"Expirou em {_exp_txt_u} — usuário está bloqueado.")
+                else:
+                    st.caption(f"Válida até **{_exp_txt_u}** ({_dias_rest_u} dia(s) restantes).")
+                te1, te2, te3 = st.columns([2, 1, 1])
+                with te1:
+                    from datetime import date as _date_cls
+                    _data_atual_u = _date_cls.fromisoformat(_exp_txt_u) if teste_exp_u else _date_cls.today()
+                    _nova_data_u = st.date_input("Nova data de validade", value=_data_atual_u, key=f"teste_exp_{uid}")
+                with te2:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("💾 Salvar validade", key=f"teste_exp_save_{uid}", use_container_width=True):
+                        from datetime import datetime as _dt_cls, timezone as _tz
+                        _nova_exp_iso = _dt_cls.combine(_nova_data_u, _dt_cls.max.time(), tzinfo=_tz.utc).isoformat()
+                        ok_te, msg_te = configurar_creditos_admin(uid, teste_expira_em=_nova_exp_iso)
+                        (st.success if ok_te else st.error)(msg_te)
+                        if ok_te: time.sleep(0.3); st.rerun()
+                with te3:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("🔓 Tornar permanente", key=f"teste_conv_{uid}", use_container_width=True, help="Remove a marca de conta de teste — vira conta normal, mantém créditos e configurações atuais."):
+                        ok_tc, msg_tc = configurar_creditos_admin(uid, conta_teste=False)
+                        (st.success if ok_tc else st.error)(msg_tc)
+                        if ok_tc: time.sleep(0.3); st.rerun()
+                st.markdown('<hr class="hr">', unsafe_allow_html=True)
 
             col_r, col_p, col_d = st.columns(3)
             with col_r:
@@ -3869,63 +4052,69 @@ def pagina_admin():
                 if ok8: time.sleep(0.3); st.rerun()
 
             if maps_toggle:
-                # ── Pool de chaves Maps ──────────────────────────────────
-                from modules.auth import obter_pool_maps_usuario_admin
-                _upool = obter_pool_maps_usuario_admin(uid)
-                st.markdown('<div class="sec">Chaves de API Maps (rodízio automático por mês)</div>', unsafe_allow_html=True)
-                if _upool:
-                    for _ki, _ke in enumerate(_upool):
-                        _kc1, _kc2, _kc3 = st.columns([3, 3, 1])
-                        with _kc1:
-                            st.caption(_ke.get("nickname") or f"Chave {_ki+1}")
-                        with _kc2:
-                            _kuse = int(_ke.get("usage", 0))
-                            _klim = int(_ke.get("limit", 900))
-                            _kmon = _ke.get("month", "—")
-                            _kpct = min(_kuse / max(_klim, 1), 1.0)
-                            _kcls = "b-err" if _kpct >= 1.0 else ("b-warn" if _kpct >= 0.8 else "b-ok")
-                            st.markdown(f'<span class="badge {_kcls}">{_kmon}: {_kuse}/{_klim}</span>', unsafe_allow_html=True)
-                        with _kc3:
-                            if st.button("🗑️", key=f"del_mk_{uid}_{_ki}", help="Remover chave"):
-                                st.session_state[f"_conf_del_mk_idx_{uid}"] = _ki
-                                st.rerun()
+                if conta_teste_u:
+                    st.caption(
+                        "Conta de teste — usa a chave Maps compartilhada de contas de teste "
+                        "(veja 🧪 Chave Maps — Contas de Teste, no topo desta página), não um pool próprio."
+                    )
+                else:
+                    # ── Pool de chaves Maps ──────────────────────────────────
+                    from modules.auth import obter_pool_maps_usuario_admin
+                    _upool = obter_pool_maps_usuario_admin(uid)
+                    st.markdown('<div class="sec">Chaves de API Maps (rodízio automático por mês)</div>', unsafe_allow_html=True)
+                    if _upool:
+                        for _ki, _ke in enumerate(_upool):
+                            _kc1, _kc2, _kc3 = st.columns([3, 3, 1])
+                            with _kc1:
+                                st.caption(_ke.get("nickname") or f"Chave {_ki+1}")
+                            with _kc2:
+                                _kuse = int(_ke.get("usage", 0))
+                                _klim = int(_ke.get("limit", 900))
+                                _kmon = _ke.get("month", "—")
+                                _kpct = min(_kuse / max(_klim, 1), 1.0)
+                                _kcls = "b-err" if _kpct >= 1.0 else ("b-warn" if _kpct >= 0.8 else "b-ok")
+                                st.markdown(f'<span class="badge {_kcls}">{_kmon}: {_kuse}/{_klim}</span>', unsafe_allow_html=True)
+                            with _kc3:
+                                if st.button("🗑️", key=f"del_mk_{uid}_{_ki}", help="Remover chave"):
+                                    st.session_state[f"_conf_del_mk_idx_{uid}"] = _ki
+                                    st.rerun()
 
-                    _del_kidx = st.session_state.get(f"_conf_del_mk_idx_{uid}")
-                    if _del_kidx is not None and _del_kidx < len(_upool):
-                        _del_knome = _upool[_del_kidx].get("nickname") or f"Chave {_del_kidx+1}"
-                        st.warning(f"Remover a chave **{_del_knome}** do pool deste usuário?")
-                        _dkc1, _dkc2 = st.columns(2)
-                        with _dkc1, st.container(key=f"danger_del_mk_{uid}"):
-                            if st.button("✅ Sim, remover", key=f"conf_del_mk_ok_{uid}", type="primary"):
-                                _np = [k for j, k in enumerate(_upool) if j != _del_kidx]
-                                st.session_state.pop(f"_conf_del_mk_idx_{uid}", None)
+                        _del_kidx = st.session_state.get(f"_conf_del_mk_idx_{uid}")
+                        if _del_kidx is not None and _del_kidx < len(_upool):
+                            _del_knome = _upool[_del_kidx].get("nickname") or f"Chave {_del_kidx+1}"
+                            st.warning(f"Remover a chave **{_del_knome}** do pool deste usuário?")
+                            _dkc1, _dkc2 = st.columns(2)
+                            with _dkc1, st.container(key=f"danger_del_mk_{uid}"):
+                                if st.button("✅ Sim, remover", key=f"conf_del_mk_ok_{uid}", type="primary"):
+                                    _np = [k for j, k in enumerate(_upool) if j != _del_kidx]
+                                    st.session_state.pop(f"_conf_del_mk_idx_{uid}", None)
+                                    _ok_p, _msg_p = configurar_creditos_admin(uid, maps_keys_pool=_np)
+                                    (st.success if _ok_p else st.error)(_msg_p)
+                                    if _ok_p: time.sleep(0.3); st.rerun()
+                            with _dkc2:
+                                if st.button("Cancelar", key=f"conf_del_mk_no_{uid}"):
+                                    st.session_state.pop(f"_conf_del_mk_idx_{uid}", None)
+                                    st.rerun()
+                    else:
+                        st.caption("Nenhuma chave configurada.")
+                    with st.form(f"add_mk_{uid}"):
+                        _ac1, _ac2, _ac3 = st.columns([2, 4, 2])
+                        with _ac1:
+                            _new_nick = st.text_input("Apelido", placeholder="Chave 1", key=f"mk_nick_{uid}")
+                        with _ac2:
+                            _new_kval = st.text_input("Chave API", placeholder="AIzaSy...", type="password", key=f"mk_val_{uid}")
+                        with _ac3:
+                            _new_klim = st.number_input("Limite/mês", min_value=100, value=900, step=100, key=f"mk_lim_{uid}")
+                        if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
+                            if _new_kval:
+                                _np = list(_upool) + [{
+                                    "key": _new_kval,
+                                    "nickname": _new_nick or f"Chave {len(_upool)+1}",
+                                    "usage": 0, "month": "", "limit": int(_new_klim),
+                                }]
                                 _ok_p, _msg_p = configurar_creditos_admin(uid, maps_keys_pool=_np)
                                 (st.success if _ok_p else st.error)(_msg_p)
                                 if _ok_p: time.sleep(0.3); st.rerun()
-                        with _dkc2:
-                            if st.button("Cancelar", key=f"conf_del_mk_no_{uid}"):
-                                st.session_state.pop(f"_conf_del_mk_idx_{uid}", None)
-                                st.rerun()
-                else:
-                    st.caption("Nenhuma chave configurada.")
-                with st.form(f"add_mk_{uid}"):
-                    _ac1, _ac2, _ac3 = st.columns([2, 4, 2])
-                    with _ac1:
-                        _new_nick = st.text_input("Apelido", placeholder="Chave 1", key=f"mk_nick_{uid}")
-                    with _ac2:
-                        _new_kval = st.text_input("Chave API", placeholder="AIzaSy...", type="password", key=f"mk_val_{uid}")
-                    with _ac3:
-                        _new_klim = st.number_input("Limite/mês", min_value=100, value=900, step=100, key=f"mk_lim_{uid}")
-                    if st.form_submit_button("➕ Adicionar chave", use_container_width=True):
-                        if _new_kval:
-                            _np = list(_upool) + [{
-                                "key": _new_kval,
-                                "nickname": _new_nick or f"Chave {len(_upool)+1}",
-                                "usage": 0, "month": "", "limit": int(_new_klim),
-                            }]
-                            _ok_p, _msg_p = configurar_creditos_admin(uid, maps_keys_pool=_np)
-                            (st.success if _ok_p else st.error)(_msg_p)
-                            if _ok_p: time.sleep(0.3); st.rerun()
 
                 st.markdown(f"Saldo Maps atual: **{maps_bal}**  ·  Mensal: **{monthly_maps}**/mês")
                 cm1, cm2, cm3, cm4 = st.columns([2,1,1,2])
@@ -5217,7 +5406,7 @@ def _sidebar():
 
 
 def main():
-    from modules.auth import usuario_logado, eh_admin, supabase_configurado, restaurar_sessao
+    from modules.auth import usuario_logado, eh_admin, supabase_configurado, restaurar_sessao, sessao_teste_expirada, logout
     import extra_streamlit_components as stx
     from datetime import datetime, timedelta
 
@@ -5277,6 +5466,15 @@ def main():
     if not user:
         pagina_login()
         return
+
+    # Conta de teste expirada — checa a cada render, não só no login, pra
+    # bloquear mesmo quem já estava com a aba aberta quando o prazo bateu.
+    if sessao_teste_expirada():
+        _exp_txt = str(st.session_state.get("teste_expira_em") or "")[:10]
+        logout()
+        st.error(f"Sua conta de teste expirou em {_exp_txt}. Fale com o administrador pra renovar.", icon="🧪")
+        time.sleep(2)
+        st.rerun()
 
     # Renovação mensal de créditos — roda uma vez por sessão
     if not st.session_state.get("_credits_renewed"):

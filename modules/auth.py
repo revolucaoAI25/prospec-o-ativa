@@ -102,6 +102,21 @@ def _carregar_sheets_state(raw):
         st.session_state["auto_export_enabled"] = False
 
 
+def _conta_teste_expirada(dados: dict) -> bool:
+    """True se a conta é de teste e o prazo de validade já passou."""
+    if not dados.get("conta_teste"):
+        return False
+    exp = dados.get("teste_expira_em")
+    if not exp:
+        return False
+    from datetime import datetime, timezone
+    try:
+        exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) >= exp_dt
+    except Exception:
+        return False
+
+
 def restaurar_sessao(refresh_token: str) -> bool:
     """
     Restaura sessão a partir do refresh token fornecido pelo CookieManager.
@@ -124,9 +139,12 @@ def restaurar_sessao(refresh_token: str) -> bool:
             "role, google_maps_api_key, google_sheets_creds, "
             "maps_credits_enabled, maps_api_key_admin, "
             "instagram_credits_enabled, apify_api_key_admin, apify_api_key, "
-            "apify_keys_pool, instagram_visible, disparo_habilitado"
+            "apify_keys_pool, instagram_visible, disparo_habilitado, "
+            "conta_teste, teste_expira_em"
         ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
+        if _conta_teste_expirada(dados):
+            return False
         st.session_state["user"] = {
             "id":            user.id,
             "email":         user.email,
@@ -144,6 +162,8 @@ def restaurar_sessao(refresh_token: str) -> bool:
         st.session_state["apify_keys_pool"]           = dados.get("apify_keys_pool") or []
         st.session_state["instagram_visible"]         = bool(dados.get("instagram_visible", True))
         st.session_state["disparo_habilitado"]        = bool(dados.get("disparo_habilitado", False))
+        st.session_state["conta_teste"]                = bool(dados.get("conta_teste", False))
+        st.session_state["teste_expira_em"]            = dados.get("teste_expira_em") or ""
         if maps_enabled:
             st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
         elif dados.get("google_maps_api_key"):
@@ -175,9 +195,14 @@ def login(email: str, senha: str) -> tuple[bool, str]:
             "role, google_maps_api_key, google_client_id, google_client_secret, "
             "google_sheets_creds, app_url, maps_credits_enabled, maps_api_key_admin, "
             "instagram_credits_enabled, apify_api_key_admin, apify_api_key, "
-            "apify_keys_pool, instagram_visible, disparo_habilitado"
+            "apify_keys_pool, instagram_visible, disparo_habilitado, "
+            "conta_teste, teste_expira_em"
         ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
+
+        if _conta_teste_expirada(dados):
+            exp_txt = str(dados.get("teste_expira_em") or "")[:10]
+            return False, f"Sua conta de teste expirou em {exp_txt}. Fale com o administrador pra renovar."
 
         st.session_state["user"] = {
             "id":            user.id,
@@ -196,6 +221,8 @@ def login(email: str, senha: str) -> tuple[bool, str]:
         st.session_state["apify_keys_pool"]           = dados.get("apify_keys_pool") or []
         st.session_state["instagram_visible"]         = bool(dados.get("instagram_visible", True))
         st.session_state["disparo_habilitado"]        = bool(dados.get("disparo_habilitado", False))
+        st.session_state["conta_teste"]                = bool(dados.get("conta_teste", False))
+        st.session_state["teste_expira_em"]            = dados.get("teste_expira_em") or ""
         if maps_enabled:
             st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
         elif dados.get("google_maps_api_key"):
@@ -219,6 +246,7 @@ def logout():
     for k in ["user", "user_gmaps_key", "maps_credits_enabled", "maps_api_key_admin",
               "instagram_credits_enabled", "apify_api_key_admin", "apify_api_key_user",
               "apify_keys_pool", "instagram_visible", "disparo_habilitado",
+              "conta_teste", "teste_expira_em",
               "sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista",
               "maps_res", "rf_res", "page", "_cfg_cache", "_cookie_set",
               "_pesquisas_cache", "_sb_client", "_credits_renewed"]:
@@ -227,6 +255,20 @@ def logout():
 
 def usuario_logado() -> Optional[dict]:
     return st.session_state.get("user")
+
+
+def sessao_teste_expirada() -> bool:
+    """
+    Checa se a conta de teste da sessão ATUAL já expirou — chamado a cada
+    render (main()), não só no login, pra bloquear em tempo real mesmo se
+    o usuário já estava com a aba aberta quando o prazo bateu.
+    """
+    if not st.session_state.get("conta_teste"):
+        return False
+    return _conta_teste_expirada({
+        "conta_teste":     True,
+        "teste_expira_em": st.session_state.get("teste_expira_em"),
+    })
 
 
 def eh_admin() -> bool:
@@ -251,8 +293,12 @@ def listar_usuarios() -> tuple[bool, list, str]:
         return False, [], "Erro ao carregar usuários."
 
 
-def criar_usuario(email: str, senha: str, role: str = "user") -> tuple[bool, str]:
-    """Cria novo usuário. Retorna (sucesso, mensagem)."""
+def criar_usuario(email: str, senha: str, role: str = "user", extra: dict | None = None) -> tuple[bool, str]:
+    """
+    Cria novo usuário. Retorna (sucesso, mensagem).
+    extra — campos adicionais do perfil pra gravar já na criação (usado pra
+    contas de teste: conta_teste, teste_expira_em, créditos iniciais etc.).
+    """
     if not eh_admin():
         return False, "Acesso não autorizado."
     if role not in ("admin", "user"):
@@ -269,11 +315,10 @@ def criar_usuario(email: str, senha: str, role: str = "user") -> tuple[bool, str
         })
         user_id = resp.user.id
         # Garante que o perfil exista com o role correto
-        sb.table("profiles").upsert({
-            "id":    user_id,
-            "email": email.strip(),
-            "role":  role,
-        }).execute()
+        perfil_novo = {"id": user_id, "email": email.strip(), "role": role}
+        if extra:
+            perfil_novo.update(extra)
+        sb.table("profiles").upsert(perfil_novo).execute()
         return True, f"Usuário **{email}** criado com sucesso."
     except Exception as e:
         msg = str(e)
@@ -391,6 +436,35 @@ def obter_pool_apify_usuario_admin(user_id: str) -> list[dict]:
         return (resp.data or {}).get("apify_keys_pool") or []
     except Exception:
         return []
+
+
+def obter_pool_maps_teste() -> list[dict]:
+    """
+    Carrega o pool da chave Google Maps compartilhada entre TODAS as contas
+    de teste (linha única em platform_settings, mesmo formato de maps_keys_pool).
+    Sempre via service role — contas de teste não têm acesso direto à tabela.
+    """
+    sb = _admin_client()
+    if not sb:
+        return []
+    try:
+        resp = sb.table("platform_settings").select("maps_pool_teste").eq("id", 1).single().execute()
+        return (resp.data or {}).get("maps_pool_teste") or []
+    except Exception:
+        return []
+
+
+def salvar_pool_maps_teste(pool: list[dict]) -> bool:
+    """Salva o pool compartilhado da chave Maps de contas de teste."""
+    sb = _admin_client()
+    if not sb:
+        return False
+    try:
+        sb.table("platform_settings").update({"maps_pool_teste": pool}).eq("id", 1).execute()
+        return True
+    except Exception as e:
+        logger.error("salvar_pool_maps_teste: %s", e)
+        return False
 
 
 def redefinir_senha(user_id: str, nova_senha: str) -> tuple[bool, str]:

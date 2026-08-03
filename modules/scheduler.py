@@ -135,6 +135,30 @@ def _get_cdd_key() -> str:
     return key
 
 
+def _get_maps_teste_key() -> str:
+    key = os.getenv("MAPS_API_KEY_TESTE", "")
+    if not key:
+        try:
+            import streamlit as st
+            key = st.secrets.get("MAPS_API_KEY_TESTE", "")
+        except Exception:
+            pass
+    return key
+
+
+def _conta_teste_expirada(perfil: dict) -> bool:
+    if not perfil.get("conta_teste"):
+        return False
+    exp = perfil.get("teste_expira_em")
+    if not exp:
+        return False
+    try:
+        exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) >= exp_dt
+    except Exception:
+        return False
+
+
 def executar_automacao(auto: dict) -> None:
     """
     Executa uma automação: busca leads e exporta para o Google Sheets configurado.
@@ -176,6 +200,14 @@ def executar_automacao(auto: dict) -> None:
         _reagendar(auto)
         return
 
+    # 1b. Conta de teste expirada — pausa a automação de vez (não reagenda),
+    # já que o dono não consegue mais nem logar pra reativar manualmente.
+    if _conta_teste_expirada(perfil):
+        logger.info("Automação %s pausada: conta de teste expirada", auto_id)
+        registrar_execucao(auto_id, user_id, "error", erro="Conta de teste expirada")
+        atualizar_automacao(auto_id, ativa=False)
+        return
+
     # 2. Verificar créditos CNPJ
     limite = int(filtros.get("limite", 50))
     if tipo == "cnpj":
@@ -189,11 +221,18 @@ def executar_automacao(auto: dict) -> None:
         limite = min(limite, saldo)
 
     # 3. API Keys
+    _conta_teste_sched = bool(perfil.get("conta_teste"))
     _apify_key_sched = perfil.get("apify_api_key", "")
     if tipo == "maps":
-        # Tenta pool primeiro, cai na chave única se não houver pool
+        # Tenta pool primeiro, cai na chave única se não houver pool. Contas
+        # de teste usam o pool compartilhado (ver Admin → contas de teste)
+        # em vez do maps_keys_pool próprio do usuário.
         from modules.database import selecionar_chave_maps, registrar_uso_maps, salvar_pool_maps_usuario
-        _pool_sched = perfil.get("maps_keys_pool") or []
+        if _conta_teste_sched:
+            from modules.auth import obter_pool_maps_teste
+            _pool_sched = obter_pool_maps_teste()
+        else:
+            _pool_sched = perfil.get("maps_keys_pool") or []
         _pool_idx   = -1
         api_key     = ""
         _pool_esgotado = False
@@ -202,7 +241,9 @@ def executar_automacao(auto: dict) -> None:
             if not api_key:
                 _pool_esgotado = True
         if not api_key:
-            if perfil.get("maps_credits_enabled"):
+            if _conta_teste_sched:
+                api_key = _get_maps_teste_key()
+            elif perfil.get("maps_credits_enabled"):
                 api_key = perfil.get("maps_api_key_admin", "")
             else:
                 api_key = perfil.get("google_maps_api_key", "")
@@ -276,11 +317,13 @@ def executar_automacao(auto: dict) -> None:
                 resultados = apify_buscar(api_key=_apify_key_sched, **_maps_kwargs)
             # Atualiza contador do pool (somente se usou Google Maps)
             if not _sched_used_apify and _pool_sched and _pool_idx >= 0:
-                from modules.database import salvar_pool_maps_por_user_id
-                salvar_pool_maps_por_user_id(
-                    user_id,
-                    registrar_uso_maps(_pool_sched, _pool_idx, len(resultados)),
-                )
+                _novo_pool_sched = registrar_uso_maps(_pool_sched, _pool_idx, len(resultados))
+                if _conta_teste_sched:
+                    from modules.auth import salvar_pool_maps_teste
+                    salvar_pool_maps_teste(_novo_pool_sched)
+                else:
+                    from modules.database import salvar_pool_maps_por_user_id
+                    salvar_pool_maps_por_user_id(user_id, _novo_pool_sched)
         else:  # cnpj
             from modules.casa_dos_dados import buscar as cdd_buscar
             _busca_txt = None

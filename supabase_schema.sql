@@ -641,3 +641,60 @@ CREATE POLICY "own_or_admin_message_templates" ON message_templates
 -- ── Comportamento ao esgotar as chaves Google Maps (fallback Apify ou pausar) ──
 -- Execute no SQL Editor do Supabase se o banco já existia.
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS maps_pausar_ao_esgotar BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ============================================================
+-- Contas de teste (trial) — usuário criado pelo admin com créditos
+-- pré-carregados, prazo de validade e acesso restrito à chave Maps
+-- fixa da plataforma (nunca pode configurar chave própria).
+-- ============================================================
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS conta_teste BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS teste_expira_em TIMESTAMPTZ;
+
+-- Linha única de configuração global da plataforma. Guarda o pool da chave
+-- Google Maps compartilhada entre TODAS as contas de teste (mesmo formato
+-- do maps_keys_pool por usuário: rodízio + limite visível + teto oculto de
+-- Text Search). Só é lida/gravada pelo backend via service role — por isso
+-- RLS fica ligado sem nenhuma policy (nem authenticated tem acesso direto).
+CREATE TABLE IF NOT EXISTS platform_settings (
+    id               INT PRIMARY KEY DEFAULT 1,
+    maps_pool_teste  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    CONSTRAINT platform_settings_singleton CHECK (id = 1)
+);
+INSERT INTO platform_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+ALTER TABLE platform_settings ENABLE ROW LEVEL SECURITY;
+
+-- Recria user_stats acrescentando conta_teste e teste_expira_em no final
+-- (CREATE OR REPLACE VIEW só aceita colunas novas no fim da lista).
+CREATE OR REPLACE VIEW user_stats AS
+SELECT
+    p.id,
+    p.email,
+    p.role,
+    p.cdd_credits,
+    p.maps_credits,
+    p.maps_credits_enabled,
+    p.maps_api_key_admin,
+    p.monthly_cdd_credits,
+    p.monthly_maps_credits,
+    p.credits_renewed_at,
+    p.instagram_credits,
+    p.instagram_credits_enabled,
+    p.apify_api_key_admin,
+    p.monthly_instagram_credits,
+    p.created_at,
+    COUNT(DISTINCT s.id)  AS total_searches,
+    COUNT(DISTINCT l.id)  AS total_leads,
+    MAX(s.created_at)     AS last_search_at,
+    p.instagram_visible,
+    p.disparo_habilitado,
+    p.conta_teste,
+    p.teste_expira_em
+FROM profiles p
+LEFT JOIN searches s ON s.user_id = p.id
+LEFT JOIN leads    l ON l.user_id = p.id
+GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
+         p.maps_credits_enabled, p.maps_api_key_admin,
+         p.monthly_cdd_credits, p.monthly_maps_credits,
+         p.credits_renewed_at, p.instagram_credits, p.instagram_credits_enabled,
+         p.apify_api_key_admin, p.monthly_instagram_credits, p.created_at,
+         p.instagram_visible, p.disparo_habilitado, p.conta_teste, p.teste_expira_em;
