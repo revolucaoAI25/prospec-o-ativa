@@ -310,13 +310,42 @@ def salvar_pesquisa_scheduler(
 
 
 def salvar_leads_scheduler(search_id: str, user_id: str, leads: list[dict]) -> bool:
+    """
+    Salva os leads encontrados por uma automação. Monta as colunas na mão
+    (mesma whitelist de salvar_leads() em modules/database.py) em vez de
+    espalhar o dict inteiro do resultado — a busca CNPJ retorna campos como
+    cnae_codigo/capital_social/matriz_filial que NÃO existem na tabela
+    leads, e um INSERT com uma coluna inexistente falha o lote inteiro
+    (antes isso derrubava a automação inteira sem salvar nada, retornando
+    False silenciosamente pro chamador).
+    """
     if not search_id or not leads:
         return False
     sb = _sb()
     if not sb:
         return False
     try:
-        rows = [{**lead, "search_id": search_id, "user_id": user_id} for lead in leads]
+        rows = [{
+            "user_id":          user_id,
+            "search_id":        search_id,
+            "nome":             str(r.get("nome", "") or ""),
+            "telefone":         str(r.get("telefone", "") or ""),
+            "telefone2":        str(r.get("telefone2", "") or ""),
+            "email":            str(r.get("email", "") or ""),
+            "endereco":         str(r.get("endereco", "") or ""),
+            "municipio":        str(r.get("municipio", "") or ""),
+            "uf":               str(r.get("uf", "") or ""),
+            "cep":              str(r.get("cep", "") or ""),
+            "site":             str(r.get("site", "") or ""),
+            "maps_url":         str(r.get("maps_url", "") or ""),
+            "avaliacao":        r.get("avaliacao") or None,
+            "total_avaliacoes": r.get("total_avaliacoes") or None,
+            "cnpj":             str(r.get("cnpj", "") or ""),
+            "nicho":            str(r.get("nicho_busca", "") or ""),
+            "subnicho":         str(r.get("subnicho_busca", "") or ""),
+            "fonte":            str(r.get("fonte", "") or ""),
+            "instagram_id":     str(r.get("instagram_id", "") or ""),
+        } for r in leads]
         # Insere em lotes de 500 para evitar timeout
         for i in range(0, len(rows), 500):
             sb.table("leads").insert(rows[i:i+500]).execute()

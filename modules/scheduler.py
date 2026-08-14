@@ -390,8 +390,17 @@ def executar_automacao(auto: dict) -> None:
         fonte=fonte,
         total=total,
     )
+    # search_id fica com total_results correto mesmo se o insert dos leads
+    # falhar logo abaixo — por isso é essencial checar o retorno aqui e
+    # registrar isso como erro, em vez de deixar passar como sucesso com o
+    # histórico mostrando um título "vazio" sem nenhum lead de verdade.
+    _leads_salvos_ok = True
     if search_id and resultados:
-        salvar_leads_scheduler(search_id, user_id, resultados)
+        _leads_salvos_ok = salvar_leads_scheduler(search_id, user_id, resultados)
+        if not _leads_salvos_ok:
+            logger.error("Automação %s: busca OK (%d leads) mas falhou ao salvar no histórico", auto_id, total)
+    elif not search_id:
+        logger.error("Automação %s: falhou ao criar o registro da pesquisa no histórico", auto_id)
 
     # 7. Debitar créditos CNPJ
     if tipo == "cnpj" and total > 0:
@@ -404,6 +413,7 @@ def executar_automacao(auto: dict) -> None:
 
     # 8. Exportar para Google Sheets
     sheets_status = "success"
+    _sheets_erro_msg = ""
     if auto.get("sheet_id") and resultados:
         creds_raw = perfil.get("google_sheets_creds")
         if isinstance(creds_raw, dict):
@@ -422,8 +432,10 @@ def executar_automacao(auto: dict) -> None:
                 )
                 if not ok:
                     logger.warning("Sheets export falhou na automação %s: %s", auto_id, msg)
+                    sheets_status, _sheets_erro_msg = "error", msg
             except Exception as e:
                 logger.error("Sheets export erro na automação %s: %s", auto_id, e)
+                sheets_status, _sheets_erro_msg = "error", str(e)
         else:
             sheets_status = "sem_sheets"
 
@@ -436,8 +448,15 @@ def executar_automacao(auto: dict) -> None:
         except Exception as e:
             logger.error("Disparo vinculado da automação %s falhou: %s", auto_id, e)
 
-    # 9. Registrar log da execução
-    registrar_execucao(auto_id, user_id, sheets_status, leads=total)
+    # 9. Registrar log da execução — leads não salvos no histórico é o pior
+    # caso (pesquisa "vazia" pro cliente) e tem prioridade sobre o status do
+    # Sheets como motivo do erro reportado.
+    if not search_id:
+        registrar_execucao(auto_id, user_id, "error", leads=total, erro="Falha ao registrar a pesquisa no histórico.")
+    elif not _leads_salvos_ok:
+        registrar_execucao(auto_id, user_id, "error", leads=total, erro=f"Busca encontrou {total} leads, mas falhou ao salvá-los no histórico.")
+    else:
+        registrar_execucao(auto_id, user_id, sheets_status, leads=total, erro=_sheets_erro_msg[:500])
 
     # 10. Reagendar
     _reagendar(auto)
