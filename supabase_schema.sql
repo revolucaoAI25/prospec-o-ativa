@@ -698,3 +698,28 @@ GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
          p.credits_renewed_at, p.instagram_credits, p.instagram_credits_enabled,
          p.apify_api_key_admin, p.monthly_instagram_credits, p.created_at,
          p.instagram_visible, p.disparo_habilitado, p.conta_teste, p.teste_expira_em;
+
+-- ============================================================
+-- Colunas de leads que só eram guardadas na hora (download imediato após
+-- a busca), mas nunca chegavam a ser salvas na tabela leads — por isso o
+-- Histórico e as exportações feitas a partir dele (Excel/CSV/Sheets)
+-- sempre mostravam essas colunas em branco pra qualquer busca CNPJ (dados
+-- da Receita) e alguns campos de Maps, mesmo tendo vindo preenchidos na
+-- busca original.
+-- ============================================================
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS tipo_telefone TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS cnae_codigo TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS matriz_filial TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS natureza_juridica TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS data_abertura TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS capital_social TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS simples_optante TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS mei_optante TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS situacao_especial TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS socio_principal TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS cidade_busca TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS estado_busca TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS comentario TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS telefone_internacional TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS status_funcionamento TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS porte TEXT;

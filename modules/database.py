@@ -128,6 +128,22 @@ def salvar_leads(search_id: str, resultados: list[dict]) -> bool:
             "subnicho":         str(r.get("subnicho_busca", "") or ""),
             "fonte":            str(r.get("fonte", "") or ""),
             "instagram_id":     str(r.get("instagram_id", "") or ""),
+            "tipo_telefone":         str(r.get("tipo_telefone", "") or ""),
+            "cnae_codigo":           str(r.get("cnae_codigo", "") or ""),
+            "matriz_filial":         str(r.get("matriz_filial", "") or ""),
+            "natureza_juridica":     str(r.get("natureza_juridica", "") or ""),
+            "data_abertura":         str(r.get("data_abertura", "") or ""),
+            "capital_social":        str(r.get("capital_social", "") or ""),
+            "simples_optante":       str(r.get("simples_optante", "") or ""),
+            "mei_optante":           str(r.get("mei_optante", "") or ""),
+            "situacao_especial":     str(r.get("situacao_especial", "") or ""),
+            "socio_principal":       str(r.get("socio_principal", "") or ""),
+            "cidade_busca":          str(r.get("cidade_busca", "") or ""),
+            "estado_busca":          str(r.get("estado_busca", "") or ""),
+            "comentario":            str(r.get("comentario", "") or ""),
+            "telefone_internacional": str(r.get("telefone_internacional", "") or ""),
+            "status_funcionamento":  str(r.get("status_funcionamento", "") or ""),
+            "porte":                 str(r.get("porte", "") or ""),
         })
 
     try:
@@ -166,6 +182,11 @@ def buscar_leads_da_pesquisa(search_id: str) -> list[dict]:
     até 2000) ultrapassam o limite padrão de linhas por requisição do
     Supabase/PostgREST, e sem paginação os leads do Histórico além da
     linha 1000 seriam perdidos na exportação.
+
+    Os aliases nicho_busca:nicho e subnicho_busca:subnicho existem porque
+    a tabela guarda as colunas como nicho/subnicho, mas COLUNAS_EXPORT (usado
+    por Excel/CSV/Sheets) espera as chaves nicho_busca/subnicho_busca — sem
+    o alias essas duas colunas sempre saíam em branco na exportação.
     """
     sb = _client_autenticado()
     if not sb:
@@ -174,9 +195,18 @@ def buscar_leads_da_pesquisa(search_id: str) -> list[dict]:
     try:
         page_size = 1000
         offset = 0
+        _cols = (
+            "nome, telefone, telefone2, email, endereco, municipio, uf, cep, site, "
+            "maps_url, avaliacao, total_avaliacoes, cnpj, nicho_busca:nicho, "
+            "subnicho_busca:subnicho, fonte, instagram_id, tipo_telefone, cnae_codigo, "
+            "matriz_filial, natureza_juridica, data_abertura, capital_social, "
+            "simples_optante, mei_optante, situacao_especial, socio_principal, "
+            "cidade_busca, estado_busca, comentario, telefone_internacional, "
+            "status_funcionamento, porte"
+        )
         while True:
             resp = (sb.table("leads")
-                      .select("nome, telefone, telefone2, email, endereco, municipio, uf, cep, site, maps_url, avaliacao, total_avaliacoes, cnpj, nicho, subnicho, fonte")
+                      .select(_cols)
                       .eq("search_id", search_id)
                       .order("nome")
                       .range(offset, offset + page_size - 1)

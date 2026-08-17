@@ -345,6 +345,22 @@ def salvar_leads_scheduler(search_id: str, user_id: str, leads: list[dict]) -> b
             "subnicho":         str(r.get("subnicho_busca", "") or ""),
             "fonte":            str(r.get("fonte", "") or ""),
             "instagram_id":     str(r.get("instagram_id", "") or ""),
+            "tipo_telefone":         str(r.get("tipo_telefone", "") or ""),
+            "cnae_codigo":           str(r.get("cnae_codigo", "") or ""),
+            "matriz_filial":         str(r.get("matriz_filial", "") or ""),
+            "natureza_juridica":     str(r.get("natureza_juridica", "") or ""),
+            "data_abertura":         str(r.get("data_abertura", "") or ""),
+            "capital_social":        str(r.get("capital_social", "") or ""),
+            "simples_optante":       str(r.get("simples_optante", "") or ""),
+            "mei_optante":           str(r.get("mei_optante", "") or ""),
+            "situacao_especial":     str(r.get("situacao_especial", "") or ""),
+            "socio_principal":       str(r.get("socio_principal", "") or ""),
+            "cidade_busca":          str(r.get("cidade_busca", "") or ""),
+            "estado_busca":          str(r.get("estado_busca", "") or ""),
+            "comentario":            str(r.get("comentario", "") or ""),
+            "telefone_internacional": str(r.get("telefone_internacional", "") or ""),
+            "status_funcionamento":  str(r.get("status_funcionamento", "") or ""),
+            "porte":                 str(r.get("porte", "") or ""),
         } for r in leads]
         # Insere em lotes de 500 para evitar timeout
         for i in range(0, len(rows), 500):
