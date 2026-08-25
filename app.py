@@ -1488,41 +1488,6 @@ def pagina_busca():
             st.markdown('<div class="info-box">Busca direta no cadastro da <strong>Receita Federal</strong>. '
                         'Filtros por CNAE, porte, regime tributário e muito mais. Resultados instantâneos.</div>', unsafe_allow_html=True)
 
-            # Fora do form pra reagir na hora (dentro do form só atualiza no
-            # envio) — o campo de mínimo de avaliações precisa aparecer assim
-            # que "Filtrar" é escolhido, antes de clicar em buscar.
-            if gmaps_ok:
-                _maps_credito_txt = "  — 1 crédito Maps por empresa verificada" if _maps_credits_enabled else ""
-                maps_modo_cdd = st.radio(
-                    f"🗺️ Google Maps{_maps_credito_txt}",
-                    [
-                        "Não usar",
-                        "Enriquecer (avaliação, telefone extra, site)",
-                        "Filtrar (manter só quem tem perfil no Maps)",
-                        "Filtrar e enriquecer",
-                    ],
-                    index=0, key="cdd_maps_modo", horizontal=True,
-                    help=(
-                        "Enriquecer complementa cada empresa com dados do Google Maps. "
-                        "Filtrar remove da lista quem não tem perfil no Google Maps (ou tem "
-                        "menos avaliações que o mínimo abaixo) — útil pra identificar quem "
-                        "de fato investe em presença online."
-                    ),
-                )
-                _filtrar_maps_cdd  = maps_modo_cdd in ("Filtrar (manter só quem tem perfil no Maps)", "Filtrar e enriquecer")
-                enriquecer_maps_cdd = maps_modo_cdd in ("Enriquecer (avaliação, telefone extra, site)", "Filtrar e enriquecer")
-                min_avaliacoes_cdd = 0
-                if _filtrar_maps_cdd:
-                    min_avaliacoes_cdd = st.number_input(
-                        "Mínimo de avaliações no Google Maps", min_value=0, value=0, step=1,
-                        key="cdd_min_avaliacoes",
-                        help="0 = só exige ter perfil no Google Maps, sem mínimo de avaliações.",
-                    )
-            else:
-                _filtrar_maps_cdd   = False
-                enriquecer_maps_cdd = False
-                min_avaliacoes_cdd  = 0
-
             with st.form("form_cdd"):
                 # ── CNAEs ──────────────────────────────────────────────────────
                 st.markdown("**CNAE(s)**")
@@ -1612,6 +1577,40 @@ def pagina_busca():
                     value=True, key="cdd_apenas_novos",
                     help="Remove empresas com CNPJ ou telefone já salvos em buscas anteriores.",
                 )
+
+                if gmaps_ok:
+                    _maps_credito_txt = "  — 1 crédito Maps por empresa verificada" if _maps_credits_enabled else ""
+                    maps_modo_cdd = st.radio(
+                        f"🗺️ Google Maps{_maps_credito_txt}",
+                        [
+                            "Não usar",
+                            "Enriquecer (avaliação, telefone extra, site)",
+                            "Filtrar (manter só quem tem perfil no Maps)",
+                            "Filtrar e enriquecer",
+                        ],
+                        index=0, key="cdd_maps_modo",
+                        help=(
+                            "Enriquecer complementa cada empresa com dados do Google Maps. "
+                            "Filtrar remove da lista quem não tem perfil no Google Maps (ou tem "
+                            "menos avaliações que o mínimo abaixo) — útil pra identificar quem "
+                            "de fato investe em presença online."
+                        ),
+                    )
+                    _filtrar_maps_cdd  = maps_modo_cdd in ("Filtrar (manter só quem tem perfil no Maps)", "Filtrar e enriquecer")
+                    enriquecer_maps_cdd = maps_modo_cdd in ("Enriquecer (avaliação, telefone extra, site)", "Filtrar e enriquecer")
+                    # Sempre visível (não só quando "Filtrar" está selecionado) — um
+                    # widget dentro de st.form só reaparece/some no próximo envio,
+                    # não na hora que o radio acima muda. Deixar sempre visível com
+                    # essa nota evita esse atraso e resolve mais simples.
+                    min_avaliacoes_cdd = st.number_input(
+                        "Mínimo de avaliações no Google Maps (só usado se 'Filtrar' estiver selecionado acima)",
+                        min_value=0, value=0, step=1, key="cdd_min_avaliacoes",
+                        help="0 = só exige ter perfil no Google Maps, sem mínimo de avaliações.",
+                    )
+                else:
+                    _filtrar_maps_cdd   = False
+                    enriquecer_maps_cdd = False
+                    min_avaliacoes_cdd  = 0
 
                 btn_cdd = st.form_submit_button("🔍 Buscar empresas por CNPJ", use_container_width=True, type="primary")
 
