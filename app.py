@@ -1579,15 +1579,36 @@ def pagina_busca():
                 )
 
                 if gmaps_ok:
-                    _enr_label = "🗺️ Enriquecer com Google Maps (avaliação, telefone extra, site)"
-                    if _maps_credits_enabled:
-                        _enr_label += "  — 1 crédito Maps por empresa"
-                    enriquecer_maps_cdd = st.toggle(
-                        _enr_label, value=False, key="cdd_enriquecer_maps",
-                        help="Após buscar, complementa cada empresa com dados do Google Maps.",
+                    _maps_credito_txt = "  — 1 crédito Maps por empresa verificada" if _maps_credits_enabled else ""
+                    maps_modo_cdd = st.radio(
+                        f"🗺️ Google Maps{_maps_credito_txt}",
+                        [
+                            "Não usar",
+                            "Enriquecer (avaliação, telefone extra, site)",
+                            "Filtrar (manter só quem tem perfil no Maps)",
+                            "Filtrar e enriquecer",
+                        ],
+                        index=0, key="cdd_maps_modo",
+                        help=(
+                            "Enriquecer complementa cada empresa com dados do Google Maps. "
+                            "Filtrar remove da lista quem não tem perfil no Google Maps (ou tem "
+                            "menos avaliações que o mínimo abaixo) — útil pra identificar quem "
+                            "de fato investe em presença online."
+                        ),
                     )
+                    _filtrar_maps_cdd  = maps_modo_cdd in ("Filtrar (manter só quem tem perfil no Maps)", "Filtrar e enriquecer")
+                    enriquecer_maps_cdd = maps_modo_cdd in ("Enriquecer (avaliação, telefone extra, site)", "Filtrar e enriquecer")
+                    min_avaliacoes_cdd = 0
+                    if _filtrar_maps_cdd:
+                        min_avaliacoes_cdd = st.number_input(
+                            "Mínimo de avaliações no Google Maps", min_value=0, value=0, step=1,
+                            key="cdd_min_avaliacoes",
+                            help="0 = só exige ter perfil no Google Maps, sem mínimo de avaliações.",
+                        )
                 else:
+                    _filtrar_maps_cdd   = False
                     enriquecer_maps_cdd = False
+                    min_avaliacoes_cdd  = 0
 
                 btn_cdd = st.form_submit_button("🔍 Buscar empresas por CNPJ", use_container_width=True, type="primary")
 
@@ -1718,7 +1739,7 @@ def pagina_busca():
                             # de outro lead dentro do mesmo lote).
                             res_cdd = remover_duplicados_lote(res_cdd, _dedup_cnpjs, _dedup_tels)
 
-                            if enriquecer_maps_cdd and res_cdd:
+                            if (enriquecer_maps_cdd or _filtrar_maps_cdd) and res_cdd:
                                 # Mesma lógica de seleção/rotação/pausa da busca direta do
                                 # Google Maps: usa o pool do usuário com limite (visível +
                                 # teto oculto de Text Search) e só passa do limite quando a
@@ -1755,24 +1776,33 @@ def pagina_busca():
                                         "Todas as chaves Google Maps atingiram o limite mensal. Você "
                                         "optou por pausar a busca nesse caso — mude isso em Configurações "
                                         "se quiser continuar além da cota. Os leads de CNPJ já buscados "
-                                        "foram mantidos, só o enriquecimento com Maps não rodou."
+                                        "foram mantidos, só a etapa do Maps não rodou."
                                     )
                                     st.session_state.pop("_rf_enriched", None)
                                 elif not _enr_key:
-                                    st.error("Nenhuma chave Google Maps configurada para enriquecimento.")
+                                    st.error("Nenhuma chave Google Maps configurada.")
                                     st.session_state.pop("_rf_enriched", None)
                                 else:
-                                    _bar_enr2 = st.progress(0, text="Enriquecendo com Google Maps…")
+                                    _label_maps_step = "Filtrando" if (_filtrar_maps_cdd and not enriquecer_maps_cdd) else "Enriquecendo"
+                                    _bar_enr2 = st.progress(0, text=f"{_label_maps_step} com Google Maps…")
                                     def _cb_enr2(a, t, m): _bar_enr2.progress(min(a / max(t, 1), 1.0), text=str(m)[:100])
                                     from modules.google_maps import enriquecer_com_maps, QuotaExceededError
                                     _enr_stats: dict = {}
+                                    # Créditos e uso são cobrados por empresa VERIFICADA, não por
+                                    # quem sobra depois do filtro — a chamada ao Maps já foi feita
+                                    # mesmo pra quem acaba sendo removida da lista.
+                                    _n_verificados = len(res_cdd)
                                     try:
-                                        enriquecer_com_maps(res_cdd, _enr_key, _cb_enr2, stats=_enr_stats)
+                                        res_cdd = enriquecer_com_maps(
+                                            res_cdd, _enr_key, _cb_enr2, stats=_enr_stats,
+                                            show_phone=enriquecer_maps_cdd,
+                                            filtrar=_filtrar_maps_cdd, min_avaliacoes=int(min_avaliacoes_cdd),
+                                        )
                                     except QuotaExceededError:
                                         st.warning(
-                                            "Cota Google Maps esgotada durante o enriquecimento — parte "
-                                            "das empresas pode ter ficado sem dados do Maps. Os leads de "
-                                            "CNPJ já buscados foram mantidos normalmente."
+                                            "Cota Google Maps esgotada no meio do processo — parte das "
+                                            "empresas pode não ter sido verificada. Os leads de CNPJ já "
+                                            "buscados foram mantidos normalmente."
                                         )
                                     finally:
                                         _bar_enr2.empty()
@@ -1781,7 +1811,7 @@ def pagina_busca():
                                         from modules.database import registrar_uso_maps
                                         _novo_enr_pool = registrar_uso_maps(
                                             _enr_pool, _enr_pool_idx,
-                                            _enr_stats.get("contact_data_calls", len(res_cdd)),
+                                            _enr_stats.get("contact_data_calls", _n_verificados if enriquecer_maps_cdd else 0),
                                             _enr_stats.get("text_search_calls", 0),
                                         )
                                         if _conta_teste:
@@ -1794,7 +1824,9 @@ def pagina_busca():
                                             )
                                     if _maps_credits_enabled:
                                         from modules.database import debitar_creditos_maps
-                                        debitar_creditos_maps(len(res_cdd))
+                                        debitar_creditos_maps(_n_verificados)
+                                    if _filtrar_maps_cdd:
+                                        st.info(f"Filtro do Google Maps: {len(res_cdd)} de {_n_verificados} empresas tinham perfil (mín. {int(min_avaliacoes_cdd)} avaliações).")
                                     # Remove duplicados que só ficaram visíveis DEPOIS do
                                     # enriquecimento (o Maps pode preencher um telefone que bate
                                     # com outro lead já salvo ou já presente neste lote). Usa sets
@@ -1855,22 +1887,43 @@ def pagina_busca():
                 else:
                     st.warning("Exportação automática não realizada: nenhuma planilha principal configurada.")
             st.success(f"✅ **{len(res)}** resultados")
+            if st.session_state.get("_rf_filtro_maps_msg"):
+                st.info(st.session_state.pop("_rf_filtro_maps_msg"))
             _stats(res)
             if gmaps_ok and not st.session_state.get("_rf_enriched"):
                 _n_enr = len(res)
+                _maps_credito_txt2 = "  — 1 crédito Maps por empresa verificada" if _maps_credits_enabled else ""
+                maps_modo_rf = st.radio(
+                    f"🗺️ Google Maps{_maps_credito_txt2}",
+                    [
+                        "Enriquecer (avaliação, telefone extra, site)",
+                        "Filtrar (manter só quem tem perfil no Maps)",
+                        "Filtrar e enriquecer",
+                    ],
+                    index=0, key="rf_maps_modo", horizontal=True,
+                )
+                _filtrar_rf   = maps_modo_rf in ("Filtrar (manter só quem tem perfil no Maps)", "Filtrar e enriquecer")
+                _enriquecer_rf = maps_modo_rf in ("Enriquecer (avaliação, telefone extra, site)", "Filtrar e enriquecer")
+                _min_aval_rf = 0
+                if _filtrar_rf:
+                    _min_aval_rf = st.number_input(
+                        "Mínimo de avaliações no Google Maps", min_value=0, value=0, step=1,
+                        key="rf_min_avaliacoes",
+                        help="0 = só exige ter perfil no Google Maps, sem mínimo de avaliações.",
+                    )
                 if _maps_credits_enabled:
                     from modules.database import obter_creditos_maps
                     _ec1, _ec2 = st.columns([5, 2])
                     with _ec1:
                         _btn_enr = st.button(
-                            f"🗺️ Enriquecer com Google Maps  —  {_n_enr} créditos Maps",
+                            f"🗺️ Rodar Google Maps  —  {_n_enr} créditos Maps",
                             key="btn_enrich_rf", use_container_width=True,
                         )
                     with _ec2:
                         st.caption(f"Saldo Maps: {obter_creditos_maps()}")
                 else:
                     _btn_enr = st.button(
-                        "🗺️ Enriquecer com Google Maps",
+                        "🗺️ Rodar Google Maps",
                         key="btn_enrich_rf", use_container_width=True,
                     )
                 if _btn_enr:
@@ -1926,7 +1979,11 @@ def pagina_busca():
                             _enr2_stats: dict = {}
                             _enr2_erro = None
                             try:
-                                enriquecer_com_maps(res, _enr2_key, _cb_enr, stats=_enr2_stats)
+                                res = enriquecer_com_maps(
+                                    res, _enr2_key, _cb_enr, stats=_enr2_stats,
+                                    show_phone=_enriquecer_rf,
+                                    filtrar=_filtrar_rf, min_avaliacoes=int(_min_aval_rf),
+                                )
                             except QuotaExceededError:
                                 _enr2_erro = "quota"
                             except Exception as _enr_e:
@@ -1937,7 +1994,7 @@ def pagina_busca():
                                 from modules.database import registrar_uso_maps
                                 _novo_enr2_pool = registrar_uso_maps(
                                     _enr2_pool, _enr2_pool_idx,
-                                    _enr2_stats.get("contact_data_calls", _n_enr),
+                                    _enr2_stats.get("contact_data_calls", _n_enr if _enriquecer_rf else 0),
                                     _enr2_stats.get("text_search_calls", 0),
                                 )
                                 if _conta_teste:
@@ -1959,10 +2016,12 @@ def pagina_busca():
                                     debitar_creditos_maps(_n_enr)
                                 if _enr2_erro == "quota":
                                     st.warning(
-                                        "Cota Google Maps esgotada durante o enriquecimento — parte "
-                                        "das empresas pode ter ficado sem dados do Maps. O que já foi "
-                                        "enriquecido foi mantido."
+                                        "Cota Google Maps esgotada no meio do processo — parte das "
+                                        "empresas pode não ter sido verificada. O que já foi processado "
+                                        "foi mantido."
                                     )
+                                if _filtrar_rf:
+                                    st.session_state["_rf_filtro_maps_msg"] = f"Filtro do Google Maps: {len(res)} de {_n_enr} empresas tinham perfil (mín. {int(_min_aval_rf)} avaliações)."
                                 st.rerun()
             _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)

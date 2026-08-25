@@ -407,6 +407,8 @@ def enriquecer_com_maps(
     show_phone: bool = True,
     show_rating: bool = True,
     stats: dict | None = None,
+    filtrar: bool = False,
+    min_avaliacoes: int = 0,
 ) -> list[dict]:
     """
     Enriquece cada empresa com dados do Google Maps.
@@ -414,15 +416,30 @@ def enriquecer_com_maps(
     show_rating=True → inclui avaliação (vem do Text Search, sempre gratuito)
     Não sobrescreve campos já preenchidos pelo CNPJ.
 
+    filtrar=True — em vez de só enriquecer, REMOVE do resultado quem não tem
+    perfil no Google Maps (Text Search sem resultado) ou tem menos de
+    min_avaliacoes avaliações. Não precisa de Place Details pra decidir isso
+    — a nota e a contagem de avaliações já vêm de graça no Text Search — só
+    busca Place Details (telefone/site) se show_phone também estiver ligado.
+    Uma falha de rede pontual numa empresa não a remove (fail-open: mantém,
+    já que não dá pra saber se ela realmente não tem perfil ou se foi só um
+    erro de conexão).
+
     stats — dict opcional preenchido in-place com {"text_search_calls": N,
     "contact_data_calls": M} — mesma finalidade do stats de buscar(), usado
     pra registrar uso/cota da chave com a mesma lógica da busca direta.
 
     Levanta QuotaExceededError/ValueError se a cota esgotar ou a chave for
-    negada (mesmo sinal usado por buscar()) — interrompe o enriquecimento
-    em vez de engolir o erro e seguir tentando o resto da lista sem avisar.
+    negada (mesmo sinal usado por buscar()) — interrompe o processo em vez
+    de engolir o erro e seguir tentando o resto da lista sem avisar.
+
+    Retorna a lista de resultados — SEM filtro é a mesma lista recebida
+    (mutada in-place, compatível com quem ignora o retorno); COM filtro é
+    uma lista NOVA e mais curta — quem chamar com filtrar=True precisa
+    reatribuir o retorno pra ver o efeito.
     """
     total = len(resultados)
+    mantidos: list[dict] = []
 
     def _cb(i, msg):
         if progress_callback:
@@ -436,6 +453,10 @@ def enriquecer_com_maps(
         _cb(i, f"[{i+1}/{total}] {nome[:45]}…")
 
         if not nome:
+            # Sem nome não dá pra pesquisar no Maps — mantém sempre (mesmo
+            # com filtrar=True: não é "empresa sem perfil", é "não deu pra
+            # verificar", fail-open igual erro de rede abaixo).
+            mantidos.append(r)
             continue
 
         query = f"{nome} {municipio} {uf}".strip()
@@ -444,6 +465,7 @@ def enriquecer_com_maps(
         try:
             resp = _text_search(query, api_key)
         except requests.HTTPError:
+            mantidos.append(r)
             continue
 
         status = resp.get("status")
@@ -454,46 +476,55 @@ def enriquecer_com_maps(
             )
         if status == "OVER_QUERY_LIMIT":
             raise QuotaExceededError("Cota diária da API Google Maps esgotada.")
-        if status != "OK" or not resp.get("results"):
-            continue
 
-        try:
-            place = resp["results"][0]
-            pid   = place.get("place_id", "")
+        encontrado    = (status == "OK" and bool(resp.get("results")))
+        n_avaliacoes  = 0
 
-            # Avaliação do Text Search — sem custo Enterprise
-            if show_rating:
-                if place.get("rating") is not None:
-                    r["avaliacao"] = place["rating"]
-                if place.get("user_ratings_total") is not None:
-                    r["total_avaliacoes"] = place["user_ratings_total"]
+        if encontrado:
+            try:
+                place = resp["results"][0]
+                pid   = place.get("place_id", "")
+                n_avaliacoes = int(place.get("user_ratings_total") or 0)
 
-            # Maps URL básica (funciona sem Details)
-            if pid and not r.get("maps_url"):
-                r["maps_url"] = f"https://www.google.com/maps/place/?q=place_id:{pid}"
+                # Avaliação do Text Search — sem custo Enterprise
+                if show_rating:
+                    if place.get("rating") is not None:
+                        r["avaliacao"] = place["rating"]
+                    if place.get("user_ratings_total") is not None:
+                        r["total_avaliacoes"] = place["user_ratings_total"]
 
-            # Place Details: apenas se show_phone=True
-            if pid and show_phone:
-                if stats is not None:
-                    stats["contact_data_calls"] = stats.get("contact_data_calls", 0) + 1
-                det = _get_details(pid, api_key)
-                if det.get("url"):
-                    r["maps_url"] = det["url"]
+                # Maps URL básica (funciona sem Details)
+                if pid and not r.get("maps_url"):
+                    r["maps_url"] = f"https://www.google.com/maps/place/?q=place_id:{pid}"
 
-                tel = det.get("formatted_phone_number") or det.get("international_phone_number") or ""
-                if tel:
-                    if not r.get("telefone"):
-                        r["telefone"] = tel
-                    elif _apenas_digitos(r.get("telefone")) != _apenas_digitos(tel) and not r.get("telefone2"):
-                        r["telefone2"] = tel
+                # Place Details: apenas se show_phone=True
+                if pid and show_phone:
+                    if stats is not None:
+                        stats["contact_data_calls"] = stats.get("contact_data_calls", 0) + 1
+                    det = _get_details(pid, api_key)
+                    if det.get("url"):
+                        r["maps_url"] = det["url"]
 
-                if det.get("website") and not r.get("site"):
-                    r["site"] = det["website"]
+                    tel = det.get("formatted_phone_number") or det.get("international_phone_number") or ""
+                    if tel:
+                        if not r.get("telefone"):
+                            r["telefone"] = tel
+                        elif _apenas_digitos(r.get("telefone")) != _apenas_digitos(tel) and not r.get("telefone2"):
+                            r["telefone2"] = tel
 
-        except requests.HTTPError:
-            pass
+                    if det.get("website") and not r.get("site"):
+                        r["site"] = det["website"]
+
+            except requests.HTTPError:
+                pass
+
+        if filtrar:
+            if encontrado and n_avaliacoes >= min_avaliacoes:
+                mantidos.append(r)
+        else:
+            mantidos.append(r)
 
         time.sleep(0.05)
 
-    _cb(total, "Enriquecimento concluído!")
-    return resultados
+    _cb(total, "Concluído!")
+    return mantidos
