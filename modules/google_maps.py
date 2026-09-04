@@ -425,14 +425,17 @@ def enriquecer_com_maps(
     mantém, já que não dá pra saber se ela realmente não tem perfil ou se
     foi só um erro de conexão).
 
-    Toda vez que filtrar=True, cada empresa CONSULTADA (mesmo sem match)
-    conta como uso "caro" — mesmo proxy usado pro limite visível de Contact
-    Data — em vez de só contar contra a cota oculta de Text Search. Isso é
+    Quando filtrar=True E min_avaliacoes > 0 (a decisão realmente depende de
+    user_ratings_total), cada empresa CONSULTADA (mesmo sem match) conta como
+    uso "caro" — mesmo proxy usado pro limite visível de Contact Data — em
+    vez de só contar contra a cota oculta de Text Search. Isso é
     deliberadamente conservador: não há confirmação de que o endpoint
     legado trata rating/user_ratings_total como campo gratuito (a API nova
     do Google reclassifica chamadas que pedem "rating" pro tier pago
     Enterprise) — até isso ser confirmado no relatório de faturamento real,
-    tratamos como se custasse o mesmo que consultar telefone.
+    tratamos como se custasse o mesmo que consultar telefone. Com
+    min_avaliacoes=0 (só checando se existe perfil), continua na cota
+    oculta de Text Search — nesse caso a decisão não depende da nota.
 
     stats — dict opcional preenchido in-place com {"text_search_calls": N,
     "contact_data_calls": M} — mesma finalidade do stats de buscar(), usado
@@ -492,15 +495,17 @@ def enriquecer_com_maps(
         # Já cobrado como "caro" nesta empresa? Evita contar duas vezes quando
         # filtrar E show_phone estão ligados juntos.
         _ja_cobrado_caro = False
-        if filtrar and stats is not None:
-            # O filtro depende de rating/user_ratings_total, pedido em TODA
-            # tentativa (mesmo sem resultado — a chamada faturável já
-            # aconteceu de qualquer forma). Não temos confirmação de que o
-            # Google trata esses campos como gratuitos no endpoint legado (há
-            # indícios de que, na API nova, pedir "rating" já reclassifica a
-            # chamada pro tier pago Enterprise). Por segurança, até confirmar
-            # isso no relatório de faturamento, trata como se consumisse o
-            # mesmo limite visível (proxy dos 1.000) do Contact Data.
+        if filtrar and min_avaliacoes > 0 and stats is not None:
+            # Só quando o filtro EXIGE um mínimo de avaliações de verdade —
+            # aí sim a decisão depende do valor de user_ratings_total. Sem
+            # mínimo (min_avaliacoes=0), o filtro só precisa saber se existe
+            # perfil (ZERO_RESULTS ou não), então fica na cota oculta de
+            # Text Search (4.500) igual antes. Não temos confirmação de que
+            # o Google trata rating/user_ratings_total como campo gratuito
+            # no endpoint legado (há indícios de que, na API nova, pedir
+            # "rating" já reclassifica a chamada pro tier pago Enterprise) —
+            # por segurança, nesse caso específico, trata como se consumisse
+            # o mesmo limite visível (proxy dos 1.000) do Contact Data.
             stats["contact_data_calls"] = stats.get("contact_data_calls", 0) + 1
             _ja_cobrado_caro = True
 
