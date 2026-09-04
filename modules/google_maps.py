@@ -413,17 +413,26 @@ def enriquecer_com_maps(
     """
     Enriquece cada empresa com dados do Google Maps.
     show_phone=True  → busca telefone/site via Place Details (Contact Data)
-    show_rating=True → inclui avaliação (vem do Text Search, sempre gratuito)
+    show_rating=True → inclui avaliação (vem do Text Search)
     Não sobrescreve campos já preenchidos pelo CNPJ.
 
     filtrar=True — em vez de só enriquecer, REMOVE do resultado quem não tem
     perfil no Google Maps (Text Search sem resultado) ou tem menos de
     min_avaliacoes avaliações. Não precisa de Place Details pra decidir isso
-    — a nota e a contagem de avaliações já vêm de graça no Text Search — só
-    busca Place Details (telefone/site) se show_phone também estiver ligado.
-    Uma falha de rede pontual numa empresa não a remove (fail-open: mantém,
-    já que não dá pra saber se ela realmente não tem perfil ou se foi só um
-    erro de conexão).
+    — a nota e a contagem de avaliações já vêm na resposta do Text Search —
+    só busca Place Details (telefone/site) se show_phone também estiver
+    ligado. Uma falha de rede pontual numa empresa não a remove (fail-open:
+    mantém, já que não dá pra saber se ela realmente não tem perfil ou se
+    foi só um erro de conexão).
+
+    Toda vez que filtrar=True, cada empresa CONSULTADA (mesmo sem match)
+    conta como uso "caro" — mesmo proxy usado pro limite visível de Contact
+    Data — em vez de só contar contra a cota oculta de Text Search. Isso é
+    deliberadamente conservador: não há confirmação de que o endpoint
+    legado trata rating/user_ratings_total como campo gratuito (a API nova
+    do Google reclassifica chamadas que pedem "rating" pro tier pago
+    Enterprise) — até isso ser confirmado no relatório de faturamento real,
+    tratamos como se custasse o mesmo que consultar telefone.
 
     stats — dict opcional preenchido in-place com {"text_search_calls": N,
     "contact_data_calls": M} — mesma finalidade do stats de buscar(), usado
@@ -480,13 +489,28 @@ def enriquecer_com_maps(
         encontrado    = (status == "OK" and bool(resp.get("results")))
         n_avaliacoes  = 0
 
+        # Já cobrado como "caro" nesta empresa? Evita contar duas vezes quando
+        # filtrar E show_phone estão ligados juntos.
+        _ja_cobrado_caro = False
+        if filtrar and stats is not None:
+            # O filtro depende de rating/user_ratings_total, pedido em TODA
+            # tentativa (mesmo sem resultado — a chamada faturável já
+            # aconteceu de qualquer forma). Não temos confirmação de que o
+            # Google trata esses campos como gratuitos no endpoint legado (há
+            # indícios de que, na API nova, pedir "rating" já reclassifica a
+            # chamada pro tier pago Enterprise). Por segurança, até confirmar
+            # isso no relatório de faturamento, trata como se consumisse o
+            # mesmo limite visível (proxy dos 1.000) do Contact Data.
+            stats["contact_data_calls"] = stats.get("contact_data_calls", 0) + 1
+            _ja_cobrado_caro = True
+
         if encontrado:
             try:
                 place = resp["results"][0]
                 pid   = place.get("place_id", "")
                 n_avaliacoes = int(place.get("user_ratings_total") or 0)
 
-                # Avaliação do Text Search — sem custo Enterprise
+                # Avaliação do Text Search
                 if show_rating:
                     if place.get("rating") is not None:
                         r["avaliacao"] = place["rating"]
@@ -499,7 +523,7 @@ def enriquecer_com_maps(
 
                 # Place Details: apenas se show_phone=True
                 if pid and show_phone:
-                    if stats is not None:
+                    if stats is not None and not _ja_cobrado_caro:
                         stats["contact_data_calls"] = stats.get("contact_data_calls", 0) + 1
                     det = _get_details(pid, api_key)
                     if det.get("url"):
