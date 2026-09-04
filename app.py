@@ -1642,6 +1642,12 @@ def pagina_busca():
                     st.error("Selecione ao menos um CNAE para buscar.")
                 elif not uf_cdd_sel:
                     st.error("Selecione ao menos um estado.")
+                elif dt_ini and dt_fim and dt_ini > dt_fim:
+                    st.error(
+                        f"A data **'Abertura — de'** ({dt_ini.strftime('%d/%m/%Y')}) está depois da "
+                        f"**'Abertura — até'** ({dt_fim.strftime('%d/%m/%Y')}) — inverta as datas. "
+                        "Com elas assim nenhuma empresa pode atender ao filtro."
+                    )
                 else:
                     from modules.database import obter_creditos
                     _saldo_cdd = obter_creditos()
@@ -2792,6 +2798,11 @@ def _card_automacao(auto: dict) -> None:
                         _erros_ed.append("Selecione ao menos um CNAE.")
                     if not uf_ed_sel:
                         _erros_ed.append("Selecione ao menos um estado.")
+                    if dt_ini_ed and dt_fim_ed and dt_ini_ed > dt_fim_ed:
+                        _erros_ed.append(
+                            f"A data 'Abertura — de' ({dt_ini_ed.strftime('%d/%m/%Y')}) está depois da "
+                            f"'Abertura — até' ({dt_fim_ed.strftime('%d/%m/%Y')}) — inverta as datas."
+                        )
                     _mfmap_ed = {"Somente Matriz": "MATRIZ", "Somente Filial": "FILIAL"}
                     _cnae_tipo_val_ed = {"Primário": "principal", "Secundário": "secundario", "Primário ou Secundário": "ambos"}.get(cnae_tipo_ed, "principal")
                     novos_filtros_ed = {
@@ -3194,6 +3205,11 @@ def pagina_automacoes():
                     erros.append("Selecione ao menos um CNAE.")
                 if tipo_val == "cnpj" and not filtros_auto.get("uf"):
                     erros.append("Selecione ao menos um estado.")
+                if tipo_val == "cnpj" and dt_ini_a and dt_fim_a and dt_ini_a > dt_fim_a:
+                    erros.append(
+                        f"A data 'Abertura — de' ({dt_ini_a.strftime('%d/%m/%Y')}) está depois da "
+                        f"'Abertura — até' ({dt_fim_a.strftime('%d/%m/%Y')}) — inverta as datas."
+                    )
                 if not dias_sel:
                     erros.append("Selecione ao menos um dia da semana.")
                 if not horarios_sel:
