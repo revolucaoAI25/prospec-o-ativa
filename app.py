@@ -1729,6 +1729,14 @@ def pagina_busca():
                             )
                             bar_cdd.progress(1.0, text=f"Concluído! {len(res_cdd)} resultados.")
                             bar_cdd.empty()
+                            logger.info(
+                                "Busca CNPJ (user=%s): %d resultado(s) da API. cnaes=%s cnae_tipo=%s "
+                                "uf=%s municipio=%s mei=%s simples=%s data=%s..%s capital=%s..%s",
+                                st.session_state.get("user", {}).get("id", ""), len(res_cdd),
+                                cnaes_codigos, _cnae_tipo_map.get(cnae_tipo_cdd, "principal"),
+                                uf_cdd_sel, mun_lista, mei_optante, simples_optante,
+                                dt_ini_str, dt_fim_str, cap_min_v, cap_max_v,
+                            )
 
                             # Sets de deduplicação — reaproveita o que já foi buscado do
                             # histórico (se "apenas leads novos" estiver ativo) e vai sendo
@@ -1739,7 +1747,10 @@ def pagina_busca():
                             # Remove duplicados ANTES de enriquecer — evita gastar créditos
                             # Maps enriquecendo um lead que já é duplicado (do histórico ou
                             # de outro lead dentro do mesmo lote).
+                            _n_antes_dedup = len(res_cdd)
                             res_cdd = remover_duplicados_lote(res_cdd, _dedup_cnpjs, _dedup_tels)
+                            if _n_antes_dedup != len(res_cdd):
+                                logger.info("Busca CNPJ: dedup removeu %d de %d (sobraram %d)", _n_antes_dedup - len(res_cdd), _n_antes_dedup, len(res_cdd))
 
                             if (enriquecer_maps_cdd or _filtrar_maps_cdd) and res_cdd:
                                 # Mesma lógica de seleção/rotação/pausa da busca direta do
@@ -1829,6 +1840,11 @@ def pagina_busca():
                                         debitar_creditos_maps(_n_verificados)
                                     if _filtrar_maps_cdd:
                                         st.info(f"Filtro do Google Maps: {len(res_cdd)} de {_n_verificados} empresas tinham perfil (mín. {int(min_avaliacoes_cdd)} avaliações).")
+                                        logger.info(
+                                            "Busca CNPJ (user=%s): filtro Google Maps manteve %d de %d empresas (mín. %d avaliações)",
+                                            st.session_state.get("user", {}).get("id", ""),
+                                            len(res_cdd), _n_verificados, int(min_avaliacoes_cdd),
+                                        )
                                     # Remove duplicados que só ficaram visíveis DEPOIS do
                                     # enriquecimento (o Maps pode preencher um telefone que bate
                                     # com outro lead já salvo ou já presente neste lote). Usa sets
@@ -2024,6 +2040,11 @@ def pagina_busca():
                                     )
                                 if _filtrar_rf:
                                     st.session_state["_rf_filtro_maps_msg"] = f"Filtro do Google Maps: {len(res)} de {_n_enr} empresas tinham perfil (mín. {int(_min_aval_rf)} avaliações)."
+                                    logger.info(
+                                        "Enriquecimento manual (user=%s): filtro Google Maps manteve %d de %d empresas (mín. %d avaliações)",
+                                        st.session_state.get("user", {}).get("id", ""),
+                                        len(res), _n_enr, int(_min_aval_rf),
+                                    )
                                 st.rerun()
             _dl_buttons(res, st.session_state.get("rf_prefix","prospecao_cdd"), "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")))
             st.markdown("#### Prévia"); _tabela(res)
