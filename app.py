@@ -1438,7 +1438,12 @@ def pagina_busca():
                     try:
                         from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos_maps
                         sid = salvar_pesquisa(nicho_lbl, sub_final, cv, ev, localidade_str, "maps", len(res))
-                        if sid: salvar_leads(sid, res)
+                        if not sid:
+                            logger.error("Busca Maps (user=%s): falha ao registrar a pesquisa no histórico", st.session_state.get("user", {}).get("id", ""))
+                            st.warning("Os resultados foram encontrados, mas não foi possível salvá-los no Histórico. Exporte agora pelos botões abaixo antes de sair desta tela.")
+                        elif not salvar_leads(sid, res):
+                            logger.error("Busca Maps (user=%s): falha ao salvar %d leads no histórico (search_id=%s)", st.session_state.get("user", {}).get("id", ""), len(res), sid)
+                            st.warning("Os resultados foram encontrados, mas não foi possível salvá-los no Histórico. Exporte agora pelos botões abaixo antes de sair desta tela.")
                         # Só debita créditos da plataforma se a busca de fato usou
                         # um recurso da plataforma — Google Maps API, ou o fallback
                         # Apify com chave do pool/admin. Quando o fallback usa a
@@ -1446,7 +1451,7 @@ def pagina_busca():
                         if _maps_credits_enabled and (not _used_apify or _apify_platform_used):
                             debitar_creditos_maps(len(res))
                     except Exception:
-                        pass
+                        logger.exception("Erro ao salvar pesquisa/leads Maps no histórico")
                     if st.session_state.get("auto_export_enabled"):
                         st.session_state["_auto_exp_maps"] = True
 
@@ -1875,10 +1880,15 @@ def pagina_busca():
                             try:
                                 from modules.database import salvar_pesquisa, salvar_leads, debitar_creditos
                                 sid = salvar_pesquisa(nicho_label, ", ".join(cnaes_codigos), ", ".join(mun_lista), ", ".join(uf_cdd_sel), local_cdd, "receita_federal", len(res_cdd))
-                                if sid: salvar_leads(sid, res_cdd)
+                                if not sid:
+                                    logger.error("Busca CNPJ (user=%s): falha ao registrar a pesquisa no histórico", st.session_state.get("user", {}).get("id", ""))
+                                    st.warning("Os resultados foram encontrados, mas não foi possível salvá-los no Histórico. Exporte agora pelos botões abaixo antes de sair desta tela.")
+                                elif not salvar_leads(sid, res_cdd):
+                                    logger.error("Busca CNPJ (user=%s): falha ao salvar %d leads no histórico (search_id=%s)", st.session_state.get("user", {}).get("id", ""), len(res_cdd), sid)
+                                    st.warning("Os resultados foram encontrados, mas não foi possível salvá-los no Histórico. Exporte agora pelos botões abaixo antes de sair desta tela.")
                                 debitar_creditos(len(res_cdd))
                             except Exception:
-                                pass
+                                logger.exception("Erro ao salvar pesquisa/leads CNPJ no histórico")
                             if st.session_state.get("auto_export_enabled"):
                                 st.session_state["_auto_exp_rf"] = True
 
@@ -2187,8 +2197,12 @@ def pagina_busca():
                                     "Instagram", _tipo_val, "", "", _alvo.strip(),
                                     "instagram", len(res_insta),
                                 )
-                                if sid:
-                                    salvar_leads(sid, res_insta)
+                                if not sid:
+                                    logger.error("Busca Instagram (user=%s): falha ao registrar a pesquisa no histórico", st.session_state.get("user", {}).get("id", ""))
+                                    st.warning("Os resultados foram encontrados, mas não foi possível salvá-los no Histórico. Exporte agora pelos botões abaixo antes de sair desta tela.")
+                                elif not salvar_leads(sid, res_insta):
+                                    logger.error("Busca Instagram (user=%s): falha ao salvar %d leads no histórico (search_id=%s)", st.session_state.get("user", {}).get("id", ""), len(res_insta), sid)
+                                    st.warning("Os resultados foram encontrados, mas não foi possível salvá-los no Histórico. Exporte agora pelos botões abaixo antes de sair desta tela.")
                                 if _usar_creditos_insta:
                                     debitar_creditos_instagram(len(res_insta))
                                 if _apify_pool_idx >= 0:
@@ -2197,7 +2211,7 @@ def pagina_busca():
                                         registrar_uso_apify(_apify_pool_ativo, _apify_pool_idx, len(res_insta))
                                     )
                             except Exception:
-                                pass
+                                logger.exception("Erro ao salvar pesquisa/leads Instagram no histórico")
                             if st.session_state.get("auto_export_enabled"):
                                 st.session_state["_auto_exp_insta"] = True
 
