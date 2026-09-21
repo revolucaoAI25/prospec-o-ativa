@@ -16,16 +16,20 @@ Estratégia (do mais barato/confiável pro mais caro/incerto):
      (não é um recurso documentado oficialmente — o Google às vezes indexa
      o telefone na ficha do lugar — mas custa só uma chamada extra, vale a
      tentativa antes de desistir).
-  3. IA (Claude, com a ferramenta de busca na web nativa da Anthropic) como
-     último recurso, só quando os dois anteriores não acharem nada.
+  3. IA (OpenAI gpt-5-mini, com a ferramenta de busca na web nativa da
+     Responses API) como último recurso, só quando os dois anteriores não
+     acharem nada.
 
 Variáveis de ambiente usadas:
-  CDD_API_KEY          — mesma chave já usada pelo app principal (Casa dos Dados)
-  MAPS_API_KEY_ENRICH   — chave dedicada do Google Maps pra esse protótipo
-                          (separada da(s) usada(s) no app principal, pra não
-                          disputar cota com os clientes)
-  ANTHROPIC_API_KEY     — pro fallback de IA (opcional — se ausente, esse
-                          passo é simplesmente pulado)
+  CDD_API_KEY      — mesma chave já usada pelo app principal (Casa dos Dados).
+                     Só existe como variável de ambiente lá também — nunca
+                     fica guardada no Supabase, por isso precisa ser
+                     configurada aqui de novo (copiar o mesmo valor).
+  OPENAI_API_KEY   — pro fallback de IA (opcional — se ausente, esse passo é
+                     simplesmente pulado). Usa o modelo gpt-5-mini.
+  (a chave do Google Maps NÃO é uma variável de ambiente — é lida
+  diretamente do Supabase, da conta do admin já configurada no app
+  principal — ver obter_maps_key_admin() abaixo)
 """
 
 from __future__ import annotations
@@ -132,7 +136,39 @@ def cdd_busca_por_nome(nome: str, api_key: str) -> list[dict]:
     return resultados
 
 
-# ── Google Maps (chave dedicada + teto de segurança simples) ────────────
+# ── Google Maps (chave já configurada na conta do admin + teto de segurança) ─
+
+def obter_maps_key_admin(sb, admin_email: str = "") -> str:
+    """
+    Busca a chave do Google Maps direto do Supabase, na conta do próprio
+    admin — a mesma já configurada em Configurações no app principal, sem
+    precisar cadastrar uma chave nova/duplicada só pra esse protótipo.
+    Prioriza o pool (maps_keys_pool[0]) e cai pra chave única
+    (google_maps_api_key) se não houver pool configurado. Se admin_email
+    não for informado, usa o primeiro perfil com role='admin' encontrado.
+
+    Atenção: como é a MESMA chave usada no app principal, o uso feito por
+    aqui soma na cota real do Google, mas o contador de uso mostrado no
+    Admin do app principal não sabe dessas chamadas (foram feitas por um
+    serviço separado) — o teto MAPS_LIMITE_MENSAL abaixo é a proteção
+    própria deste protótipo, independente da que já existe no app principal.
+    """
+    try:
+        query = sb.table("profiles").select("email, maps_keys_pool, google_maps_api_key, role")
+        query = query.eq("email", admin_email) if admin_email else query.eq("role", "admin")
+        resp = query.limit(1).execute()
+        rows = resp.data or []
+        if not rows:
+            return ""
+        perfil = rows[0]
+        pool = perfil.get("maps_keys_pool") or []
+        if pool and pool[0].get("key"):
+            return pool[0]["key"]
+        return perfil.get("google_maps_api_key") or ""
+    except Exception as e:
+        logger.warning("obter_maps_key_admin falhou: %s", e)
+        return ""
+
 
 def _maps_uso_liberado(sb) -> bool:
     """Checa (e reseta se virou o mês) o contador de uso da chave dedicada
@@ -202,14 +238,14 @@ def maps_place_details(place_id: str, api_key: str) -> dict:
 
 # ── IA (fallback final) ──────────────────────────────────────────────────
 
-def enriquecer_via_ia(nome: str, email: str, telefone: str, anthropic_api_key: str) -> Optional[dict]:
-    """Último recurso: pede pra um modelo Claude barato (Haiku) buscar na
-    internet e tentar identificar a empresa/dados comerciais associados.
+def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str) -> Optional[dict]:
+    """Último recurso: pede pra um modelo OpenAI barato (gpt-5-mini) buscar
+    na internet e tentar identificar a empresa/dados comerciais associados.
     Retorna None se não achar nada com confiança razoável."""
     try:
-        import anthropic
+        from openai import OpenAI
     except ImportError:
-        logger.warning("pacote 'anthropic' não instalado — pulando fallback de IA")
+        logger.warning("pacote 'openai' não instalado — pulando fallback de IA")
         return None
 
     prompt = (
@@ -225,14 +261,13 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, anthropic_api_key: s
     )
 
     try:
-        client = anthropic.Anthropic(api_key=anthropic_api_key)
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
-            messages=[{"role": "user", "content": prompt}],
+        client = OpenAI(api_key=openai_api_key)
+        resp = client.responses.create(
+            model="gpt-5-mini",
+            tools=[{"type": "web_search"}],
+            input=prompt,
         )
-        texto = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        texto = resp.output_text or ""
         import json
         match = re.search(r"\{.*\}", texto, re.DOTALL)
         if not match:
@@ -250,7 +285,7 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, anthropic_api_key: s
 
 def enriquecer_lead(
     nome: str, email: str, telefone: str,
-    cdd_api_key: str, maps_api_key: str, anthropic_api_key: str,
+    cdd_api_key: str, maps_api_key: str, openai_api_key: str,
     sb,
 ) -> dict:
     """
@@ -340,8 +375,8 @@ def enriquecer_lead(
                 return resultado
 
     # 3) IA — último recurso
-    if anthropic_api_key:
-        dados_ia = enriquecer_via_ia(nome, email, telefone, anthropic_api_key)
+    if openai_api_key:
+        dados_ia = enriquecer_via_ia(nome, email, telefone, openai_api_key)
         if dados_ia:
             resultado.update({
                 "status": "concluido", "metodo_encontrado": "ia",

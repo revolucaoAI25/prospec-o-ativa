@@ -16,10 +16,19 @@ Variáveis de ambiente necessárias:
   SUPABASE_URL
   SUPABASE_SERVICE_ROLE_KEY
   SIGNUP_API_KEY   — chave secreta que o sistema externo envia no header X-API-Key (endpoint /users)
-  ENRICH_API_KEY   — chave secreta separada para o endpoint /enrich/lead
-  CDD_API_KEY      — mesma chave da Casa dos Dados já usada no app principal
-  MAPS_API_KEY_ENRICH — chave do Google Maps dedicada a esse protótipo (separada das do app principal)
-  ANTHROPIC_API_KEY   — opcional, habilita o fallback de IA quando e-mail/telefone não encontram nada
+  ENRICH_API_KEY   — chave secreta separada para o endpoint /enrich/lead (você mesmo inventa um
+                     valor — é só uma senha pra proteger esse endpoint, igual a SIGNUP_API_KEY)
+  CDD_API_KEY      — mesma chave da Casa dos Dados já usada no app principal (copie o mesmo
+                     valor pra cá — é uma variável de ambiente só, nunca fica no Supabase)
+  OPENAI_API_KEY   — opcional, habilita o fallback de IA (gpt-5-mini) quando e-mail/telefone
+                     não encontram nada
+  ENRICH_ADMIN_EMAIL — opcional. A chave do Google Maps NÃO precisa de variável de ambiente
+                     própria — é lida direto do Supabase, da conta do admin já configurada no
+                     app principal. Se houver mais de um usuário admin, informe aqui qual
+                     e-mail usar; se deixar em branco, usa o primeiro admin encontrado.
+  MAPS_API_KEY_ENRICH — opcional. Só defina isso se quiser uma chave Maps SEPARADA/isolada só
+                     pra esse protótipo, em vez de reaproveitar a do admin — tem prioridade
+                     sobre a busca automática acima quando definida.
 """
 
 import logging
@@ -47,8 +56,9 @@ SIGNUP_API_KEY = os.environ["SIGNUP_API_KEY"]
 # individualmente ausentes só desativam aquele passo específico do pipeline).
 ENRICH_API_KEY       = os.getenv("ENRICH_API_KEY", "")
 ENRICH_CDD_API_KEY   = os.getenv("CDD_API_KEY", "")
-ENRICH_MAPS_API_KEY  = os.getenv("MAPS_API_KEY_ENRICH", "")
-ENRICH_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ENRICH_MAPS_API_KEY_OVERRIDE = os.getenv("MAPS_API_KEY_ENRICH", "")
+ENRICH_OPENAI_KEY    = os.getenv("OPENAI_API_KEY", "")
+ENRICH_ADMIN_EMAIL   = os.getenv("ENRICH_ADMIN_EMAIL", "")
 
 _sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -171,10 +181,12 @@ def _processar_enriquecimento(enrichment_id: str, nome: str, email: str, telefon
     try:
         _sb.table("lead_enrichments").update({"status": "processando"}).eq("id", enrichment_id).execute()
 
+        maps_key = ENRICH_MAPS_API_KEY_OVERRIDE or lead_enrichment.obter_maps_key_admin(_sb, ENRICH_ADMIN_EMAIL)
+
         resultado = lead_enrichment.enriquecer_lead(
             nome=nome, email=email, telefone=telefone,
-            cdd_api_key=ENRICH_CDD_API_KEY, maps_api_key=ENRICH_MAPS_API_KEY,
-            anthropic_api_key=ENRICH_ANTHROPIC_KEY, sb=_sb,
+            cdd_api_key=ENRICH_CDD_API_KEY, maps_api_key=maps_key,
+            openai_api_key=ENRICH_OPENAI_KEY, sb=_sb,
         )
 
         atualizacao = {

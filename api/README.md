@@ -150,7 +150,15 @@ POST https://<seu-servico>.up.railway.app/enrich/lead
 
 ## Autenticação
 
-Header `X-API-Key` com o valor de `ENRICH_API_KEY` (chave **separada** da usada em `/users`).
+Header `X-API-Key` com o valor de `ENRICH_API_KEY`.
+
+> **O que é essa chave?** Não é uma chave que você "obtém" em algum lugar — é uma senha que
+> **você mesmo inventa** (qualquer string longa e aleatória) e cadastra como variável de
+> ambiente `ENRICH_API_KEY` no Railway. Ela só serve pra impedir que qualquer pessoa na
+> internet consiga chamar esse endpoint — o mesmo sistema (Make, n8n etc.) que vai disparar
+> o webhook precisa mandar esse mesmo valor no header. É o mesmo esquema que já existe pro
+> endpoint `/users` (lá é a `SIGNUP_API_KEY`) — só que separada, pra não misturar os dois
+> recursos.
 
 ## Corpo da requisição (JSON)
 
@@ -199,10 +207,11 @@ curl -X POST https://<seu-servico>.up.railway.app/enrich/lead \
 
 | Variável | Obrigatória | Descrição |
 |---|---|---|
-| `ENRICH_API_KEY` | ✅ (senão o endpoint retorna `503`) | Chave secreta pro header `X-API-Key`, separada da usada em `/users` |
-| `CDD_API_KEY` | recomendada | Mesma chave da Casa dos Dados já usada no app principal — sem ela, o passo de busca por e-mail pula direto pra confirmação só via Maps |
-| `MAPS_API_KEY_ENRICH` | recomendada | Chave do Google Maps **dedicada** a este protótipo (não reaproveita as chaves/pool do app principal, pra não disputar cota com os clientes). Tem um teto de segurança de 900 usos/mês, contado à parte |
-| `ANTHROPIC_API_KEY` | opcional | Habilita o fallback de IA (Claude Haiku + busca na web) quando e-mail e telefone não encontram nada. Sem ela, esse passo é simplesmente pulado |
+| `ENRICH_API_KEY` | ✅ (senão o endpoint retorna `503`) | Senha que você mesmo inventa (ver explicação acima), pro header `X-API-Key` — separada da usada em `/users` |
+| `CDD_API_KEY` | recomendada | Mesma chave da Casa dos Dados já usada no app principal — **copie o mesmo valor pra cá**. É uma variável de ambiente pura, nunca fica guardada no Supabase, então precisa ser configurada de novo neste serviço. Sem ela, o passo de busca por e-mail pula direto pra confirmação só via Maps |
+| `OPENAI_API_KEY` | opcional | Habilita o fallback de IA (`gpt-5-mini` + busca na web) quando e-mail e telefone não encontram nada. Sem ela, esse passo é simplesmente pulado |
+| `ENRICH_ADMIN_EMAIL` | opcional | **Não precisa criar uma chave Maps nova** — o serviço busca automaticamente, direto no Supabase, a chave Google Maps já configurada na conta do admin (a mesma usada no app principal). Se você tiver mais de um usuário admin, informe aqui qual e-mail usar; deixando em branco, usa o primeiro admin encontrado |
+| `MAPS_API_KEY_ENRICH` | opcional | Só defina isso se quiser uma chave Maps **separada/isolada** só pra esse protótipo, em vez de reaproveitar a da conta admin — tem prioridade sobre a busca automática quando definida. Tem um teto de segurança de 900 usos/mês, contado à parte (independente do que o app principal já rastreia pra essa chave) |
 
 ## Estratégia do pipeline (nessa ordem, para no primeiro que achar)
 
@@ -211,11 +220,18 @@ curl -X POST https://<seu-servico>.up.railway.app/enrich/lead \
    o Google Maps (campo `website` do lugar batendo com o domínio do e-mail).
 2. **Telefone** — tenta o número como texto direto numa busca do Google Maps (não é um
    recurso oficialmente documentado, mas custa pouco tentar).
-3. **IA** — Claude (modelo barato) com busca na web habilitada, só como último recurso.
+3. **IA** — OpenAI `gpt-5-mini` com busca na web habilitada (Responses API), só como último
+   recurso, quando os dois anteriores não acham nada.
 
 ## Notas
 
 - Assim como `/users`, isto é pensado pra ser chamado só pelo **admin** — a chave fica só com
   quem administra a plataforma, e o painel de visualização dentro do app já é admin-only.
-- O SQL de `lead_enrichments` e `enrichment_settings` precisa estar rodado no Supabase antes
-  de usar este endpoint (ver `supabase_schema.sql`).
+- O SQL de `lead_enrichments`, `enrichment_settings` e `enrichment_webhooks` precisa estar
+  rodado no Supabase antes de usar este endpoint (ver `supabase_schema.sql`).
+- Painel visual dentro do app principal (menu lateral → **Enriquecimento**, admin-only):
+  mostra como conectar o webhook de entrada, gerencia webhooks de destino salvos, tem um
+  formulário "Testar agora" (não precisa de ferramenta externa pra testar), e lista o
+  histórico completo. Pra habilitar o teste direto por lá, configure também
+  `ENRICH_API_URL` (a URL deste serviço) e `ENRICH_API_KEY` (mesmo valor) nos **Secrets do
+  Streamlit** (são variáveis do app principal, não deste serviço — não confundir).

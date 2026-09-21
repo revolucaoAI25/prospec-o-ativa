@@ -775,3 +775,14 @@ CREATE TABLE IF NOT EXISTS enrichment_settings (
 );
 INSERT INTO enrichment_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 ALTER TABLE enrichment_settings ENABLE ROW LEVEL SECURITY;
+
+-- Webhooks de destino salvos (pra não precisar redigitar a URL toda vez no
+-- painel "Testar agora", e servir de referência pra quem configura o
+-- gatilho externo). RLS ligado sem policy — só service role acessa.
+CREATE TABLE IF NOT EXISTS enrichment_webhooks (
+    id         UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    nome       TEXT NOT NULL,
+    url        TEXT NOT NULL,
+    criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE enrichment_webhooks ENABLE ROW LEVEL SECURITY;

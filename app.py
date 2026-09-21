@@ -4375,7 +4375,10 @@ def pagina_admin():
 # ── Enriquecimento de leads por e-mail/telefone (protótipo, admin-only) ─────
 
 def pagina_enriquecimento():
-    from modules.auth import listar_enriquecimentos
+    from modules.auth import (
+        listar_enriquecimentos, listar_webhooks_enriquecimento,
+        criar_webhook_enriquecimento, deletar_webhook_enriquecimento,
+    )
     import requests
 
     st.markdown(
@@ -4393,21 +4396,84 @@ def pagina_enriquecimento():
         '(<code>/api</code>, fora do app principal). Tenta identificar a empresa primeiro por '
         '<strong>e-mail corporativo</strong> (domínio → busca na Casa dos Dados + confirmação no Google '
         'Maps), depois por <strong>telefone</strong>, e por último via <strong>IA com busca na web</strong> '
-        '(só quando os dois anteriores não acham nada). Endpoint: <code>POST /enrich/lead</code>.</div>',
+        '(só quando os dois anteriores não acham nada).</div>',
         unsafe_allow_html=True,
     )
 
-    # ── Testar agora ──────────────────────────────────────────────────────
-    with st.expander("🧪 Testar agora", expanded=True):
-        enrich_url = _s("ENRICH_API_URL")
-        enrich_key = _s("ENRICH_API_KEY")
+    enrich_url = _s("ENRICH_API_URL")
+    enrich_key = _s("ENRICH_API_KEY")
+
+    # ── Como conectar ────────────────────────────────────────────────────
+    with st.expander("📡 Como conectar (webhook de entrada)", expanded=not (enrich_url and enrich_key)):
         if not enrich_url or not enrich_key:
             st.warning(
                 "Configure `ENRICH_API_URL` (URL do serviço /api, ex: "
-                "`https://seu-servico.up.railway.app`) e `ENRICH_API_KEY` nos Secrets do Streamlit pra "
-                "habilitar o teste direto por aqui. O webhook externo funciona normalmente mesmo sem isso.",
+                "`https://seu-servico.up.railway.app`) e `ENRICH_API_KEY` (mesmo valor cadastrado "
+                "no Railway) nos Secrets do Streamlit pra ver o exemplo completo e habilitar o teste "
+                "direto por aqui. O webhook externo funciona normalmente mesmo sem isso configurado "
+                "por aqui — essas variáveis só ligam o painel a ele.",
                 icon="⚠️",
             )
+        st.markdown("Configure seu sistema externo (Make, n8n, Zapier etc.) pra chamar:")
+        _endpoint = f"{enrich_url.rstrip('/')}/enrich/lead" if enrich_url else "https://<seu-servico>.up.railway.app/enrich/lead"
+        _chave_exibida = enrich_key if enrich_key else "<sua ENRICH_API_KEY>"
+        st.code(
+            f"POST {_endpoint}\n"
+            f"Header:  X-API-Key: {_chave_exibida}\n"
+            f"Header:  Content-Type: application/json\n\n"
+            "Body (JSON):\n"
+            "{\n"
+            '  "nome": "Fulano de Tal",\n'
+            '  "email": "fulano@empresa.com.br",\n'
+            '  "telefone": "+55 47 99999-9999",\n'
+            '  "webhook_destino": "https://hook.make.com/xxxxx"   // opcional\n'
+            "}",
+            language="text",
+        )
+        st.caption(
+            "`webhook_destino` é opcional — se informado, o resultado é reenviado automaticamente "
+            "pra essa URL quando o processamento terminar (uso normalmente alguns segundos). Sem "
+            "isso, consulte o resultado aqui no histórico abaixo."
+        )
+
+    # ── Webhooks de destino salvos ───────────────────────────────────────
+    with st.expander("🔗 Webhooks de destino salvos"):
+        st.caption("Salve URLs de destino reutilizáveis — aparecem como opção no formulário de teste abaixo.")
+        webhooks_salvos = listar_webhooks_enriquecimento()
+        if webhooks_salvos:
+            for wh in webhooks_salvos:
+                wc1, wc2 = st.columns([5, 1])
+                with wc1:
+                    st.caption(f"**{wh['nome']}** — `{wh['url']}`")
+                with wc2:
+                    if st.button("🗑️", key=f"del_wh_{wh['id']}"):
+                        ok_wh, msg_wh = deletar_webhook_enriquecimento(wh["id"])
+                        (st.success if ok_wh else st.error)(msg_wh)
+                        if ok_wh:
+                            time.sleep(0.3)
+                            st.rerun()
+        else:
+            st.caption("Nenhum webhook salvo ainda.")
+        with st.form("form_novo_webhook"):
+            wnc1, wnc2 = st.columns([2, 4])
+            with wnc1:
+                novo_wh_nome = st.text_input("Nome", placeholder="Ex: Make — CRM principal", key="enr_wh_nome")
+            with wnc2:
+                novo_wh_url = st.text_input("URL", placeholder="https://hook.make.com/...", key="enr_wh_url")
+            if st.form_submit_button("➕ Salvar webhook", use_container_width=True):
+                if not novo_wh_nome.strip() or not novo_wh_url.strip():
+                    st.error("Preencha nome e URL.")
+                else:
+                    ok_wh2, msg_wh2 = criar_webhook_enriquecimento(novo_wh_nome.strip(), novo_wh_url.strip())
+                    (st.success if ok_wh2 else st.error)(msg_wh2)
+                    if ok_wh2:
+                        time.sleep(0.3)
+                        st.rerun()
+
+    # ── Testar agora ──────────────────────────────────────────────────────
+    with st.expander("🧪 Testar agora", expanded=True):
+        webhooks_salvos = listar_webhooks_enriquecimento()
+        opcoes_wh = ["(nenhum)"] + [f"{wh['nome']} — {wh['url']}" for wh in webhooks_salvos]
         with st.form("form_enrich_teste"):
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -4416,6 +4482,7 @@ def pagina_enriquecimento():
                 email_t = st.text_input("E-mail", key="enr_email")
             with c3:
                 tel_t = st.text_input("Telefone", key="enr_tel")
+            wh_escolhido = st.selectbox("Reenviar resultado pra (opcional)", opcoes_wh, key="enr_wh_escolhido")
             btn_t = st.form_submit_button(
                 "🚀 Enriquecer", type="primary", use_container_width=True,
                 disabled=not (enrich_url and enrich_key),
@@ -4424,6 +4491,8 @@ def pagina_enriquecimento():
             if not email_t.strip() and not tel_t.strip():
                 st.error("Informe e-mail ou telefone.")
             else:
+                _idx_wh = opcoes_wh.index(wh_escolhido) - 1  # -1 por causa do "(nenhum)" na frente
+                _webhook_destino = webhooks_salvos[_idx_wh]["url"] if _idx_wh >= 0 else None
                 try:
                     resp = requests.post(
                         f"{enrich_url.rstrip('/')}/enrich/lead",
@@ -4431,6 +4500,7 @@ def pagina_enriquecimento():
                             "nome": nome_t.strip() or None,
                             "email": email_t.strip() or None,
                             "telefone": tel_t.strip() or None,
+                            "webhook_destino": _webhook_destino,
                         },
                         headers={"X-API-Key": enrich_key},
                         timeout=15,
