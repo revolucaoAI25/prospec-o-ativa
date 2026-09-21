@@ -88,16 +88,49 @@ def nome_provavel_da_empresa(dominio: str) -> str:
     return re.sub(r"[-_]+", " ", base).strip()
 
 
-# Rótulos aceitos no formato "* Rótulo\nValor" colado no teste em lote —
-# qualquer rótulo que não bata com um desses (ex.: "Sua dívida é de:Array",
-# vindo de export de formulário) é simplesmente ignorado.
-_ROTULOS_EMAIL = ("email", "e-mail")
-_ROTULOS_NOME = ("full name", "nome completo", "nome")
-_ROTULOS_TELEFONE = ("phone number", "phone", "telefone", "celular")
+# Rótulos aceitos no teste em lote, em formato "* Rótulo\nValor",
+# "Rótulo: Valor" (mesma linha), com ou sem marcador de bullet na frente
+# (*, -, •, etc.) — tolerante a variações de como o texto foi copiado de
+# outro lugar (planilha, export de formulário, etc.). Rótulos que não
+# batam com nenhum desses (ex.: "Sua dívida é de:Array") são ignorados.
+_BULLET = r"[\*\-•●○▪–—]?"
+_CAMPO_PATTERNS = [
+    ("email", re.compile(rf"^{_BULLET}\s*e[-\s]?mail\s*[:\-]?\s*(.*)$", re.IGNORECASE)),
+    ("nome", re.compile(rf"^{_BULLET}\s*(?:full\s*name|nome\s*completo|nome)\s*[:\-]?\s*(.*)$", re.IGNORECASE)),
+    ("telefone", re.compile(rf"^{_BULLET}\s*(?:phone\s*number|phone|telefone|celular|whatsapp)\s*[:\-]?\s*(.*)$", re.IGNORECASE)),
+]
+
+
+def _linha_e_rotulo(linha: str) -> bool:
+    return any(patt.match(linha) for _, patt in _CAMPO_PATTERNS)
+
+
+def _dividir_em_blocos(texto: str) -> list[str]:
+    """Separa o texto colado em um bloco por lead. Preferência por
+    linha(s) em branco como separador; se um "bloco" (entre linhas em
+    branco) tiver MAIS DE UM rótulo de e-mail dentro dele, assume que os
+    leads vieram colados sem linha em branco entre eles e subdivide a
+    partir de cada novo "e-mail" encontrado."""
+    texto = (texto or "").strip()
+    if not texto:
+        return []
+    email_patt = _CAMPO_PATTERNS[0][1]
+    blocos = []
+    for bruto in re.split(r"\n\s*\n", texto):
+        linhas = bruto.splitlines()
+        inicios = [i for i, l in enumerate(linhas) if email_patt.match(l.strip())]
+        if len(inicios) <= 1:
+            blocos.append(bruto)
+            continue
+        limites = inicios + [len(linhas)]
+        for a, b in zip(limites, limites[1:]):
+            blocos.append("\n".join(linhas[a:b]))
+    return blocos
 
 
 def parse_leads_em_lote(texto: str) -> list[dict]:
-    """Faz o parse de um texto colado no formato:
+    """Faz o parse de um texto colado com vários leads, um por bloco, no
+    formato (aceita variações — ver _CAMPO_PATTERNS acima):
 
         * Email
         fulano@empresa.com.br
@@ -109,33 +142,26 @@ def parse_leads_em_lote(texto: str) -> list[dict]:
         * Email
         ...
 
-    Blocos separados por linha(s) em branco = um lead cada. Dentro do
-    bloco, uma linha "* Rótulo" é seguida pela linha de valor — rótulos
-    que não sejam email/nome/telefone (e rótulos sem valor na linha
-    seguinte, ex. de exports de formulário malformados) são ignorados.
     Leads sem e-mail e sem telefone (nada pra buscar) são descartados.
     """
-    blocos = re.split(r"\n\s*\n", (texto or "").strip())
     leads = []
-    for bloco in blocos:
+    for bloco in _dividir_em_blocos(texto):
         linhas = [l.strip() for l in bloco.splitlines() if l.strip()]
         lead = {"nome": "", "email": "", "telefone": ""}
         i = 0
         while i < len(linhas):
             linha = linhas[i]
-            if not linha.startswith("*"):
-                i += 1
-                continue
-            rotulo = linha.lstrip("*").strip().rstrip(":").lower()
-            tem_valor = i + 1 < len(linhas) and not linhas[i + 1].startswith("*")
-            valor = linhas[i + 1] if tem_valor else ""
-            i += 2 if tem_valor else 1
-            if rotulo in _ROTULOS_EMAIL:
-                lead["email"] = valor
-            elif rotulo in _ROTULOS_NOME:
-                lead["nome"] = valor
-            elif rotulo in _ROTULOS_TELEFONE:
-                lead["telefone"] = valor
+            for campo, patt in _CAMPO_PATTERNS:
+                m = patt.match(linha)
+                if not m:
+                    continue
+                valor = m.group(1).strip()
+                if not valor and i + 1 < len(linhas) and not _linha_e_rotulo(linhas[i + 1]):
+                    valor = linhas[i + 1]
+                    i += 1
+                lead[campo] = valor
+                break
+            i += 1
         if lead["email"] or lead["telefone"]:
             leads.append(lead)
     return leads
@@ -333,14 +359,40 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
         "5. Combine sinais entre si (nome + cidade que aparecer numa busca "
         "anterior, nome + telefone, username do e-mail + telefone, etc.) — "
         "cada busca pode revelar uma pista pra próxima.\n\n"
+        "MUITO IMPORTANTE — julgamento sobre se é a MESMA pessoa, não só uma "
+        "coincidência de nome: nomes próprios, principalmente os comuns "
+        "(\"João\", \"Márcio\", \"Ana Silva\"...), pertencem a milhares de "
+        "pessoas diferentes. Achar QUALQUER pessoa com esse nome na internet "
+        "não é achar O lead. Só afirme uma empresa quando houver corroboração "
+        "real ligando especificamente ESTE lead (não um homônimo) a ela — por "
+        "exemplo: o telefone ou e-mail informado aparece na mesma página/perfil "
+        "que menciona a empresa; ou o nome é suficientemente raro/distintivo E "
+        "bate com um perfil verificável (LinkedIn, site da empresa) sem outro "
+        "candidato plausível; ou o domínio do e-mail corporativo já é a própria "
+        "empresa (esse caso é direto, não precisa de mais corroboração). Se o "
+        "único dado disponível for um nome comum, sem e-mail corporativo, sem "
+        "telefone batendo em nada, e você só achar pessoas homônimas sem "
+        "confirmação de que é a mesma — isso NÃO é uma resposta válida, é "
+        "extrapolação, e deve ser tratado como \"não encontrado\".\n\n"
         "Retorne SOMENTE um JSON (sem markdown, sem texto fora do JSON) com as "
         "chaves: empresa_nome, cargo (se descobrir o cargo/função do lead na "
         "empresa), cnpj (se encontrar), municipio, uf, website, linkedin_url "
         "(se achar o perfil), confianca (\"alta\"/\"media\"/\"baixa\"), e fonte "
-        "(frase curta explicando de onde veio — ex.: \"perfil do LinkedIn "
-        "encontrado buscando o nome completo\"). Só retorne "
-        "{\"empresa_nome\": null} se genuinamente não achar NADA depois de "
-        "tentar abordagens diferentes — não desista numa busca só.\n\n"
+        "(frase curta e específica explicando a corroboração usada — ex.: "
+        "\"telefone informado aparece no perfil do LinkedIn encontrado pelo "
+        "nome\" — não só \"achei o nome no LinkedIn\"). Critério pra cada nível "
+        "de confiança: \"alta\" = dois ou mais sinais independentes convergem "
+        "pra mesma empresa/perfil (ex.: nome + telefone, ou domínio do e-mail "
+        "já é a empresa); \"media\" = um sinal forte e específico o bastante "
+        "pra não ser coincidência (nome raro batendo com perfil verificável "
+        "completo); \"baixa\" = só um palpite plausível sem corroboração real. "
+        "Respostas de confiança \"baixa\" são descartadas de qualquer forma — "
+        "então se a única opção for \"baixa\", PREFIRA retornar "
+        "{\"empresa_nome\": null} em vez de arriscar um palpite; é melhor "
+        "admitir que não achou do que atribuir a empresa errada a alguém. Só "
+        "retorne {\"empresa_nome\": null} depois de genuinamente tentar "
+        "abordagens diferentes — não desista numa busca só, mas também não "
+        "force uma resposta que não tem base.\n\n"
         f"Nome completo do lead: {nome or '(não informado)'}\n"
         f"E-mail completo: {email or '(não informado)'}"
         + (f" (texto antes do @: \"{usuario_email}\")" if usuario_email else "")
@@ -361,6 +413,17 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
             return None
         dados = json.loads(match.group(0))
         if not dados.get("empresa_nome"):
+            return None
+        confianca = (dados.get("confianca") or "").strip().lower()
+        if confianca not in ("alta", "media"):
+            # Rede de segurança independente do prompt: mesmo que o modelo
+            # devolva um palpite de baixa confiança (ou sem confiança
+            # informada), tratamos como "não encontrado" em vez de atribuir
+            # uma empresa a alguém com base só numa coincidência de nome.
+            logger.info(
+                "IA achou candidato de confiança insuficiente (%s) — descartando: %s / fonte: %s",
+                confianca or "(ausente)", dados.get("empresa_nome"), dados.get("fonte"),
+            )
             return None
         return dados
     except Exception as e:

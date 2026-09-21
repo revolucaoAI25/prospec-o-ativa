@@ -373,8 +373,10 @@ def painel_testar_lote(
 ):
     leads = lead_enrichment.parse_leads_em_lote(leads_texto)
     if not leads:
+        recebido = leads_texto.strip()
+        detalhe = f' Recebi este texto: "{recebido[:150]}"' if recebido else " (o campo veio vazio — o paste não chegou a preencher a caixa)"
         return RedirectResponse(
-            f"/painel?tipo=err&msg={_url_quote('Não encontrei nenhum lead nesse texto — confira o formato (* Email / * Full name / * Phone number, um lead por bloco).')}",
+            f"/painel?tipo=err&msg={_url_quote('Não encontrei nenhum lead nesse texto — confira o formato (Email / Full name / Phone number, um lead por bloco).' + detalhe)}",
             status_code=303,
         )
 
