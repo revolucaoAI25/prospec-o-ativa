@@ -88,6 +88,59 @@ def nome_provavel_da_empresa(dominio: str) -> str:
     return re.sub(r"[-_]+", " ", base).strip()
 
 
+# Rótulos aceitos no formato "* Rótulo\nValor" colado no teste em lote —
+# qualquer rótulo que não bata com um desses (ex.: "Sua dívida é de:Array",
+# vindo de export de formulário) é simplesmente ignorado.
+_ROTULOS_EMAIL = ("email", "e-mail")
+_ROTULOS_NOME = ("full name", "nome completo", "nome")
+_ROTULOS_TELEFONE = ("phone number", "phone", "telefone", "celular")
+
+
+def parse_leads_em_lote(texto: str) -> list[dict]:
+    """Faz o parse de um texto colado no formato:
+
+        * Email
+        fulano@empresa.com.br
+        * Full name
+        Fulano de Tal
+        * Phone number
+        +5511999999999
+
+        * Email
+        ...
+
+    Blocos separados por linha(s) em branco = um lead cada. Dentro do
+    bloco, uma linha "* Rótulo" é seguida pela linha de valor — rótulos
+    que não sejam email/nome/telefone (e rótulos sem valor na linha
+    seguinte, ex. de exports de formulário malformados) são ignorados.
+    Leads sem e-mail e sem telefone (nada pra buscar) são descartados.
+    """
+    blocos = re.split(r"\n\s*\n", (texto or "").strip())
+    leads = []
+    for bloco in blocos:
+        linhas = [l.strip() for l in bloco.splitlines() if l.strip()]
+        lead = {"nome": "", "email": "", "telefone": ""}
+        i = 0
+        while i < len(linhas):
+            linha = linhas[i]
+            if not linha.startswith("*"):
+                i += 1
+                continue
+            rotulo = linha.lstrip("*").strip().rstrip(":").lower()
+            tem_valor = i + 1 < len(linhas) and not linhas[i + 1].startswith("*")
+            valor = linhas[i + 1] if tem_valor else ""
+            i += 2 if tem_valor else 1
+            if rotulo in _ROTULOS_EMAIL:
+                lead["email"] = valor
+            elif rotulo in _ROTULOS_NOME:
+                lead["nome"] = valor
+            elif rotulo in _ROTULOS_TELEFONE:
+                lead["telefone"] = valor
+        if lead["email"] or lead["telefone"]:
+            leads.append(lead)
+    return leads
+
+
 # ── Casa dos Dados ───────────────────────────────────────────────────────
 
 def cdd_busca_por_nome(nome: str, api_key: str) -> list[dict]:

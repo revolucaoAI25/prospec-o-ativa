@@ -792,3 +792,9 @@ ALTER TABLE enrichment_webhooks ENABLE ROW LEVEL SECURITY;
 -- achar isso também, não só nome da empresa/CNPJ.
 ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS cargo TEXT;
 ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS linkedin_url TEXT;
+
+-- Identifica leads testados juntos no "Teste em lote" do painel, pra dar
+-- pra ver os resultados de uma rodada agrupados (em vez de misturados no
+-- histórico geral).
+ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS lote_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_lead_enrichments_lote ON lead_enrichments(lote_id);

@@ -365,6 +365,53 @@ def painel_testar(
         return RedirectResponse(f"/painel?tipo=err&msg={_url_quote('Erro: ' + str(e)[:200])}", status_code=303)
 
 
+@app.post("/painel/testar_lote")
+def painel_testar_lote(
+    leads_texto: str = Form(""),
+    background_tasks: BackgroundTasks = None,
+    _auth: None = Depends(_verificar_painel_auth),
+):
+    leads = lead_enrichment.parse_leads_em_lote(leads_texto)
+    if not leads:
+        return RedirectResponse(
+            f"/painel?tipo=err&msg={_url_quote('Não encontrei nenhum lead nesse texto — confira o formato (* Email / * Full name / * Phone number, um lead por bloco).')}",
+            status_code=303,
+        )
+
+    lote_id = _secrets_mod.token_hex(6)
+    for lead in leads:
+        try:
+            resp = _sb.table("lead_enrichments").insert({
+                "nome_lead": lead["nome"] or None, "email": lead["email"] or None,
+                "telefone": lead["telefone"] or None, "status": "pendente",
+                "lote_id": lote_id,
+                "origem_payload": {**lead, "via": "painel_lote"},
+            }).execute()
+            enrichment_id = resp.data[0]["id"]
+        except Exception:
+            logger.exception("Erro ao registrar lead do lote (lote=%s)", lote_id)
+            continue
+        background_tasks.add_task(
+            _processar_enriquecimento, enrichment_id,
+            lead["nome"], lead["email"], lead["telefone"], None,
+        )
+
+    return RedirectResponse(f"/painel/lote/{lote_id}", status_code=303)
+
+
+@app.get("/painel/lote/{lote_id}", response_class=HTMLResponse)
+def painel_ver_lote(lote_id: str, _auth: None = Depends(_verificar_painel_auth)):
+    try:
+        itens = (
+            _sb.table("lead_enrichments").select("*")
+            .eq("lote_id", lote_id).order("criado_em").execute().data or []
+        )
+    except Exception:
+        logger.exception("Erro ao carregar lote %s", lote_id)
+        itens = []
+    return panel_html.render_lote(lote_id=lote_id, itens=itens)
+
+
 @app.post("/painel/webhooks")
 def painel_criar_webhook(nome: str = Form(...), url: str = Form(...), _auth: None = Depends(_verificar_painel_auth)):
     try:

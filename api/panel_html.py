@@ -81,6 +81,51 @@ def render_login_placeholder() -> str:
     return "<h1>Não autorizado</h1>"
 
 
+_STATUS_BADGE = {
+    "pendente": ("b-warn", "⏳ Pendente"),
+    "processando": ("b-warn", "⏳ Processando"),
+    "concluido": ("b-ok", "✅ Concluído"),
+    "nao_encontrado": ("b-err", "❌ Não encontrado"),
+    "erro": ("b-err", "❌ Erro"),
+}
+_METODO_LBL = {"email": "📧 e-mail", "telefone": "📞 telefone", "ia": "🤖 IA"}
+
+
+def _render_entries(rows: list[dict]) -> str:
+    partes = ""
+    for r in rows:
+        cls, lbl = _STATUS_BADGE.get(r.get("status", ""), ("b-err", r.get("status", "—")))
+        titulo = r.get("empresa_nome") or r.get("nome_lead") or r.get("email") or r.get("telefone") or "—"
+        ts = (r.get("criado_em") or "")[:16].replace("T", " ")
+        metodo = _METODO_LBL.get(r.get("metodo_encontrado"), "")
+        detalhe_partes = []
+        if r.get("cnpj"):
+            detalhe_partes.append(f"CNPJ {_esc(r['cnpj'])}")
+        if r.get("municipio"):
+            detalhe_partes.append(_esc(r["municipio"]) + (f"/{_esc(r['uf'])}" if r.get("uf") else ""))
+        if r.get("website"):
+            detalhe_partes.append(_esc(r["website"]))
+        if r.get("cargo"):
+            detalhe_partes.append(f"cargo: {_esc(r['cargo'])}")
+        if r.get("linkedin_url"):
+            detalhe_partes.append(f"LinkedIn: {_esc(r['linkedin_url'])}")
+        if r.get("erro"):
+            detalhe_partes.append(f"erro: {_esc(r['erro'])}")
+        detalhe = " · ".join(detalhe_partes)
+        partes += (
+            '<div class="entry">'
+            f'<div class="titulo">{_esc(titulo)} '
+            f'<span class="badge {cls}">{lbl}</span>'
+            + (f' <span class="badge b-ok">{_esc(metodo)}</span>' if metodo else "")
+            + f'</div><div class="meta">{_esc(ts)}'
+            + (f' &middot; entrada: {_esc(r.get("email") or r.get("telefone") or "—")}' if r.get("email") or r.get("telefone") else "")
+            + "</div>"
+            + (f'<div class="detail">{detalhe}</div>' if detalhe else "")
+            + "</div>"
+        )
+    return partes
+
+
 def render_painel(
     *,
     endpoint_url: str,
@@ -106,47 +151,7 @@ def render_painel(
         for w in webhooks
     )
 
-    status_badge = {
-        "pendente": ("b-warn", "⏳ Pendente"),
-        "processando": ("b-warn", "⏳ Processando"),
-        "concluido": ("b-ok", "✅ Concluído"),
-        "nao_encontrado": ("b-err", "❌ Não encontrado"),
-        "erro": ("b-err", "❌ Erro"),
-    }
-    metodo_lbl = {"email": "📧 e-mail", "telefone": "📞 telefone", "ia": "🤖 IA"}
-
-    historico_rows = ""
-    for r in historico:
-        cls, lbl = status_badge.get(r.get("status", ""), ("b-err", r.get("status", "—")))
-        titulo = r.get("empresa_nome") or r.get("nome_lead") or r.get("email") or r.get("telefone") or "—"
-        ts = (r.get("criado_em") or "")[:16].replace("T", " ")
-        metodo = metodo_lbl.get(r.get("metodo_encontrado"), "")
-        detalhe_partes = []
-        if r.get("cnpj"):
-            detalhe_partes.append(f"CNPJ {_esc(r['cnpj'])}")
-        if r.get("municipio"):
-            detalhe_partes.append(_esc(r["municipio"]) + (f"/{_esc(r['uf'])}" if r.get("uf") else ""))
-        if r.get("website"):
-            detalhe_partes.append(_esc(r["website"]))
-        if r.get("cargo"):
-            detalhe_partes.append(f"cargo: {_esc(r['cargo'])}")
-        if r.get("linkedin_url"):
-            detalhe_partes.append(f"LinkedIn: {_esc(r['linkedin_url'])}")
-        if r.get("erro"):
-            detalhe_partes.append(f"erro: {_esc(r['erro'])}")
-        detalhe = " · ".join(detalhe_partes)
-        historico_rows += (
-            '<div class="entry">'
-            f'<div class="titulo">{_esc(titulo)} '
-            f'<span class="badge {cls}">{lbl}</span>'
-            + (f' <span class="badge b-ok">{_esc(metodo)}</span>' if metodo else "")
-            + f'</div><div class="meta">{_esc(ts)}'
-            + (f' &middot; entrada: {_esc(r.get("email") or r.get("telefone") or "—")}' if r.get("email") or r.get("telefone") else "")
-            + "</div>"
-            + (f'<div class="detail">{detalhe}</div>' if detalhe else "")
-            + "</div>"
-        )
-    historico_html = historico_rows or '<div class="empty">Nenhum enriquecimento registrado ainda.</div>'
+    historico_html = _render_entries(historico) or '<div class="empty">Nenhum enriquecimento registrado ainda.</div>'
 
     endpoint_completo = f"{endpoint_url.rstrip('/')}/enrich/lead" if endpoint_url else "https://<este-servico>/enrich/lead"
 
@@ -222,9 +227,80 @@ Body (JSON):
   </div>
 
   <div class="card">
+    <h2>📦 Teste em lote <small>vários leads de uma vez, pra comparar os resultados juntos</small></h2>
+    <form method="post" action="/painel/testar_lote">
+      <label>Cole os leads (um bloco por lead, no formato abaixo)</label>
+      <textarea name="leads_texto" rows="10" style="width:100%;background:#0a0e17;border:1px solid #262e42;
+        border-radius:8px;color:#e6e9ef;padding:9px 11px;font-size:12.5px;font-family:ui-monospace,
+        'SF Mono',Consolas,monospace;margin-bottom:12px" placeholder="* Email
+fulano@empresa.com.br
+* Full name
+Fulano de Tal
+* Phone number
++5511999999999
+
+* Email
+outro@empresa.com.br
+* Full name
+Outro Nome
+* Phone number
++5511988888888"></textarea>
+      <button type="submit">🚀 Testar todos</button>
+    </form>
+    <p style="color:#6b7385;font-size:12px;margin-top:10px">
+      Cada lead é um bloco de linhas <code>* Rótulo</code> / valor, separado por linha em branco.
+      Rótulos reconhecidos: <code>Email</code>, <code>Full name</code> (ou <code>Nome</code>) e
+      <code>Phone number</code> (ou <code>Telefone</code>) — outros rótulos são ignorados. Roda em
+      background e leva pra uma tela só com os resultados desse lote (atualiza a página pra acompanhar).
+    </p>
+  </div>
+
+  <div class="card">
     <h2>📜 Histórico <small>últimos {len(historico)}</small></h2>
     {historico_html}
   </div>
+</div>
+</body>
+</html>"""
+
+
+def render_lote(*, lote_id: str, itens: list[dict]) -> str:
+    em_andamento = any(r.get("status") in ("pendente", "processando") for r in itens)
+    refresh_tag = '<meta http-equiv="refresh" content="4">' if em_andamento else ""
+    status_geral = (
+        '<div class="msg ok">⏳ Ainda processando — a página atualiza sozinha a cada alguns segundos.</div>'
+        if em_andamento else
+        '<div class="msg ok">✅ Lote concluído.</div>'
+    )
+    itens_html = _render_entries(itens) or '<div class="empty">Nenhum lead encontrado nesse lote.</div>'
+
+    return f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{refresh_tag}
+<title>Lote de teste — Enriquecimento de Leads</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="icon">📦</div>
+    <div>
+      <h1>Lote de teste</h1>
+      <p>{len(itens)} lead(s) · id <code>{_esc(lote_id)}</code></p>
+    </div>
+  </div>
+
+  {status_geral}
+
+  <div class="card">
+    <h2>Resultados</h2>
+    {itens_html}
+  </div>
+
+  <p><a href="/painel" style="color:#38bdf8;text-decoration:none;font-size:13px">&larr; voltar pro painel</a></p>
 </div>
 </body>
 </html>"""
