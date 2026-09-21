@@ -8,25 +8,47 @@ usuários programaticamente após uma compra.
 Compartilha o mesmo projeto Supabase do app Streamlit — um usuário criado
 por aqui já consegue logar normalmente na plataforma.
 
+Também expõe um segundo recurso, independente do primeiro: um protótipo de
+enriquecimento de leads por e-mail/telefone (ver lead_enrichment.py),
+admin-only, acionado via webhook.
+
 Variáveis de ambiente necessárias:
   SUPABASE_URL
   SUPABASE_SERVICE_ROLE_KEY
-  SIGNUP_API_KEY   — chave secreta que o sistema externo envia no header X-API-Key
+  SIGNUP_API_KEY   — chave secreta que o sistema externo envia no header X-API-Key (endpoint /users)
+  ENRICH_API_KEY   — chave secreta separada para o endpoint /enrich/lead
+  CDD_API_KEY      — mesma chave da Casa dos Dados já usada no app principal
+  MAPS_API_KEY_ENRICH — chave do Google Maps dedicada a esse protótipo (separada das do app principal)
+  ANTHROPIC_API_KEY   — opcional, habilita o fallback de IA quando e-mail/telefone não encontram nada
 """
 
+import logging
 import os
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException
+import requests
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from supabase import create_client, Client
+
+import lead_enrichment
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Lead Extractor — API de Provisionamento de Usuários")
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 SIGNUP_API_KEY = os.environ["SIGNUP_API_KEY"]
+
+# Recurso de enriquecimento — variáveis opcionais (o endpoint fica desativado,
+# com erro claro, se ENRICH_API_KEY não estiver configurada; CDD/Maps/IA
+# individualmente ausentes só desativam aquele passo específico do pipeline).
+ENRICH_API_KEY       = os.getenv("ENRICH_API_KEY", "")
+ENRICH_CDD_API_KEY   = os.getenv("CDD_API_KEY", "")
+ENRICH_MAPS_API_KEY  = os.getenv("MAPS_API_KEY_ENRICH", "")
+ENRICH_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 _sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -116,6 +138,123 @@ def criar_usuario(payload: CriarUsuarioRequest, x_api_key: Optional[str] = Heade
         user_id=user_id,
         email=payload.email,
         message="Usuário criado com sucesso.",
+    )
+
+
+# ── Enriquecimento de leads (protótipo, admin-only, acionado via webhook) ──
+
+class EnriquecerLeadRequest(BaseModel):
+    nome: Optional[str] = None
+    email: Optional[str] = None
+    telefone: Optional[str] = None
+    webhook_destino: Optional[str] = Field(
+        default=None,
+        description="URL opcional pra onde o resultado é reenviado via POST quando o processamento terminar.",
+    )
+
+
+class EnriquecerLeadResponse(BaseModel):
+    id: str
+    status: str
+    message: str
+
+
+def _verificar_enrich_api_key(x_api_key: Optional[str]) -> None:
+    if not ENRICH_API_KEY:
+        raise HTTPException(status_code=503, detail="Recurso de enriquecimento não configurado (ENRICH_API_KEY ausente).")
+    if not x_api_key or x_api_key != ENRICH_API_KEY:
+        raise HTTPException(status_code=401, detail="API key inválida ou ausente.")
+
+
+def _processar_enriquecimento(enrichment_id: str, nome: str, email: str, telefone: str, webhook_destino: Optional[str]) -> None:
+    """Roda em background — chamado depois da resposta HTTP já ter sido enviada."""
+    try:
+        _sb.table("lead_enrichments").update({"status": "processando"}).eq("id", enrichment_id).execute()
+
+        resultado = lead_enrichment.enriquecer_lead(
+            nome=nome, email=email, telefone=telefone,
+            cdd_api_key=ENRICH_CDD_API_KEY, maps_api_key=ENRICH_MAPS_API_KEY,
+            anthropic_api_key=ENRICH_ANTHROPIC_KEY, sb=_sb,
+        )
+
+        atualizacao = {
+            "status":             resultado["status"],
+            "metodo_encontrado":  resultado["metodo_encontrado"],
+            "empresa_nome":       resultado["empresa_nome"],
+            "cnpj":               resultado["cnpj"],
+            "endereco":           resultado["endereco"],
+            "municipio":          resultado["municipio"],
+            "uf":                 resultado["uf"],
+            "website":            resultado["website"],
+            "maps_url":           resultado["maps_url"],
+            "avaliacao":          resultado["avaliacao"],
+            "total_avaliacoes":   resultado["total_avaliacoes"],
+            "dados_brutos":       resultado,
+            "erro":               resultado.get("erro"),
+            "concluido_em":       datetime.now(timezone.utc).isoformat(),
+        }
+        _sb.table("lead_enrichments").update(atualizacao).eq("id", enrichment_id).execute()
+
+        if webhook_destino:
+            _enviar_webhook_destino(enrichment_id, webhook_destino, {
+                "id": enrichment_id, "nome_lead": nome, "email": email, "telefone": telefone,
+                **{k: v for k, v in resultado.items()},
+            })
+    except Exception as e:
+        logger.exception("Erro ao processar enriquecimento %s", enrichment_id)
+        try:
+            _sb.table("lead_enrichments").update({
+                "status": "erro", "erro": str(e)[:500],
+                "concluido_em": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", enrichment_id).execute()
+        except Exception:
+            pass
+
+
+def _enviar_webhook_destino(enrichment_id: str, url: str, payload: dict) -> None:
+    try:
+        resp = requests.post(url, json=payload, timeout=15)
+        ok = resp.ok
+    except Exception as e:
+        logger.warning("Falha ao reenviar webhook de destino (enrichment=%s): %s", enrichment_id, e)
+        ok = False
+    if ok:
+        try:
+            _sb.table("lead_enrichments").update({"webhook_destino_enviado": True}).eq("id", enrichment_id).execute()
+        except Exception:
+            pass
+
+
+@app.post("/enrich/lead", status_code=202, response_model=EnriquecerLeadResponse)
+def criar_enriquecimento_lead(
+    payload: EnriquecerLeadRequest,
+    background_tasks: BackgroundTasks,
+    x_api_key: Optional[str] = Header(default=None),
+):
+    _verificar_enrich_api_key(x_api_key)
+
+    if not payload.email and not payload.telefone:
+        raise HTTPException(status_code=400, detail="Informe ao menos email ou telefone.")
+
+    try:
+        resp = _sb.table("lead_enrichments").insert({
+            "nome_lead": payload.nome, "email": payload.email, "telefone": payload.telefone,
+            "status": "pendente", "webhook_destino": payload.webhook_destino,
+            "origem_payload": payload.model_dump(),
+        }).execute()
+        enrichment_id = resp.data[0]["id"]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar requisição: {e}")
+
+    background_tasks.add_task(
+        _processar_enriquecimento, enrichment_id,
+        payload.nome or "", payload.email or "", payload.telefone or "",
+        payload.webhook_destino,
+    )
+
+    return EnriquecerLeadResponse(
+        id=enrichment_id, status="pendente",
+        message="Recebido — processando em background. Consulte o resultado pelo id, ou configure webhook_destino pra receber quando terminar.",
     )
 
 

@@ -4372,6 +4372,145 @@ def pagina_admin():
                         if ok15: time.sleep(0.3); st.rerun()
 
 
+# ── Enriquecimento de leads por e-mail/telefone (protótipo, admin-only) ─────
+
+def pagina_enriquecimento():
+    from modules.auth import listar_enriquecimentos
+    import requests
+
+    st.markdown(
+        '<div class="page-header">'
+        '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#38bdf8" fill="none" stroke-width="1.8">'
+        '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><path d="M11 8v6M8 11h6"/></svg></div>'
+        '<div><div class="page-title">Enriquecimento de Leads</div>'
+        '<div class="page-sub">Protótipo — descobre dados comerciais (empresa, CNPJ) a partir de e-mail ou telefone</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="info-box">Recebe leads via webhook (nome/e-mail/telefone) num serviço separado '
+        '(<code>/api</code>, fora do app principal). Tenta identificar a empresa primeiro por '
+        '<strong>e-mail corporativo</strong> (domínio → busca na Casa dos Dados + confirmação no Google '
+        'Maps), depois por <strong>telefone</strong>, e por último via <strong>IA com busca na web</strong> '
+        '(só quando os dois anteriores não acham nada). Endpoint: <code>POST /enrich/lead</code>.</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Testar agora ──────────────────────────────────────────────────────
+    with st.expander("🧪 Testar agora", expanded=True):
+        enrich_url = _s("ENRICH_API_URL")
+        enrich_key = _s("ENRICH_API_KEY")
+        if not enrich_url or not enrich_key:
+            st.warning(
+                "Configure `ENRICH_API_URL` (URL do serviço /api, ex: "
+                "`https://seu-servico.up.railway.app`) e `ENRICH_API_KEY` nos Secrets do Streamlit pra "
+                "habilitar o teste direto por aqui. O webhook externo funciona normalmente mesmo sem isso.",
+                icon="⚠️",
+            )
+        with st.form("form_enrich_teste"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                nome_t = st.text_input("Nome (opcional)", key="enr_nome")
+            with c2:
+                email_t = st.text_input("E-mail", key="enr_email")
+            with c3:
+                tel_t = st.text_input("Telefone", key="enr_tel")
+            btn_t = st.form_submit_button(
+                "🚀 Enriquecer", type="primary", use_container_width=True,
+                disabled=not (enrich_url and enrich_key),
+            )
+        if btn_t:
+            if not email_t.strip() and not tel_t.strip():
+                st.error("Informe e-mail ou telefone.")
+            else:
+                try:
+                    resp = requests.post(
+                        f"{enrich_url.rstrip('/')}/enrich/lead",
+                        json={
+                            "nome": nome_t.strip() or None,
+                            "email": email_t.strip() or None,
+                            "telefone": tel_t.strip() or None,
+                        },
+                        headers={"X-API-Key": enrich_key},
+                        timeout=15,
+                    )
+                    if resp.status_code == 202:
+                        st.success(
+                            f"Recebido! ID `{resp.json()['id']}` — processando em background. "
+                            "Atualize o histórico abaixo em alguns segundos."
+                        )
+                    else:
+                        st.error(f"Erro {resp.status_code}: {resp.text[:300]}")
+                except Exception as e:
+                    st.error(f"Falha ao chamar o serviço de enriquecimento: {e}")
+
+    # ── Histórico ─────────────────────────────────────────────────────────
+    st.markdown('<div class="sec">📜 Histórico</div>', unsafe_allow_html=True)
+    if st.button("🔄 Atualizar", key="enr_refresh"):
+        st.rerun()
+
+    registros = listar_enriquecimentos(100)
+    if not registros:
+        st.markdown('<div class="empty-state">Nenhum enriquecimento registrado ainda.</div>', unsafe_allow_html=True)
+        return
+
+    st.markdown(f"**{len(registros)} registro(s)** (últimos 100)")
+
+    _STATUS_BADGE = {
+        "pendente":       ("b-warn", "⏳ Pendente"),
+        "processando":    ("b-warn", "⏳ Processando"),
+        "concluido":      ("b-ok",   "✅ Concluído"),
+        "nao_encontrado": ("b-err",  "❌ Não encontrado"),
+        "erro":           ("b-err",  "❌ Erro"),
+    }
+    _METODO_LBL = {"email": "📧 via E-mail", "telefone": "📞 via Telefone", "ia": "🤖 via IA"}
+
+    for r in registros:
+        status = r.get("status", "—")
+        cls, lbl = _STATUS_BADGE.get(status, ("b-err", status))
+        titulo = r.get("empresa_nome") or r.get("nome_lead") or r.get("email") or r.get("telefone") or "—"
+        ts = (r.get("criado_em") or "")[:16].replace("T", " ")
+        metodo_lbl = _METODO_LBL.get(r.get("metodo_encontrado"), "")
+
+        with st.expander(f"{titulo}  ·  {ts}"):
+            badges_html = f'<span class="badge {cls}">{lbl}</span>'
+            if metodo_lbl:
+                badges_html += f'  <span class="badge b-ok">{metodo_lbl}</span>'
+            st.markdown(badges_html, unsafe_allow_html=True)
+
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                st.caption("Requisição original")
+                st.json({
+                    "nome": r.get("nome_lead"), "email": r.get("email"), "telefone": r.get("telefone"),
+                }, expanded=False)
+            with cc2:
+                st.caption("Resultado")
+                if r.get("empresa_nome") or r.get("cnpj"):
+                    st.json({
+                        "empresa_nome":     r.get("empresa_nome"),
+                        "cnpj":             r.get("cnpj"),
+                        "endereco":         r.get("endereco"),
+                        "municipio":        r.get("municipio"),
+                        "uf":               r.get("uf"),
+                        "website":          r.get("website"),
+                        "maps_url":         r.get("maps_url"),
+                        "avaliacao":        r.get("avaliacao"),
+                        "total_avaliacoes": r.get("total_avaliacoes"),
+                    }, expanded=False)
+                elif r.get("erro"):
+                    st.error(r["erro"])
+                elif status in ("pendente", "processando"):
+                    st.caption("Ainda processando…")
+                else:
+                    st.caption("Nada encontrado por nenhum dos métodos.")
+
+            if r.get("webhook_destino"):
+                enviado = "✅ enviado" if r.get("webhook_destino_enviado") else "⏳ pendente"
+                st.caption(f"Webhook de destino: `{r['webhook_destino']}` — {enviado}")
+
+
 # ── Disparo WhatsApp (admin-only) ───────────────────────────────────────────
 
 _ORIGEM_CAMPANHA_LBL = {
@@ -5426,6 +5565,7 @@ _NAV_ICONS = {
     "configuracoes": '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
     "admin":         '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
     "disparo":       '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    "enriquecimento": '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><path d="M11 8v6M8 11h6"/></svg>',
     "logout":        '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
 }
 
@@ -5496,6 +5636,7 @@ def _sidebar():
             nav_items.append(("disparo", "Disparos"))
         nav_items.append(("configuracoes", "Configurações"))
         if eh_admin():
+            nav_items.append(("enriquecimento", "Enriquecimento"))
             nav_items.append(("admin", "Admin"))
 
         st.markdown('<div style="padding:0 8px">', unsafe_allow_html=True)
@@ -5623,6 +5764,11 @@ def main():
     elif page == "admin":
         if eh_admin():
             pagina_admin()
+        else:
+            st.error("Acesso não autorizado.")
+    elif page == "enriquecimento":
+        if eh_admin():
+            pagina_enriquecimento()
         else:
             st.error("Acesso não autorizado.")
     elif page == "disparo":

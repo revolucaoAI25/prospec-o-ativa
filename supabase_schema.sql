@@ -723,3 +723,55 @@ ALTER TABLE leads ADD COLUMN IF NOT EXISTS comentario TEXT;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS telefone_internacional TEXT;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS status_funcionamento TEXT;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS porte TEXT;
+
+-- ============================================================
+-- Enriquecimento de leads por e-mail/telefone (protótipo, admin-only)
+-- Recebido via webhook no serviço /api (FastAPI, separado do app
+-- Streamlit) — POST /enrich/lead. Guarda cada requisição, o que foi
+-- encontrado, por qual método, e se já foi reenviado a um destino externo.
+-- RLS fica ligado sem policy nenhuma pra authenticated/anon — só o
+-- service role (usado pelo serviço /api e pelo painel admin) acessa.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS lead_enrichments (
+    id                     UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    nome_lead              TEXT,
+    email                  TEXT,
+    telefone               TEXT,
+    status                 TEXT NOT NULL DEFAULT 'pendente'
+                           CHECK (status IN ('pendente','processando','concluido','nao_encontrado','erro')),
+    metodo_encontrado      TEXT CHECK (metodo_encontrado IN ('email','telefone','ia')),
+    empresa_nome           TEXT,
+    cnpj                   TEXT,
+    endereco               TEXT,
+    municipio              TEXT,
+    uf                     TEXT,
+    website                TEXT,
+    maps_url               TEXT,
+    avaliacao              REAL,
+    total_avaliacoes       INTEGER,
+    dados_brutos           JSONB,
+    origem_payload         JSONB,
+    webhook_destino        TEXT,
+    webhook_destino_enviado BOOLEAN NOT NULL DEFAULT FALSE,
+    erro                   TEXT,
+    criado_em              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    concluido_em           TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_lead_enrichments_status ON lead_enrichments(status);
+CREATE INDEX IF NOT EXISTS idx_lead_enrichments_criado ON lead_enrichments(criado_em DESC);
+
+ALTER TABLE lead_enrichments ENABLE ROW LEVEL SECURITY;
+
+-- Linha única de controle de uso da chave Maps dedicada a esse protótipo —
+-- mesmo espírito do maps_pool_teste em platform_settings (contador visível
+-- + teto oculto de Text Search), só que isolado aqui porque esse serviço
+-- roda em deploy separado do app principal e não importa modules/database.py.
+CREATE TABLE IF NOT EXISTS enrichment_settings (
+    id                    INT PRIMARY KEY DEFAULT 1,
+    maps_usage            INTEGER NOT NULL DEFAULT 0,
+    maps_usage_month      TEXT NOT NULL DEFAULT '',
+    CONSTRAINT enrichment_settings_singleton CHECK (id = 1)
+);
+INSERT INTO enrichment_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+ALTER TABLE enrichment_settings ENABLE ROW LEVEL SECURITY;

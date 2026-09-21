@@ -467,6 +467,30 @@ def salvar_pool_maps_teste(pool: list[dict]) -> bool:
         return False
 
 
+def listar_enriquecimentos(limite: int = 50) -> list[dict]:
+    """
+    Histórico do protótipo de enriquecimento de leads por e-mail/telefone
+    (tabela lead_enrichments, populada pelo serviço /api). Admin-only — a
+    tabela tem RLS ligado sem nenhuma policy, então só o service role
+    consegue ler, mesmo sendo o próprio admin logado.
+    """
+    if not eh_admin():
+        return []
+    sb = _admin_client()
+    if not sb:
+        return []
+    try:
+        resp = (sb.table("lead_enrichments")
+                  .select("*")
+                  .order("criado_em", desc=True)
+                  .limit(limite)
+                  .execute())
+        return resp.data or []
+    except Exception as e:
+        logger.error("listar_enriquecimentos: %s", e)
+        return []
+
+
 def redefinir_senha(user_id: str, nova_senha: str) -> tuple[bool, str]:
     if not eh_admin():
         return False, "Acesso não autorizado."
