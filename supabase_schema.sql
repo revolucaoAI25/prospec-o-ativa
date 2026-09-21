@@ -805,3 +805,8 @@ CREATE INDEX IF NOT EXISTS idx_lead_enrichments_lote ON lead_enrichments(lote_id
 -- protótipo enquanto ele ainda está em teste.
 ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS resumo TEXT;
 ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS raciocinio TEXT;
+
+-- Mais dois dados comerciais que a IA passou a tentar descobrir além do
+-- básico: outros sócios/fundadores da empresa, e data/ano de fundação.
+ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS socios TEXT;
+ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS fundacao TEXT;

@@ -113,6 +113,10 @@ def _render_entries(rows: list[dict]) -> str:
             detalhe_partes.append(f"cargo: {_esc(r['cargo'])}")
         if r.get("linkedin_url"):
             detalhe_partes.append(f"LinkedIn: {_esc(r['linkedin_url'])}")
+        if r.get("fundacao"):
+            detalhe_partes.append(f"fundada em {_esc(r['fundacao'])}")
+        if r.get("socios"):
+            detalhe_partes.append(f"sócios: {_esc(r['socios'])}")
         if r.get("erro"):
             detalhe_partes.append(f"erro: {_esc(r['erro'])}")
         detalhe = " · ".join(detalhe_partes)
