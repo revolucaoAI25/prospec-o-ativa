@@ -22,17 +22,8 @@ Variáveis de ambiente necessárias:
                      (você mesmo inventa um valor — é só uma senha pra proteger esses recursos,
                      igual a SIGNUP_API_KEY). No painel, o usuário do login HTTP Basic pode ser
                      qualquer coisa — só a senha precisa bater com essa chave.
-  CDD_API_KEY      — mesma chave da Casa dos Dados já usada no app principal (copie o mesmo
-                     valor pra cá — é uma variável de ambiente só, nunca fica no Supabase)
-  OPENAI_API_KEY   — opcional, habilita o fallback de IA (gpt-5-mini) quando e-mail/telefone
-                     não encontram nada
-  ENRICH_ADMIN_EMAIL — opcional. A chave do Google Maps NÃO precisa de variável de ambiente
-                     própria — é lida direto do Supabase, da conta do admin já configurada no
-                     app principal. Se houver mais de um usuário admin, informe aqui qual
-                     e-mail usar; se deixar em branco, usa o primeiro admin encontrado.
-  MAPS_API_KEY_ENRICH — opcional. Só defina isso se quiser uma chave Maps SEPARADA/isolada só
-                     pra esse protótipo, em vez de reaproveitar a do admin — tem prioridade
-                     sobre a busca automática acima quando definida.
+  OPENAI_API_KEY   — habilita o enriquecimento (gpt-5-mini com busca na web) — sem ela, o
+                     resultado é sempre "não encontrado".
   ENRICH_API_URL   — opcional. URL pública deste próprio serviço (ex:
                      https://seu-servico.up.railway.app) — usada só pra exibir o endpoint
                      completo no painel /painel. Sem ela, o painel mostra um placeholder.
@@ -64,13 +55,10 @@ SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 SIGNUP_API_KEY = os.environ["SIGNUP_API_KEY"]
 
 # Recurso de enriquecimento — variáveis opcionais (o endpoint fica desativado,
-# com erro claro, se ENRICH_API_KEY não estiver configurada; CDD/Maps/IA
-# individualmente ausentes só desativam aquele passo específico do pipeline).
+# com erro claro, se ENRICH_API_KEY não estiver configurada; sem
+# OPENAI_API_KEY o resultado é sempre "não encontrado").
 ENRICH_API_KEY       = os.getenv("ENRICH_API_KEY", "")
-ENRICH_CDD_API_KEY   = os.getenv("CDD_API_KEY", "")
-ENRICH_MAPS_API_KEY_OVERRIDE = os.getenv("MAPS_API_KEY_ENRICH", "")
 ENRICH_OPENAI_KEY    = os.getenv("OPENAI_API_KEY", "")
-ENRICH_ADMIN_EMAIL   = os.getenv("ENRICH_ADMIN_EMAIL", "")
 ENRICH_API_URL       = os.getenv("ENRICH_API_URL", "")
 
 _sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -209,12 +197,9 @@ def _processar_enriquecimento(enrichment_id: str, nome: str, email: str, telefon
     try:
         _sb.table("lead_enrichments").update({"status": "processando"}).eq("id", enrichment_id).execute()
 
-        maps_key = ENRICH_MAPS_API_KEY_OVERRIDE or lead_enrichment.obter_maps_key_admin(_sb, ENRICH_ADMIN_EMAIL)
-
         resultado = lead_enrichment.enriquecer_lead(
             nome=nome, email=email, telefone=telefone,
-            cdd_api_key=ENRICH_CDD_API_KEY, maps_api_key=maps_key,
-            openai_api_key=ENRICH_OPENAI_KEY, sb=_sb,
+            openai_api_key=ENRICH_OPENAI_KEY,
         )
 
         atualizacao = {
@@ -232,7 +217,6 @@ def _processar_enriquecimento(enrichment_id: str, nome: str, email: str, telefon
             "cargo":              resultado.get("cargo"),
             "linkedin_url":       resultado.get("linkedin_url"),
             "resumo":             resultado.get("resumo"),
-            "raciocinio":         resultado.get("raciocinio"),
             "dados_brutos":       resultado,
             "erro":               resultado.get("erro"),
             "concluido_em":       datetime.now(timezone.utc).isoformat(),
@@ -339,12 +323,10 @@ def painel_testar(
     if not email.strip() and not telefone.strip():
         return RedirectResponse("/painel?tipo=err&msg=Informe+e-mail+ou+telefone.", status_code=303)
 
-    maps_key = ENRICH_MAPS_API_KEY_OVERRIDE or lead_enrichment.obter_maps_key_admin(_sb, ENRICH_ADMIN_EMAIL)
     try:
         resultado = lead_enrichment.enriquecer_lead(
             nome=nome.strip(), email=email.strip(), telefone=telefone.strip(),
-            cdd_api_key=ENRICH_CDD_API_KEY, maps_api_key=maps_key,
-            openai_api_key=ENRICH_OPENAI_KEY, sb=_sb,
+            openai_api_key=ENRICH_OPENAI_KEY,
         )
         _sb.table("lead_enrichments").insert({
             "nome_lead": nome or None, "email": email or None, "telefone": telefone or None,
@@ -356,7 +338,7 @@ def painel_testar(
             "website": resultado["website"], "maps_url": resultado["maps_url"],
             "avaliacao": resultado["avaliacao"], "total_avaliacoes": resultado["total_avaliacoes"],
             "cargo": resultado.get("cargo"), "linkedin_url": resultado.get("linkedin_url"),
-            "resumo": resultado.get("resumo"), "raciocinio": resultado.get("raciocinio"),
+            "resumo": resultado.get("resumo"),
             "dados_brutos": resultado, "concluido_em": datetime.now(timezone.utc).isoformat(),
         }).execute()
         if webhook_destino:

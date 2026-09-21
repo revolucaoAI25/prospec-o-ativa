@@ -76,11 +76,6 @@ button.danger { background: #3a1220; color: #fca5a5; padding: 6px 10px; font-siz
     font-size: 12.5px; color: #cbd3e1; margin-top: 8px; padding: 8px 10px;
     background: #0d1420; border-left: 2px solid #38bdf8; border-radius: 4px;
 }
-.entry .raciocinio {
-    font-size: 12px; color: #8b93a7; margin-top: 6px; padding: 8px 10px;
-    background: #0d1420; border-left: 2px solid #6b7385; border-radius: 4px;
-}
-.entry .raciocinio em { color: #b6bccb; font-style: normal; font-weight: 600; }
 .empty { color: #6b7385; font-size: 13px; padding: 10px 0; }
 """
 
@@ -131,7 +126,6 @@ def _render_entries(rows: list[dict]) -> str:
             + "</div>"
             + (f'<div class="detail">{detalhe}</div>' if detalhe else "")
             + (f'<div class="resumo">📝 {_esc(r["resumo"])}</div>' if r.get("resumo") else "")
-            + (f'<div class="raciocinio">🧭 <em>como achei:</em> {_esc(r["raciocinio"])}</div>' if r.get("raciocinio") else "")
             + "</div>"
         )
     return partes

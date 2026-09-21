@@ -164,7 +164,7 @@ Header `X-API-Key` com o valor de `ENRICH_API_KEY`.
 
 | Campo | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `nome` | string | não | Nome do lead, se disponível (usado só no fallback de IA) |
+| `nome` | string | não | Nome do lead, se disponível (usado na busca) |
 | `email` | string | ao menos um entre `email`/`telefone` | E-mail do lead |
 | `telefone` | string | ao menos um entre `email`/`telefone` | Telefone do lead (qualquer formato) |
 | `webhook_destino` | string (URL) | não | Se informado, o resultado é reenviado via `POST` pra essa URL quando o processamento terminar |
@@ -172,7 +172,7 @@ Header `X-API-Key` com o valor de `ENRICH_API_KEY`.
 ## Resposta — `202 Accepted`
 
 A requisição só registra o pedido e devolve na hora — o processamento roda em background
-(pode levar alguns segundos, principalmente se cair no fallback de IA).
+(pode levar alguns segundos, já que envolve busca na web).
 
 ```json
 {
@@ -185,9 +185,9 @@ A requisição só registra o pedido e devolve na hora — o processamento roda 
 Consulte o resultado depois pelo `id` (direto no Supabase, tabela `lead_enrichments`, ou pelo
 painel Enriquecimento dentro do app, aba admin), ou configure `webhook_destino` pra receber o
 resultado automaticamente quando terminar. O payload reenviado pro `webhook_destino` tem o
-mesmo formato da linha salva: `empresa_nome`, `cnpj`, `endereco`, `municipio`, `uf`, `website`,
-`maps_url`, `avaliacao`, `total_avaliacoes`, `metodo_encontrado` (`"email"`/`"telefone"`/`"ia"`
-— indica qual etapa do pipeline achou o resultado), `status`.
+mesmo formato da linha salva: `empresa_nome`, `cnpj`, `municipio`, `uf`, `website`, `cargo`,
+`linkedin_url`, `resumo` (contexto comercial curto sobre a empresa), `metodo_encontrado`
+(`"ia"` ou `null` se não achou), `status`.
 
 ## Exemplo de requisição
 
@@ -208,20 +208,15 @@ curl -X POST https://<seu-servico>.up.railway.app/enrich/lead \
 | Variável | Obrigatória | Descrição |
 |---|---|---|
 | `ENRICH_API_KEY` | ✅ (senão o endpoint retorna `503`) | Senha que você mesmo inventa (ver explicação acima), pro header `X-API-Key` — separada da usada em `/users` |
-| `CDD_API_KEY` | recomendada | Mesma chave da Casa dos Dados já usada no app principal — **copie o mesmo valor pra cá**. É uma variável de ambiente pura, nunca fica guardada no Supabase, então precisa ser configurada de novo neste serviço. Sem ela, o passo de busca por e-mail pula direto pra confirmação só via Maps |
-| `OPENAI_API_KEY` | opcional | Habilita o fallback de IA (`gpt-5-mini` + busca na web) quando e-mail e telefone não encontram nada. Sem ela, esse passo é simplesmente pulado |
-| `ENRICH_ADMIN_EMAIL` | opcional | **Não precisa criar uma chave Maps nova** — o serviço busca automaticamente, direto no Supabase, a chave Google Maps já configurada na conta do admin (a mesma usada no app principal). Se você tiver mais de um usuário admin, informe aqui qual e-mail usar; deixando em branco, usa o primeiro admin encontrado |
-| `MAPS_API_KEY_ENRICH` | opcional | Só defina isso se quiser uma chave Maps **separada/isolada** só pra esse protótipo, em vez de reaproveitar a da conta admin — tem prioridade sobre a busca automática quando definida. Tem um teto de segurança de 900 usos/mês, contado à parte (independente do que o app principal já rastreia pra essa chave) |
+| `OPENAI_API_KEY` | ✅ (senão o resultado é sempre "não encontrado") | Usada pra busca (`gpt-5-mini` com busca na web, Responses API) |
 
-## Estratégia do pipeline (nessa ordem, para no primeiro que achar)
+## Estratégia do pipeline
 
-1. **E-mail** — se for corporativo (não gmail/hotmail/etc.), extrai o domínio, busca o nome
-   provável da empresa na Casa dos Dados (razão social/nome fantasia) e confirma cruzando com
-   o Google Maps (campo `website` do lugar batendo com o domínio do e-mail).
-2. **Telefone** — tenta o número como texto direto numa busca do Google Maps (não é um
-   recurso oficialmente documentado, mas custa pouco tentar).
-3. **IA** — OpenAI `gpt-5-mini` com busca na web habilitada (Responses API), só como último
-   recurso, quando os dois anteriores não acham nada.
+Só IA (OpenAI `gpt-5-mini` com busca na web habilitada, Responses API). Havia antes uma
+tentativa prévia via e-mail→Casa dos Dados/Google Maps e telefone→Google Maps, mas na
+calibragem prática elas praticamente não geravam resultado (a IA já cobre esses mesmos casos,
+e melhor — com cargo, LinkedIn e resumo, o que a busca direta não dava) e só adicionavam
+custo/latência — por isso foram removidas.
 
 ## Notas
 
