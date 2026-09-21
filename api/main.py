@@ -229,6 +229,8 @@ def _processar_enriquecimento(enrichment_id: str, nome: str, email: str, telefon
             "maps_url":           resultado["maps_url"],
             "avaliacao":          resultado["avaliacao"],
             "total_avaliacoes":   resultado["total_avaliacoes"],
+            "cargo":              resultado.get("cargo"),
+            "linkedin_url":       resultado.get("linkedin_url"),
             "dados_brutos":       resultado,
             "erro":               resultado.get("erro"),
             "concluido_em":       datetime.now(timezone.utc).isoformat(),
@@ -351,6 +353,7 @@ def painel_testar(
             "endereco": resultado["endereco"], "municipio": resultado["municipio"], "uf": resultado["uf"],
             "website": resultado["website"], "maps_url": resultado["maps_url"],
             "avaliacao": resultado["avaliacao"], "total_avaliacoes": resultado["total_avaliacoes"],
+            "cargo": resultado.get("cargo"), "linkedin_url": resultado.get("linkedin_url"),
             "dados_brutos": resultado, "concluido_em": datetime.now(timezone.utc).isoformat(),
         }).execute()
         if webhook_destino:

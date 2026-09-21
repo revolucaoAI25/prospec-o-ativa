@@ -246,24 +246,52 @@ def maps_place_details(place_id: str, api_key: str) -> dict:
 
 def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str) -> Optional[dict]:
     """Último recurso: pede pra um modelo OpenAI barato (gpt-5-mini) buscar
-    na internet e tentar identificar a empresa/dados comerciais associados.
-    Retorna None se não achar nada com confiança razoável."""
+    na internet, cruzando nome + e-mail (inclusive a parte antes do @, útil
+    mesmo em e-mail pessoal) + telefone, e tentar identificar a empresa/
+    dados comerciais associados. Retorna None se não achar nada com
+    confiança razoável, mesmo depois de tentar vários ângulos de busca."""
     try:
         from openai import OpenAI
     except ImportError:
         logger.warning("pacote 'openai' não instalado — pulando fallback de IA")
         return None
 
+    usuario_email = email.split("@")[0] if email and "@" in email else ""
+
     prompt = (
-        "Você está tentando identificar a EMPRESA (dado comercial, não pessoal) "
-        "associada a um lead, a partir dos dados abaixo. Use a busca na web pra "
-        "confirmar. Retorne SOMENTE um JSON (sem markdown, sem texto extra) com "
-        "as chaves: empresa_nome, cnpj (se encontrar), municipio, uf, website, "
-        "confianca (\"alta\"/\"media\"/\"baixa\"). Se não achar nada com confiança "
-        "razoável, retorne {\"empresa_nome\": null}.\n\n"
-        f"Nome do lead: {nome or '(não informado)'}\n"
-        f"E-mail: {email or '(não informado)'}\n"
-        f"Telefone: {telefone or '(não informado)'}"
+        "Você é um pesquisador tentando identificar a EMPRESA (dado comercial, "
+        "não pessoal — nunca CPF ou dado sensível) onde este lead trabalha ou "
+        "está associado, a partir de sinais parciais e muitas vezes incompletos. "
+        "Use a busca na web de forma ATIVA e em MÚLTIPLAS frentes — não desista "
+        "numa única tentativa de busca.\n\n"
+        "Estratégias a tentar, combinando os dados disponíveis (tente várias, "
+        "não só a primeira que der certo):\n"
+        "1. Se o e-mail tem domínio corporativo (não é gmail/hotmail/yahoo/"
+        "outlook/icloud/bol/uol/terra e afins), pesquise o domínio direto — "
+        "geralmente É o site da empresa.\n"
+        "2. Pesquise o NOME COMPLETO do lead junto com \"LinkedIn\" — perfis "
+        "profissionais costumam listar a empresa atual e o cargo.\n"
+        "3. Mesmo em e-mail pessoal, o texto antes do @ (ex.: \"joao.silva83\") "
+        "às vezes é um username reaproveitado em outras redes/plataformas — "
+        "vale pesquisar esse texto combinado com o nome.\n"
+        "4. Pesquise o telefone (com e sem o \"+55\" e o DDD, e também só os "
+        "últimos dígitos) — números de WhatsApp Business e cadastros públicos "
+        "às vezes aparecem indexados em páginas de empresas ou diretórios.\n"
+        "5. Combine sinais entre si (nome + cidade que aparecer numa busca "
+        "anterior, nome + telefone, username do e-mail + telefone, etc.) — "
+        "cada busca pode revelar uma pista pra próxima.\n\n"
+        "Retorne SOMENTE um JSON (sem markdown, sem texto fora do JSON) com as "
+        "chaves: empresa_nome, cargo (se descobrir o cargo/função do lead na "
+        "empresa), cnpj (se encontrar), municipio, uf, website, linkedin_url "
+        "(se achar o perfil), confianca (\"alta\"/\"media\"/\"baixa\"), e fonte "
+        "(frase curta explicando de onde veio — ex.: \"perfil do LinkedIn "
+        "encontrado buscando o nome completo\"). Só retorne "
+        "{\"empresa_nome\": null} se genuinamente não achar NADA depois de "
+        "tentar abordagens diferentes — não desista numa busca só.\n\n"
+        f"Nome completo do lead: {nome or '(não informado)'}\n"
+        f"E-mail completo: {email or '(não informado)'}"
+        + (f" (texto antes do @: \"{usuario_email}\")" if usuario_email else "")
+        + f"\nTelefone: {telefone or '(não informado)'}"
     )
 
     try:
@@ -303,6 +331,7 @@ def enriquecer_lead(
         "empresa_nome": None, "cnpj": None, "endereco": None,
         "municipio": None, "uf": None, "website": None, "maps_url": None,
         "avaliacao": None, "total_avaliacoes": None, "erro": None,
+        "cargo": None, "linkedin_url": None,
     }
 
     maps_disponivel = bool(maps_api_key) and _maps_uso_liberado(sb)
@@ -391,6 +420,8 @@ def enriquecer_lead(
                 "municipio": dados_ia.get("municipio"),
                 "uf": dados_ia.get("uf"),
                 "website": dados_ia.get("website"),
+                "cargo": dados_ia.get("cargo"),
+                "linkedin_url": dados_ia.get("linkedin_url"),
             })
             return resultado
 

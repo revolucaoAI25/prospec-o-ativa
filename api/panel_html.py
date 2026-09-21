@@ -128,6 +128,10 @@ def render_painel(
             detalhe_partes.append(_esc(r["municipio"]) + (f"/{_esc(r['uf'])}" if r.get("uf") else ""))
         if r.get("website"):
             detalhe_partes.append(_esc(r["website"]))
+        if r.get("cargo"):
+            detalhe_partes.append(f"cargo: {_esc(r['cargo'])}")
+        if r.get("linkedin_url"):
+            detalhe_partes.append(f"LinkedIn: {_esc(r['linkedin_url'])}")
         if r.get("erro"):
             detalhe_partes.append(f"erro: {_esc(r['erro'])}")
         detalhe = " · ".join(detalhe_partes)

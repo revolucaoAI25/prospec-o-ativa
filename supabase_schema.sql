@@ -786,3 +786,9 @@ CREATE TABLE IF NOT EXISTS enrichment_webhooks (
     criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ALTER TABLE enrichment_webhooks ENABLE ROW LEVEL SECURITY;
+
+-- Campos extras que só o fallback de IA preenche (cargo/perfil do LinkedIn
+-- do lead na empresa encontrada) — o prompt da IA foi ampliado pra tentar
+-- achar isso também, não só nome da empresa/CNPJ.
+ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS cargo TEXT;
+ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS linkedin_url TEXT;
