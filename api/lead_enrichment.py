@@ -143,9 +143,11 @@ def obter_maps_key_admin(sb, admin_email: str = "") -> str:
     Busca a chave do Google Maps direto do Supabase, na conta do próprio
     admin — a mesma já configurada em Configurações no app principal, sem
     precisar cadastrar uma chave nova/duplicada só pra esse protótipo.
-    Prioriza o pool (maps_keys_pool[0]) e cai pra chave única
-    (google_maps_api_key) se não houver pool configurado. Se admin_email
-    não for informado, usa o primeiro perfil com role='admin' encontrado.
+    Tenta, nessa ordem: pool próprio (maps_keys_pool[0]) → chave única
+    (google_maps_api_key) → chave de conta gerenciada (maps_api_key_admin,
+    caso a própria conta do admin esteja marcada como "créditos Maps
+    gerenciados" — incomum, mas cobre esse caso também). Se admin_email não
+    for informado, usa o primeiro perfil com role='admin' encontrado.
 
     Atenção: como é a MESMA chave usada no app principal, o uso feito por
     aqui soma na cota real do Google, mas o contador de uso mostrado no
@@ -154,7 +156,9 @@ def obter_maps_key_admin(sb, admin_email: str = "") -> str:
     própria deste protótipo, independente da que já existe no app principal.
     """
     try:
-        query = sb.table("profiles").select("email, maps_keys_pool, google_maps_api_key, role")
+        query = sb.table("profiles").select(
+            "email, maps_keys_pool, google_maps_api_key, maps_api_key_admin, role"
+        )
         query = query.eq("email", admin_email) if admin_email else query.eq("role", "admin")
         resp = query.limit(1).execute()
         rows = resp.data or []
@@ -164,7 +168,9 @@ def obter_maps_key_admin(sb, admin_email: str = "") -> str:
         pool = perfil.get("maps_keys_pool") or []
         if pool and pool[0].get("key"):
             return pool[0]["key"]
-        return perfil.get("google_maps_api_key") or ""
+        if perfil.get("google_maps_api_key"):
+            return perfil["google_maps_api_key"]
+        return perfil.get("maps_api_key_admin") or ""
     except Exception as e:
         logger.warning("obter_maps_key_admin falhou: %s", e)
         return ""
