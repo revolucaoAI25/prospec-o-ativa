@@ -225,13 +225,20 @@ curl -X POST https://<seu-servico>.up.railway.app/enrich/lead \
 
 ## Notas
 
-- Assim como `/users`, isto é pensado pra ser chamado só pelo **admin** — a chave fica só com
-  quem administra a plataforma, e o painel de visualização dentro do app já é admin-only.
+- Isto é pensado pra ser usado só pelo **admin** — a chave fica só com quem administra a
+  plataforma.
 - O SQL de `lead_enrichments`, `enrichment_settings` e `enrichment_webhooks` precisa estar
   rodado no Supabase antes de usar este endpoint (ver `supabase_schema.sql`).
-- Painel visual dentro do app principal (menu lateral → **Enriquecimento**, admin-only):
-  mostra como conectar o webhook de entrada, gerencia webhooks de destino salvos, tem um
-  formulário "Testar agora" (não precisa de ferramenta externa pra testar), e lista o
-  histórico completo. Pra habilitar o teste direto por lá, configure também
-  `ENRICH_API_URL` (a URL deste serviço) e `ENRICH_API_KEY` (mesmo valor) nos **Secrets do
-  Streamlit** (são variáveis do app principal, não deste serviço — não confundir).
+- **Painel visual próprio**, separado da interface do app Streamlit principal de propósito:
+
+  ```
+  GET https://<seu-servico>.up.railway.app/painel
+  ```
+
+  Protegido por **HTTP Basic Auth** (o navegador mostra um prompt de login nativo) — usuário
+  pode ser qualquer coisa, a **senha precisa ser o valor de `ENRICH_API_KEY`**. Mostra o
+  endpoint de entrada pronto pra copiar, gerencia webhooks de destino salvos, tem um
+  formulário "Testar agora" (roda na hora, sem precisar de ferramenta externa), e lista o
+  histórico completo — tudo isso rodando dentro deste mesmo serviço, sem precisar importar
+  nada do app principal. Configure `ENRICH_API_URL` (a URL pública deste serviço) só pra esse
+  endpoint aparecer certinho no exemplo de "como conectar" exibido no painel.
