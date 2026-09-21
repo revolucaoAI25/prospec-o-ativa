@@ -798,3 +798,10 @@ ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS linkedin_url TEXT;
 -- histórico geral).
 ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS lote_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_lead_enrichments_lote ON lead_enrichments(lote_id);
+
+-- Contexto extra que só o fallback de IA preenche: um resumo comercial
+-- curto sobre a empresa encontrada, e o raciocínio (quais buscas tentou e
+-- o que encontrou em cada uma) — útil pra acompanhar a calibragem do
+-- protótipo enquanto ele ainda está em teste.
+ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS resumo TEXT;
+ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS raciocinio TEXT;

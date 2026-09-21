@@ -71,6 +71,51 @@ def _apenas_digitos(s: str) -> str:
     return "".join(c for c in (s or "") if c.isdigit())
 
 
+# DDD → UF, usado só como PISTA regional pra ajudar a busca e, principalmente,
+# como checagem cruzada contra o que a IA encontrar (ver enriquecer_via_ia) —
+# reduz falso positivo tipo "achei uma empresa em outro estado que não tem
+# nada a ver, só porque o nome bateu".
+_DDD_UF = {
+    "11": "SP", "12": "SP", "13": "SP", "14": "SP", "15": "SP", "16": "SP", "17": "SP", "18": "SP", "19": "SP",
+    "21": "RJ", "22": "RJ", "24": "RJ",
+    "27": "ES", "28": "ES",
+    "31": "MG", "32": "MG", "33": "MG", "34": "MG", "35": "MG", "37": "MG", "38": "MG",
+    "41": "PR", "42": "PR", "43": "PR", "44": "PR", "45": "PR", "46": "PR",
+    "47": "SC", "48": "SC", "49": "SC",
+    "51": "RS", "53": "RS", "54": "RS", "55": "RS",
+    "61": "DF", "62": "GO", "64": "GO",
+    "63": "TO",
+    "65": "MT", "66": "MT",
+    "67": "MS",
+    "68": "AC",
+    "69": "RO",
+    "71": "BA", "73": "BA", "74": "BA", "75": "BA", "77": "BA",
+    "79": "SE",
+    "81": "PE", "87": "PE",
+    "82": "AL",
+    "83": "PB",
+    "84": "RN",
+    "85": "CE", "88": "CE",
+    "86": "PI", "89": "PI",
+    "91": "PA", "93": "PA", "94": "PA",
+    "92": "AM", "97": "AM",
+    "95": "RR",
+    "96": "AP",
+    "98": "MA", "99": "MA",
+}
+
+
+def uf_provavel_por_telefone(telefone: str) -> Optional[str]:
+    """Estima a UF a partir do DDD de um telefone brasileiro. Retorna None
+    se não der pra reconhecer (telefone estrangeiro, incompleto, etc.)."""
+    digitos = _apenas_digitos(telefone)
+    if digitos.startswith("55") and len(digitos) > 10:
+        digitos = digitos[2:]
+    if len(digitos) < 10:
+        return None
+    return _DDD_UF.get(digitos[:2])
+
+
 def extrair_dominio_empresa(email: str) -> Optional[str]:
     """Retorna o domínio do e-mail se for corporativo, ou None se for
     provedor gratuito/genérico (ou se o e-mail for inválido)."""
@@ -336,6 +381,7 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
         return None
 
     usuario_email = email.split("@")[0] if email and "@" in email else ""
+    uf_hint = uf_provavel_por_telefone(telefone) if telefone else None
 
     prompt = (
         "Você é um pesquisador tentando identificar a EMPRESA (dado comercial, "
@@ -373,26 +419,53 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
         "único dado disponível for um nome comum, sem e-mail corporativo, sem "
         "telefone batendo em nada, e você só achar pessoas homônimas sem "
         "confirmação de que é a mesma — isso NÃO é uma resposta válida, é "
-        "extrapolação, e deve ser tratado como \"não encontrado\".\n\n"
-        "Retorne SOMENTE um JSON (sem markdown, sem texto fora do JSON) com as "
+        "extrapolação, e deve ser tratado como \"não encontrado\". Preste "
+        "atenção especial ao SOBRENOME: não trate grafias parecidas mas "
+        "diferentes (ex.: \"Fisbhen\" vs \"Fischen\", \"Kauffman\" vs "
+        "\"Kaufman\") como se fossem a mesma pessoa — se o sobrenome não bate "
+        "exatamente (ou a diferença não é claramente um erro de digitação "
+        "óbvio, tipo acento faltando), NÃO é o mesmo lead, mesmo que o "
+        "primeiro nome bata.\n\n"
+        + (
+            f"PISTA REGIONAL: o DDD do telefone informado indica que esse lead "
+            f"provavelmente está no estado de {uf_hint}. Use isso como reforço "
+            f"na busca (ex.: combine o nome com esse estado/cidades dele) e "
+            f"principalmente como checagem: se a empresa que você encontrar for "
+            f"de um estado bem diferente e não houver nada explicando isso "
+            f"(trabalho remoto mencionado, mudança recente, matriz em outro "
+            f"lugar mas o lead atua nesse estado, etc.), trate como sinal de "
+            f"que pode ser um homônimo e reduza a confiança de acordo — só "
+            f"mantenha confiança alta apesar do conflito regional se achar "
+            f"outra corroboração forte o bastante pra compensar.\n\n"
+            if uf_hint else ""
+        )
+        + "Retorne SOMENTE um JSON (sem markdown, sem texto fora do JSON) com as "
         "chaves: empresa_nome, cargo (se descobrir o cargo/função do lead na "
         "empresa), cnpj (se encontrar), municipio, uf, website, linkedin_url "
-        "(se achar o perfil), confianca (\"alta\"/\"media\"/\"baixa\"), e fonte "
+        "(se achar o perfil), confianca (\"alta\"/\"media\"/\"baixa\"), fonte "
         "(frase curta e específica explicando a corroboração usada — ex.: "
         "\"telefone informado aparece no perfil do LinkedIn encontrado pelo "
-        "nome\" — não só \"achei o nome no LinkedIn\"). Critério pra cada nível "
+        "nome\" — não só \"achei o nome no LinkedIn\"), resumo (2 a 4 frases em "
+        "português com contexto útil sobre a empresa encontrada — setor de "
+        "atuação, porte aproximado, cidade, o que faz — pra dar uma noção "
+        "comercial rápida de quem é esse lead; null se não achar empresa), e "
+        "raciocinio (2 a 4 frases em português explicando de forma objetiva "
+        "quais buscas você tentou, nessa ordem, e o que cada uma encontrou ou "
+        "não encontrou até chegar nessa conclusão — pra eu conseguir acompanhar "
+        "como você chegou nesse resultado). Critério pra cada nível "
         "de confiança: \"alta\" = dois ou mais sinais independentes convergem "
         "pra mesma empresa/perfil (ex.: nome + telefone, ou domínio do e-mail "
-        "já é a empresa); \"media\" = um sinal forte e específico o bastante "
-        "pra não ser coincidência (nome raro batendo com perfil verificável "
-        "completo); \"baixa\" = só um palpite plausível sem corroboração real. "
-        "Respostas de confiança \"baixa\" são descartadas de qualquer forma — "
-        "então se a única opção for \"baixa\", PREFIRA retornar "
-        "{\"empresa_nome\": null} em vez de arriscar um palpite; é melhor "
-        "admitir que não achou do que atribuir a empresa errada a alguém. Só "
-        "retorne {\"empresa_nome\": null} depois de genuinamente tentar "
-        "abordagens diferentes — não desista numa busca só, mas também não "
-        "force uma resposta que não tem base.\n\n"
+        "já é a empresa) e não há conflito regional sem explicação; \"media\" = "
+        "um sinal forte e específico o bastante pra não ser coincidência (nome "
+        "raro batendo com perfil verificável completo); \"baixa\" = só um "
+        "palpite plausível sem corroboração real, ou com conflito regional não "
+        "explicado. Respostas de confiança \"baixa\" são descartadas de "
+        "qualquer forma — então se a única opção for \"baixa\", PREFIRA "
+        "retornar {\"empresa_nome\": null} em vez de arriscar um palpite; é "
+        "melhor admitir que não achou do que atribuir a empresa errada a "
+        "alguém. Só retorne {\"empresa_nome\": null} depois de genuinamente "
+        "tentar abordagens diferentes — não desista numa busca só, mas também "
+        "não force uma resposta que não tem base.\n\n"
         f"Nome completo do lead: {nome or '(não informado)'}\n"
         f"E-mail completo: {email or '(não informado)'}"
         + (f" (texto antes do @: \"{usuario_email}\")" if usuario_email else "")
@@ -425,6 +498,18 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
                 confianca or "(ausente)", dados.get("empresa_nome"), dados.get("fonte"),
             )
             return None
+        empresa_uf = (dados.get("uf") or "").strip().upper()
+        if uf_hint and empresa_uf and empresa_uf != uf_hint and confianca != "alta":
+            # Checagem programática independente do autojulgamento da IA: se o
+            # DDD indica uma região e a empresa encontrada é de outra, só
+            # aceitamos quando a própria IA já classificou como "alta" (ela foi
+            # instruída a levar esse conflito em conta nesse julgamento) — em
+            # "media" o risco de homônimo é grande o bastante pra descartar.
+            logger.info(
+                "IA achou candidato com conflito regional (DDD indica %s, empresa em %s, confianca=%s) — descartando: %s",
+                uf_hint, empresa_uf, confianca, dados.get("empresa_nome"),
+            )
+            return None
         return dados
     except Exception as e:
         logger.warning("enriquecer_via_ia falhou: %s", e)
@@ -448,6 +533,7 @@ def enriquecer_lead(
         "municipio": None, "uf": None, "website": None, "maps_url": None,
         "avaliacao": None, "total_avaliacoes": None, "erro": None,
         "cargo": None, "linkedin_url": None,
+        "resumo": None, "raciocinio": None,
     }
 
     maps_disponivel = bool(maps_api_key) and _maps_uso_liberado(sb)
@@ -538,6 +624,8 @@ def enriquecer_lead(
                 "website": dados_ia.get("website"),
                 "cargo": dados_ia.get("cargo"),
                 "linkedin_url": dados_ia.get("linkedin_url"),
+                "resumo": dados_ia.get("resumo"),
+                "raciocinio": dados_ia.get("raciocinio"),
             })
             return resultado
 
