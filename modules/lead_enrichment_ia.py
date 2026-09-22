@@ -206,21 +206,68 @@ def parse_leads_colados(texto: str) -> list[dict]:
     return leads
 
 
+# ── Nível de raciocínio — configurável por quem usa ─────────────────────
+
+# Fonte única pra essas opções — o app importa isso pra montar o seletor,
+# então o texto explicativo mostrado pro usuário e o que de fato é enviado
+# pra API ficam sempre em sincronia.
+NIVEIS_RACIOCINIO = {
+    "rapido": {
+        "label": "Rápido e econômico",
+        "descricao": (
+            "Busca mais direta, menos aprofundada. Mais barato e mais rápido, mas em casos "
+            "mais difíceis (pouca informação disponível) pode não achar o que buscaria com "
+            "mais tempo — em testes reais, esse nível deixou passar alguns casos que o "
+            "\"equilibrado\" achava."
+        ),
+        "reasoning_effort": "low", "verbosity": "low", "max_tool_calls": 6,
+    },
+    "equilibrado": {
+        "label": "Equilibrado (recomendado)",
+        "descricao": "Bom equilíbrio entre profundidade de busca e custo — é o nível já calibrado e testado com casos reais.",
+        "reasoning_effort": "medium", "verbosity": "low", "max_tool_calls": 9,
+    },
+    "profundo": {
+        "label": "Mais profundo e detalhado",
+        "descricao": "Pesquisa mais a fundo, com mais tentativas, e escreve resumos mais completos — mais lento e mais caro por lead.",
+        "reasoning_effort": "high", "verbosity": "medium", "max_tool_calls": 12,
+    },
+}
+NIVEL_PADRAO = "equilibrado"
+
+
 # ── IA (único mecanismo de busca) ───────────────────────────────────────
 
-def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str) -> Optional[dict]:
+def enriquecer_via_ia(
+    nome: str, email: str, telefone: str, openai_api_key: str,
+    *,
+    nivel_raciocinio: str = NIVEL_PADRAO,
+    buscar_socios: bool = True,
+    buscar_fundacao: bool = True,
+    buscar_processos: bool = True,
+    campos_customizados: Optional[list[str]] = None,
+) -> Optional[dict]:
     """Pede pra um modelo OpenAI barato (gpt-5-mini) buscar na internet,
     cruzando nome + e-mail (inclusive a parte antes do @, útil mesmo em
     e-mail pessoal) + telefone, e tentar identificar a empresa/dados
     comerciais associados. Retorna None se não achar nada com confiança
     razoável, mesmo depois de tentar vários ângulos de busca. Levanta
     exceção se a chamada à IA falhar tecnicamente após as tentativas (ver
-    abaixo) — isso é distinto de "não encontrado"."""
+    abaixo) — isso é distinto de "não encontrado".
+
+    buscar_socios/buscar_fundacao/buscar_processos desligam a busca (não só
+    a exibição) daquele item — a IA nem é instruída a procurar, economiza
+    tempo/custo. campos_customizados é uma lista livre de outras coisas pra
+    tentar descobrir, definidas por quem está usando (ex.: "número de
+    funcionários", "faturamento estimado")."""
     try:
         from openai import OpenAI
     except ImportError:
         logger.warning("pacote 'openai' não instalado — enriquecimento desativado")
         return None
+
+    nivel = NIVEIS_RACIOCINIO.get(nivel_raciocinio, NIVEIS_RACIOCINIO[NIVEL_PADRAO])
+    campos_customizados = [c.strip() for c in (campos_customizados or []) if c.strip()]
 
     usuario_email = email.split("@")[0] if email and "@" in email else ""
     uf_hint = uf_provavel_por_telefone(telefone) if telefone else None
@@ -253,24 +300,65 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
         "regional; \"media\" = um sinal forte específico; \"baixa\" = palpite sem corroboração "
         "real ou com conflito regional não explicado — nesse caso prefira {\"empresa_nome\": "
         "null} a arriscar um palpite errado.\n\n"
-        + "SÓ DEPOIS de já ter decidido tudo isso, faça mais algumas buscas (vale a pena "
-        "buscar de verdade, isso é informação que interessa — não é só aproveitar o que já "
-        "apareceu por acaso) pra tentar descobrir: outros sócios/fundadores da empresa; data "
-        "ou ano de fundação; outros dados comerciais úteis (setor, porte, produtos/serviços "
-        "principais, clientes notáveis); e, com uma busca dedicada (ex.: nome da empresa ou "
-        "do lead + \"jusbrasil\" ou + \"processo\"), indício — nunca detalhe — de processo "
-        "judicial ligado à empresa ou ao lead, só marcando \"sim\" se claramente for a mesma "
-        "empresa/pessoa (mesmo cuidado contra homônimo de antes). Não achou algum desses "
-        "quatro itens depois de tentar? Deixe null/\"nao_encontrado\" e siga em frente — mas "
+    )
+
+    # Itens extras (rodam DEPOIS da identificação, nunca influenciam ela) —
+    # montados dinamicamente: só entram no prompt (e custam busca/tempo) os
+    # que quem está usando realmente pediu.
+    extras_pedidos = []
+    if buscar_socios:
+        extras_pedidos.append("outros sócios/fundadores da empresa")
+    if buscar_fundacao:
+        extras_pedidos.append("data ou ano de fundação")
+    extras_pedidos.append(
+        "outros dados comerciais úteis (setor, porte, produtos/serviços principais, clientes notáveis)"
+    )
+    if buscar_processos:
+        extras_pedidos.append(
+            "com uma busca dedicada (ex.: nome da empresa ou do lead + \"jusbrasil\" ou + "
+            "\"processo\"), indício — nunca detalhe — de processo judicial ligado à empresa ou "
+            "ao lead, só marcando \"sim\" se claramente for a mesma empresa/pessoa (mesmo "
+            "cuidado contra homônimo de antes)"
+        )
+    if campos_customizados:
+        lista_campos = "; ".join(f"\"{c}\"" for c in campos_customizados)
+        extras_pedidos.append(
+            f"e também, especificamente, estes itens pedidos por quem está usando essa busca: "
+            f"{lista_campos} — pesquise objetivamente sobre cada um"
+        )
+
+    prompt += (
+        "SÓ DEPOIS de já ter decidido tudo isso, faça mais algumas buscas (vale a pena buscar "
+        "de verdade, isso é informação que interessa — não é só aproveitar o que já apareceu "
+        "por acaso) pra tentar descobrir: " + "; ".join(extras_pedidos) + ". Não achou algum "
+        "desses itens depois de tentar? Deixe null/\"nao_encontrado\" e siga em frente — mas "
         "NUNCA deixe de responder a tarefa principal, nem mude empresa_nome ou confianca, por "
         "causa desses itens extras; eles não fazem parte do julgamento de identidade, só vêm "
         "depois dele já estar decidido.\n\n"
-        + "Retorne SOMENTE um JSON (sem markdown) com: empresa_nome, cargo, cnpj, municipio, "
-        "uf, website, linkedin_url, confianca, fonte, resumo (2 a 4 frases em português com "
-        "contexto comercial da empresa — setor, porte, cidade, e outros dados relevantes que "
-        "achar; null se não achar empresa), socios (nomes separados por vírgula; null se não "
-        "achar/não se aplicar), fundacao (data ou ano; null se não achar) e processos_jusbrasil "
-        "(\"sim\"/\"nao\"/\"nao_encontrado\").\n\n"
+    )
+
+    campos_desc = [
+        "empresa_nome", "cargo", "cnpj", "municipio", "uf", "website", "linkedin_url",
+        "confianca (\"alta\"/\"media\"/\"baixa\")",
+        "fonte (frase curta e específica da corroboração usada)",
+        "resumo (2 a 4 frases em português com contexto comercial da empresa — setor, porte, "
+        "cidade, e outros dados relevantes que achar; null se não achar empresa)",
+    ]
+    if buscar_socios:
+        campos_desc.append("socios (nomes separados por vírgula; null se não achar/não se aplicar)")
+    if buscar_fundacao:
+        campos_desc.append("fundacao (data ou ano; null se não achar)")
+    if buscar_processos:
+        campos_desc.append("processos_jusbrasil (\"sim\"/\"nao\"/\"nao_encontrado\")")
+    if campos_customizados:
+        campos_desc.append(
+            "extras (objeto JSON com uma chave EXATAMENTE igual a cada um dos itens "
+            "pedidos acima — " + ", ".join(f"\"{c}\"" for c in campos_customizados) + " — "
+            "com o que encontrar sobre aquilo, em texto curto, ou null se não achar)"
+        )
+
+    prompt += (
+        "Retorne SOMENTE um JSON (sem markdown) com: " + ", ".join(campos_desc) + ".\n\n"
         f"Nome completo do lead: {nome or '(não informado)'}\n"
         f"E-mail completo: {email or '(não informado)'}"
         + (f" (texto antes do @: \"{usuario_email}\")" if usuario_email else "")
@@ -292,9 +380,9 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
                 model="gpt-5-mini",
                 tools=[{"type": "web_search"}],
                 input=prompt,
-                reasoning={"effort": "medium"},
-                text={"verbosity": "low"},
-                max_tool_calls=9,
+                reasoning={"effort": nivel["reasoning_effort"]},
+                text={"verbosity": nivel["verbosity"]},
+                max_tool_calls=nivel["max_tool_calls"],
                 timeout=240.0,
             )
             break
@@ -334,7 +422,15 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
 
 # ── Orquestração ─────────────────────────────────────────────────────────
 
-def enriquecer_lead(nome: str, email: str, telefone: str, openai_api_key: str) -> dict:
+def enriquecer_lead(
+    nome: str, email: str, telefone: str, openai_api_key: str,
+    *,
+    nivel_raciocinio: str = NIVEL_PADRAO,
+    buscar_socios: bool = True,
+    buscar_fundacao: bool = True,
+    buscar_processos: bool = True,
+    campos_customizados: Optional[list[str]] = None,
+) -> dict:
     """Roda o enriquecimento (só IA) pra um lead e retorna um dict
     estruturado com o resultado. status: "concluido" | "nao_encontrado" |
     "erro" (falha técnica, distinto de "não achou nada")."""
@@ -344,7 +440,7 @@ def enriquecer_lead(nome: str, email: str, telefone: str, openai_api_key: str) -
         "municipio": None, "uf": None, "website": None,
         "cargo": None, "linkedin_url": None, "resumo": None,
         "socios": None, "fundacao": None, "processos_jusbrasil": None,
-        "erro": None,
+        "extras": None, "erro": None,
     }
 
     if not openai_api_key:
@@ -353,7 +449,12 @@ def enriquecer_lead(nome: str, email: str, telefone: str, openai_api_key: str) -
         return resultado
 
     try:
-        dados_ia = enriquecer_via_ia(nome, email, telefone, openai_api_key)
+        dados_ia = enriquecer_via_ia(
+            nome, email, telefone, openai_api_key,
+            nivel_raciocinio=nivel_raciocinio,
+            buscar_socios=buscar_socios, buscar_fundacao=buscar_fundacao,
+            buscar_processos=buscar_processos, campos_customizados=campos_customizados,
+        )
     except Exception as e:
         logger.warning("enriquecer_lead: busca via IA falhou definitivamente: %s", e)
         resultado["status"] = "erro"
@@ -371,9 +472,12 @@ def enriquecer_lead(nome: str, email: str, telefone: str, openai_api_key: str) -
             "cargo": dados_ia.get("cargo"),
             "linkedin_url": dados_ia.get("linkedin_url"),
             "resumo": dados_ia.get("resumo"),
-            "socios": dados_ia.get("socios"),
-            "fundacao": dados_ia.get("fundacao"),
-            "processos_jusbrasil": _normalizar_sim_nao(dados_ia.get("processos_jusbrasil")),
+            "socios": dados_ia.get("socios") if buscar_socios else None,
+            "fundacao": dados_ia.get("fundacao") if buscar_fundacao else None,
+            "processos_jusbrasil": (
+                _normalizar_sim_nao(dados_ia.get("processos_jusbrasil")) if buscar_processos else None
+            ),
+            "extras": dados_ia.get("extras") if campos_customizados else None,
         })
 
     return resultado
@@ -383,11 +487,14 @@ def enriquecer_leads_em_lote(
     leads: list[dict],
     openai_api_key: str,
     callback: Optional[Callable[[int, int, str], None]] = None,
+    **opcoes,
 ) -> list[dict]:
     """Roda enriquecer_lead pra cada item de `leads` (cada um com
     nome/email/telefone), na ordem, chamando callback(atual, total,
     mensagem) a cada lead concluído — mesmo contrato de progresso já usado
     pelas buscas de CNPJ/Maps do app (ver modules/casa_dos_dados.py).
+    `**opcoes` é repassado direto pra enriquecer_lead (nivel_raciocinio,
+    buscar_socios, buscar_fundacao, buscar_processos, campos_customizados).
     Retorna uma lista de dicts: os campos originais do lead + os campos de
     enriquecer_lead()."""
     total = len(leads)
@@ -396,7 +503,7 @@ def enriquecer_leads_em_lote(
         nome = (lead.get("nome") or "").strip()
         email = (lead.get("email") or "").strip()
         telefone = (lead.get("telefone") or "").strip()
-        r = enriquecer_lead(nome, email, telefone, openai_api_key)
+        r = enriquecer_lead(nome, email, telefone, openai_api_key, **opcoes)
         resultados.append({
             "nome_lead": nome, "email": email, "telefone": telefone,
             **r,

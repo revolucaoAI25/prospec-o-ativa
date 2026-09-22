@@ -5469,11 +5469,32 @@ _ENRIQ_COLS = [
 ]
 
 
-def _enriq_csv(rows):
-    b = io.StringIO(); w = csv.writer(b)
-    w.writerow([l for _, l in _ENRIQ_COLS])
+def _enriq_colunas(rows):
+    """_ENRIQ_COLS (fixas) + uma coluna extra pra cada campo customizado que
+    apareceu em algum resultado — os nomes desses campos são livres
+    (definidos por quem está usando a busca), então não dá pra saber de
+    antemão, tem que olhar o que realmente veio nos resultados."""
+    vistos, extras_ord = set(), []
     for r in rows:
-        w.writerow([r.get(c, "") for c, _ in _ENRIQ_COLS])
+        for k in (r.get("extras") or {}):
+            if k not in vistos:
+                vistos.add(k)
+                extras_ord.append(k)
+    return list(_ENRIQ_COLS) + [(f"extras.{k}", k) for k in extras_ord]
+
+
+def _enriq_valor(r, col):
+    if col.startswith("extras."):
+        return (r.get("extras") or {}).get(col[len("extras."):], "")
+    return r.get(col, "")
+
+
+def _enriq_csv(rows):
+    cols = _enriq_colunas(rows)
+    b = io.StringIO(); w = csv.writer(b)
+    w.writerow([l for _, l in cols])
+    for r in rows:
+        w.writerow([_enriq_valor(r, c) for c, _ in cols])
     return b.getvalue().encode("utf-8-sig")
 
 
@@ -5481,20 +5502,22 @@ def _enriq_xlsx(rows):
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
+    cols = _enriq_colunas(rows)
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Enriquecimento"
     hf = Font(bold=True, color="0A0A0F"); hfill = PatternFill("solid", fgColor="00D97E")
-    for ci, (col, lbl) in enumerate(_ENRIQ_COLS, 1):
+    for ci, (col, lbl) in enumerate(cols, 1):
         c = ws.cell(row=1, column=ci, value=lbl); c.font = hf; c.fill = hfill
         c.alignment = Alignment(horizontal="center")
     ws.row_dimensions[1].height = 22
     fa = PatternFill("solid", fgColor="141418"); fb = PatternFill("solid", fgColor="0D0D12")
     for ri, r in enumerate(rows, 2):
-        for ci, (col, _) in enumerate(_ENRIQ_COLS, 1):
-            cell = ws.cell(row=ri, column=ci, value=r.get(col, ""))
+        for ci, (col, _) in enumerate(cols, 1):
+            valor = _enriq_valor(r, col)
+            cell = ws.cell(row=ri, column=ci, value=valor)
             cell.fill = fa if ri % 2 == 0 else fb
-            if col in ("website", "linkedin_url") and r.get(col):
-                cell.hyperlink = r[col]; cell.font = Font(color="00D97E", underline="single")
-    for ci in range(1, len(_ENRIQ_COLS) + 1):
+            if col in ("website", "linkedin_url") and valor:
+                cell.hyperlink = valor; cell.font = Font(color="00D97E", underline="single")
+    for ci in range(1, len(cols) + 1):
         mx = max(len(str(ws.cell(row=rr, column=ci).value or "")) for rr in range(1, len(rows) + 2))
         ws.column_dimensions[get_column_letter(ci)].width = min(mx + 2, 50)
     ws.freeze_panes = "A2"
@@ -5554,11 +5577,10 @@ def _enriq_stats(rows):
 
 def _enriq_tabela(rows):
     import pandas as pd
-    lbls = dict(_ENRIQ_COLS)
-    vis = [c for c, _ in _ENRIQ_COLS if c != "resumo"]
-    df = pd.DataFrame(rows)
-    cols = [c for c in vis if c in df.columns]
-    st.dataframe(df[cols].rename(columns=lbls).fillna("").astype(str).replace("nan", ""),
+    cols = _enriq_colunas(rows)
+    df = pd.DataFrame([{c: _enriq_valor(r, c) for c, _ in cols} for r in rows])
+    lbls = dict(cols)
+    st.dataframe(df.rename(columns=lbls).fillna("").astype(str).replace("nan", ""),
                  use_container_width=True, height=380)
 
 
@@ -5595,6 +5617,9 @@ def _enriq_card(r: dict):
                     st.markdown(f"**Fundação:** {r['fundacao']}")
                 if r.get("processos_jusbrasil"):
                     st.markdown(f"**Processo (JusBrasil):** {_JUSBRASIL_LBL.get(r['processos_jusbrasil'], r['processos_jusbrasil'])}")
+                for _campo, _valor in (r.get("extras") or {}).items():
+                    if _valor:
+                        st.markdown(f"**{_campo}:** {_valor}")
             elif status == "erro":
                 st.error(r.get("erro") or "Erro desconhecido ao processar esse lead.")
             else:
@@ -5610,11 +5635,24 @@ def pagina_enriquecimento_leads():
     st.markdown(
         '<div class="page-header">'
         '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#00D97E" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v3l2 2"/></svg></div>'
-        '<div><div class="page-title">Enriquecimento de Leads</div>'
-        '<div class="page-sub">Descubra empresa, cargo, LinkedIn e mais a partir de nome/e-mail/telefone — via IA com busca na web</div></div>'
+        '<div><div class="page-title">Enriquecimento com IA</div>'
+        '<div class="page-sub">Transforme nome, e-mail ou telefone em dados comerciais — empresa, cargo, LinkedIn e mais</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )
+
+    with st.expander("ℹ️ Como funciona", expanded=False):
+        st.markdown(
+            "Pra cada lead, uma IA com acesso à busca na web pesquisa ativamente (domínio do "
+            "e-mail, nome no LinkedIn, telefone, e cruza essas pistas entre si) tentando "
+            "descobrir em que empresa esse lead trabalha e outros dados comerciais sobre ela — "
+            "sem inventar nada: só retorna um resultado quando encontra corroboração real "
+            "ligando o lead à empresa, senão marca como \"não encontrado\" em vez de arriscar "
+            "um palpite. Além do básico (empresa, cargo, site, LinkedIn), também busca um "
+            "resumo com contexto sobre o negócio, e opcionalmente sócios, data de fundação, "
+            "indício de processo judicial (JusBrasil) e qualquer outro dado que você definir "
+            "em **Opções avançadas** abaixo."
+        )
 
     openai_key = st.session_state.get("openai_api_key_user", "")
     if not openai_key:
@@ -5627,6 +5665,32 @@ def pagina_enriquecimento_leads():
 
     if "_enriq_staging" not in st.session_state:
         st.session_state["_enriq_staging"] = []
+
+    with st.expander("⚙️ Opções avançadas"):
+        chaves_niveis = list(enriq.NIVEIS_RACIOCINIO.keys())
+        idx_padrao = chaves_niveis.index(enriq.NIVEL_PADRAO)
+        nivel_sel = st.radio(
+            "Nível de raciocínio da IA",
+            options=chaves_niveis,
+            index=idx_padrao,
+            format_func=lambda k: enriq.NIVEIS_RACIOCINIO[k]["label"],
+            captions=[enriq.NIVEIS_RACIOCINIO[k]["descricao"] for k in chaves_niveis],
+            key="_enriq_nivel",
+        )
+        st.markdown("**O que a IA também deve tentar descobrir** (além do básico: empresa, cargo, site, LinkedIn, resumo)")
+        cx1, cx2, cx3 = st.columns(3)
+        with cx1:
+            buscar_socios = st.checkbox("Outros sócios/fundadores", value=True, key="_enriq_buscar_socios")
+        with cx2:
+            buscar_fundacao = st.checkbox("Data de fundação", value=True, key="_enriq_buscar_fundacao")
+        with cx3:
+            buscar_processos = st.checkbox("Indício de processo (JusBrasil)", value=True, key="_enriq_buscar_processos",
+                                            help="Só um sim/não/não encontrado via busca — nunca detalhe do processo. Não é uma checagem jurídica oficial.")
+        campos_custom_txt = st.text_area(
+            "Outros dados que você quer que a IA tente descobrir (um por linha, opcional)",
+            key="_enriq_campos_custom", height=70,
+            placeholder="Número de funcionários\nFaturamento estimado\nPresença em redes sociais",
+        )
 
     st.markdown("#### 1. Monte a lista de leads")
     tab_texto, tab_planilha = st.tabs(["📋 Colar texto", "📤 Upload de planilha"])
@@ -5733,10 +5797,16 @@ def pagina_enriquecimento_leads():
 
     if rodar:
         lote = leads_validos[:LIMITE_LOTE]
+        campos_custom = [c.strip() for c in campos_custom_txt.splitlines() if c.strip()]
         bar = st.progress(0, text="Iniciando…")
         def _cb_enriq(a, t, m):
             bar.progress(min(a / max(t, 1), 1.0), text=str(m)[:120])
-        resultados = enriq.enriquecer_leads_em_lote(lote, openai_key, callback=_cb_enriq)
+        resultados = enriq.enriquecer_leads_em_lote(
+            lote, openai_key, callback=_cb_enriq,
+            nivel_raciocinio=nivel_sel,
+            buscar_socios=buscar_socios, buscar_fundacao=buscar_fundacao,
+            buscar_processos=buscar_processos, campos_customizados=campos_custom,
+        )
         bar.progress(1.0, text=f"Concluído! {len(resultados)} lead(s) processado(s).")
         bar.empty()
         st.session_state["_enriq_resultados"] = resultados
@@ -5838,7 +5908,7 @@ def _sidebar():
         if eh_admin() or st.session_state.get("disparo_habilitado"):
             nav_items.append(("disparo", "Disparos"))
         if eh_admin() or st.session_state.get("enriquecimento_ia_habilitado"):
-            nav_items.append(("enriquecimento", "Enriquecimento"))
+            nav_items.append(("enriquecimento", "Enriquecimento com IA"))
         nav_items.append(("configuracoes", "Configurações"))
         if eh_admin():
             nav_items.append(("admin", "Admin"))
