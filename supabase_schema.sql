@@ -863,3 +863,68 @@ GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
          p.apify_api_key_admin, p.monthly_instagram_credits, p.created_at,
          p.instagram_visible, p.disparo_habilitado, p.conta_teste, p.teste_expira_em,
          p.enriquecimento_ia_habilitado;
+
+-- ============================================================
+-- Enriquecimento de Leads via IA — execução em BACKGROUND (mesmo padrão
+-- já usado pelas Automações: thread de worker independente da sessão do
+-- navegador) + histórico persistido. Antes disso a busca rodava síncrona
+-- na mesma sessão do Streamlit e só ficava em memória — um F5 ou queda de
+-- conexão perdia tudo, inclusive leads já processados, e não sobrava
+-- nenhum histórico de execuções passadas.
+
+CREATE TABLE IF NOT EXISTS enrichment_runs (
+    id            UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id       UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pendente'
+                      CHECK (status IN ('pendente','processando','concluido','erro')),
+    total_leads   INTEGER NOT NULL DEFAULT 0,
+    processados   INTEGER NOT NULL DEFAULT 0,
+    opcoes        JSONB NOT NULL DEFAULT '{}',
+    erro          TEXT,
+    criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    concluido_em  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_enrichment_runs_user ON enrichment_runs(user_id, criado_em DESC);
+ALTER TABLE enrichment_runs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "own_enrichment_runs" ON enrichment_runs;
+CREATE POLICY "own_enrichment_runs"
+    ON enrichment_runs FOR ALL TO authenticated
+    USING  (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+CREATE TABLE IF NOT EXISTS enrichment_leads (
+    id                   UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    run_id               UUID REFERENCES enrichment_runs(id) ON DELETE CASCADE NOT NULL,
+    user_id              UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    ordem                INTEGER NOT NULL DEFAULT 0,
+    nome_lead            TEXT,
+    email                TEXT,
+    telefone             TEXT,
+    status               TEXT NOT NULL DEFAULT 'pendente'
+                             CHECK (status IN ('pendente','processando','concluido','nao_encontrado','erro')),
+    metodo_encontrado    TEXT,
+    empresa_nome         TEXT,
+    cnpj                 TEXT,
+    municipio            TEXT,
+    uf                   TEXT,
+    website              TEXT,
+    cargo                TEXT,
+    linkedin_url         TEXT,
+    resumo               TEXT,
+    socios               TEXT,
+    fundacao             TEXT,
+    processos_jusbrasil  TEXT,
+    extras               JSONB,
+    erro                 TEXT,
+    concluido_em         TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_enrichment_leads_run ON enrichment_leads(run_id, ordem);
+ALTER TABLE enrichment_leads ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "own_enrichment_leads" ON enrichment_leads;
+CREATE POLICY "own_enrichment_leads"
+    ON enrichment_leads FOR ALL TO authenticated
+    USING  (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());

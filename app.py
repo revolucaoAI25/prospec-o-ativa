@@ -5569,7 +5569,7 @@ def _enriq_stats(rows):
     nenc = sum(1 for r in rows if r.get("status") == "nao_encontrado")
     err = sum(1 for r in rows if r.get("status") == "erro")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total processados", tot)
+    c1.metric("Total de leads", tot)
     c2.metric("✅ Encontrados", enc)
     c3.metric("⚪ Não encontrados", nenc)
     c4.metric("🔴 Erros", err)
@@ -5651,7 +5651,11 @@ def pagina_enriquecimento_leads():
             "um palpite. Além do básico (empresa, cargo, site, LinkedIn), também busca um "
             "resumo com contexto sobre o negócio, e opcionalmente sócios, data de fundação, "
             "indício de processo judicial (JusBrasil) e qualquer outro dado que você definir "
-            "em **Opções avançadas** abaixo."
+            "em **Opções avançadas** abaixo.\n\n"
+            "A busca roda em background, não na sua sessão — pode fechar a aba ou cair a "
+            "conexão que o processamento continua e cada lead já fica salvo assim que termina. "
+            "Todas as execuções (em andamento ou já concluídas) ficam disponíveis no "
+            "**Histórico de execuções**, no fim da página."
         )
 
     openai_key = st.session_state.get("openai_api_key_user", "")
@@ -5791,42 +5795,88 @@ def pagina_enriquecimento_leads():
     with col_clear:
         if st.button("🗑️ Limpar lista", use_container_width=True):
             st.session_state["_enriq_staging"] = []
-            st.session_state.pop("_enriq_resultados", None)
             st.session_state.pop("_enriq_editor", None)
             st.rerun()
 
     if rodar:
+        from modules import enrichment_db, enrichment_worker
         lote = leads_validos[:LIMITE_LOTE]
         campos_custom = [c.strip() for c in campos_custom_txt.splitlines() if c.strip()]
-        bar = st.progress(0, text="Iniciando…")
-        def _cb_enriq(a, t, m):
-            bar.progress(min(a / max(t, 1), 1.0), text=str(m)[:120])
-        resultados = enriq.enriquecer_leads_em_lote(
-            lote, openai_key, callback=_cb_enriq,
-            nivel_raciocinio=nivel_sel,
-            buscar_socios=buscar_socios, buscar_fundacao=buscar_fundacao,
-            buscar_processos=buscar_processos, campos_customizados=campos_custom,
-        )
-        bar.progress(1.0, text=f"Concluído! {len(resultados)} lead(s) processado(s).")
-        bar.empty()
-        st.session_state["_enriq_resultados"] = resultados
-        st.session_state["_enriq_staging"] = []
-        st.session_state.pop("_enriq_editor", None)
-        st.rerun()
+        opcoes = {
+            "nivel_raciocinio": nivel_sel,
+            "buscar_socios": buscar_socios, "buscar_fundacao": buscar_fundacao,
+            "buscar_processos": buscar_processos, "campos_customizados": campos_custom,
+        }
+        run_id = enrichment_db.criar_run(lote, opcoes)
+        if not run_id:
+            st.error("Não consegui registrar a execução — tente de novo em instantes.")
+        else:
+            enrichment_worker.iniciar_execucao(run_id)
+            st.session_state["_enriq_run_atual"] = run_id
+            st.session_state["_enriq_staging"] = []
+            st.session_state.pop("_enriq_editor", None)
+            st.rerun()
 
-    resultados = st.session_state.get("_enriq_resultados")
-    if resultados:
-        st.markdown("#### 3. Resultados")
-        _enriq_stats(resultados)
-        _enriq_dl_buttons(
-            resultados, "enriquecimento_leads",
-            "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")),
-        )
-        st.markdown("##### Visão geral")
-        _enriq_tabela(resultados)
-        st.markdown("##### Detalhe por lead")
-        for r in resultados:
-            _enriq_card(r)
+    # ── Execução atual (se houver uma sendo acompanhada) ────────────────────
+    run_atual_id = st.session_state.get("_enriq_run_atual")
+    if run_atual_id:
+        from modules import enrichment_db
+        run = enrichment_db.obter_run(run_atual_id)
+        if not run:
+            st.session_state.pop("_enriq_run_atual", None)
+        else:
+            st.markdown("#### 3. Execução em andamento")
+            leads_run = enrichment_db.listar_leads_da_run(run_atual_id)
+            total = run.get("total_leads", 0) or 0
+            proc = run.get("processados", 0) or 0
+            status_run = run.get("status")
+            if status_run in ("pendente", "processando"):
+                st.progress(min(proc / max(total, 1), 1.0),
+                            text=f"Processando… {proc}/{total} lead(s) — pode fechar essa aba, a busca continua rodando e fica salva.")
+                if st.button("✖️ Parar de acompanhar (a execução continua em background)", key="_enriq_dismiss_watch"):
+                    st.session_state.pop("_enriq_run_atual", None)
+                    st.rerun()
+                time.sleep(2.5)
+                st.rerun()
+            elif status_run == "erro":
+                st.error(f"Execução terminou com erro: {run.get('erro') or 'erro desconhecido'}")
+            else:
+                st.success(f"Concluído! {proc}/{total} lead(s) processado(s).")
+
+            if leads_run:
+                _enriq_stats(leads_run)
+                _enriq_dl_buttons(
+                    leads_run, f"enriquecimento_{run_atual_id[:8]}",
+                    "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")),
+                )
+                st.markdown("##### Visão geral")
+                _enriq_tabela(leads_run)
+                st.markdown("##### Detalhe por lead")
+                for r in leads_run:
+                    _enriq_card(r)
+
+    # ── Histórico de execuções anteriores ───────────────────────────────────
+    st.markdown("#### Histórico de execuções")
+    from modules import enrichment_db
+    runs = enrichment_db.listar_runs(limite=20)
+    if not runs:
+        st.caption("Nenhuma execução ainda.")
+    else:
+        _status_lbl = {
+            "pendente": "⏳ Pendente", "processando": "⏳ Processando",
+            "concluido": "✅ Concluído", "erro": "🔴 Erro",
+        }
+        for run in runs:
+            ts = (run.get("criado_em") or "")[:16].replace("T", " ")
+            lbl = _status_lbl.get(run.get("status"), run.get("status"))
+            titulo = f"{ts} — {lbl} — {run.get('processados', 0)}/{run.get('total_leads', 0)} lead(s)"
+            rc1, rc2 = st.columns([5, 1])
+            with rc1:
+                st.markdown(titulo)
+            with rc2:
+                if st.button("👁️ Ver", key=f"_enriq_ver_{run['id']}", use_container_width=True):
+                    st.session_state["_enriq_run_atual"] = run["id"]
+                    st.rerun()
 
 
 # ── Sidebar & roteamento principal ────────────────────────────────────────────
