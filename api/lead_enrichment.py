@@ -254,10 +254,11 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
             # reasoning.effort="low" foi testado e piorou resultado (casos fáceis
             # que antes eram achados passaram a dar "não encontrado") — reduzir
             # esse orçamento de raciocínio limita direto quantas buscas o modelo
-            # faz antes de responder, então foi revertido pro padrão da API.
-            # text.verbosity="low" só encurta o texto de saída (não a pesquisa
-            # em si), mantido como redução de custo mais segura.
-            text={"verbosity": "low"},
+            # faz antes de responder. "medium" é o meio-termo: ainda mais barato
+            # que deixar no padrão implícito da API, sem cortar tanto o
+            # raciocínio/pesquisa a ponto de piorar resultado.
+            reasoning={"effort": "medium"},
+            text={"verbosity": "medium"},
         )
         texto = resp.output_text or ""
         match = re.search(r"\{.*\}", texto, re.DOTALL)
