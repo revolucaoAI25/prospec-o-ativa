@@ -209,6 +209,7 @@ curl -X POST https://<seu-servico>.up.railway.app/enrich/lead \
 |---|---|---|
 | `ENRICH_API_KEY` | ✅ (senão o endpoint retorna `503`) | Senha que você mesmo inventa (ver explicação acima), pro header `X-API-Key` — separada da usada em `/users` |
 | `OPENAI_API_KEY` | ✅ (senão o resultado é sempre "não encontrado") | Usada pra busca (`gpt-5-mini` com busca na web, Responses API) |
+| `ENRICH_ALERTA_WEBHOOK_URL` | opcional | Se um lead falhar por erro técnico mesmo depois de 3 tentativas (rede, API fora do ar, etc.), manda um aviso curto pra essa URL — separado do `webhook_destino` de cada lead, que também recebe o status `erro` normalmente. Sem essa variável, a falha só fica registrada no histórico (`status: "erro"`) |
 
 ## Estratégia do pipeline
 
@@ -217,6 +218,13 @@ tentativa prévia via e-mail→Casa dos Dados/Google Maps e telefone→Google Ma
 calibragem prática elas praticamente não geravam resultado (a IA já cobre esses mesmos casos,
 e melhor — com cargo, LinkedIn e resumo, o que a busca direta não dava) e só adicionavam
 custo/latência — por isso foram removidas.
+
+A chamada à IA tenta até 3 vezes em caso de falha técnica (rede, timeout, rate limit) antes de
+desistir — nesse caso o lead vira `status: "erro"` (diferente de `"nao_encontrado"`, que é um
+resultado negativo válido, não uma falha), o `webhook_destino` do lead (se configurado) recebe
+esse status normalmente, e o `ENRICH_ALERTA_WEBHOOK_URL` (se configurado) recebe um aviso
+separado. Nenhum lead trava o processamento dos outros — cada requisição roda numa tarefa em
+background independente.
 
 ## Notas
 

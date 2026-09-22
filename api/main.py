@@ -27,6 +27,11 @@ Variáveis de ambiente necessárias:
   ENRICH_API_URL   — opcional. URL pública deste próprio serviço (ex:
                      https://seu-servico.up.railway.app) — usada só pra exibir o endpoint
                      completo no painel /painel. Sem ela, o painel mostra um placeholder.
+  ENRICH_ALERTA_WEBHOOK_URL — opcional. Se um lead falhar na busca por erro técnico (mesmo
+                     depois de 3 tentativas — ver lead_enrichment.enriquecer_via_ia), além de
+                     salvar o erro e (se configurado) avisar o webhook_destino daquele lead,
+                     manda também um aviso curto pra essa URL separada, só pra você saber que
+                     algo travou sem precisar ficar checando o histórico manualmente.
 """
 
 import logging
@@ -60,6 +65,7 @@ SIGNUP_API_KEY = os.environ["SIGNUP_API_KEY"]
 ENRICH_API_KEY       = os.getenv("ENRICH_API_KEY", "")
 ENRICH_OPENAI_KEY    = os.getenv("OPENAI_API_KEY", "")
 ENRICH_API_URL       = os.getenv("ENRICH_API_URL", "")
+ENRICH_ALERTA_WEBHOOK_URL = os.getenv("ENRICH_ALERTA_WEBHOOK_URL", "")
 
 _sb: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -231,15 +237,37 @@ def _processar_enriquecimento(enrichment_id: str, nome: str, email: str, telefon
                 "id": enrichment_id, "nome_lead": nome, "email": email, "telefone": telefone,
                 **{k: v for k, v in resultado.items()},
             })
+
+        if resultado["status"] == "erro":
+            # Falha técnica na busca (já tentou 3x — ver enriquecer_via_ia).
+            # O lead não fica preso: já foi salvo como "erro" acima e o
+            # webhook_destino (se configurado) já recebeu esse status. Isso
+            # aqui é só um aviso extra, pra saber que algo travou sem
+            # precisar ficar checando o histórico manualmente.
+            _enviar_alerta_erro(enrichment_id, nome, email, telefone, resultado.get("erro") or "erro desconhecido")
     except Exception as e:
         logger.exception("Erro ao processar enriquecimento %s", enrichment_id)
+        erro_msg = str(e)[:500]
         try:
             _sb.table("lead_enrichments").update({
-                "status": "erro", "erro": str(e)[:500],
+                "status": "erro", "erro": erro_msg,
                 "concluido_em": datetime.now(timezone.utc).isoformat(),
             }).eq("id", enrichment_id).execute()
         except Exception:
             pass
+        # Mesmo numa falha inesperada (não só a da chamada à IA), tenta
+        # avisar o webhook_destino do lead — melhor um payload mínimo de
+        # erro do que o consumidor nunca saber que esse lead não terminou —
+        # e o webhook de alerta, se configurado.
+        if webhook_destino:
+            try:
+                _enviar_webhook_destino(enrichment_id, webhook_destino, {
+                    "id": enrichment_id, "nome_lead": nome, "email": email, "telefone": telefone,
+                    "status": "erro", "erro": erro_msg,
+                })
+            except Exception:
+                pass
+        _enviar_alerta_erro(enrichment_id, nome, email, telefone, erro_msg)
 
 
 def _enviar_webhook_destino(enrichment_id: str, url: str, payload: dict) -> None:
@@ -254,6 +282,24 @@ def _enviar_webhook_destino(enrichment_id: str, url: str, payload: dict) -> None
             _sb.table("lead_enrichments").update({"webhook_destino_enviado": True}).eq("id", enrichment_id).execute()
         except Exception:
             pass
+
+
+def _enviar_alerta_erro(enrichment_id: str, nome: str, email: str, telefone: str, erro: str) -> None:
+    """Notifica ENRICH_ALERTA_WEBHOOK_URL (se configurada) quando um lead
+    falha por erro técnico — sinal de que algo travou (rede, API da OpenAI
+    fora do ar, etc.), separado do webhook_destino de cada lead."""
+    if not ENRICH_ALERTA_WEBHOOK_URL:
+        return
+    try:
+        requests.post(ENRICH_ALERTA_WEBHOOK_URL, json={
+            "tipo": "erro_enriquecimento",
+            "enrichment_id": enrichment_id,
+            "nome_lead": nome, "email": email, "telefone": telefone,
+            "erro": erro,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }, timeout=15)
+    except Exception as e:
+        logger.warning("Falha ao enviar alerta de erro (enrichment=%s): %s", enrichment_id, e)
 
 
 @app.post("/enrich/lead", status_code=202, response_model=EnriquecerLeadResponse)

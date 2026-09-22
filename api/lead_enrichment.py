@@ -243,34 +243,51 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
         + f"\nTelefone: {telefone or '(não informado)'}"
     )
 
+    client = OpenAI(api_key=openai_api_key)
+
+    # A CHAMADA em si (rede/API) tenta até 3 vezes — falha transitória
+    # (rate limit, timeout, hiccup de rede) não deveria virar "não
+    # encontrado" pro lead, é um problema técnico diferente. Depois de
+    # esgotar as tentativas, propaga a exceção pra quem chamou tratar como
+    # erro técnico (enriquecer_lead distingue isso de "não achou nada").
+    resp = None
+    ultimo_erro: Optional[Exception] = None
+    for tentativa in range(1, 4):
+        try:
+            resp = client.responses.create(
+                model="gpt-5-mini",
+                tools=[{"type": "web_search"}],
+                input=prompt,
+                # reasoning.effort="low" foi testado e piorou resultado (casos
+                # fáceis que antes eram achados passaram a dar "não
+                # encontrado") — mantido em "medium". text.verbosity em "low"
+                # só encurta a prosa da saída (fonte/resumo), não afeta
+                # profundidade de busca — reduz custo sem esse mesmo risco.
+                reasoning={"effort": "medium"},
+                text={"verbosity": "low"},
+                # Teto de buscas — sem isso, nada impedia a IA de ficar
+                # pesquisando indefinidamente (o que também explica ficar
+                # "travado" em processando por muito tempo) nem limitava o
+                # custo por lead. Dá espaço tanto pra identificação (até ~5
+                # estratégias) quanto pros itens extra depois (sócios/
+                # fundação/processo), que também fazem busca de verdade
+                # agora — não é só um teto apertado.
+                max_tool_calls=9,
+                # Timeout generoso — é só uma rede de segurança contra
+                # travamento de verdade (rede/provedor emperrado), não um
+                # limite apertado pro fluxo normal: com até 9 buscas +
+                # raciocínio médio, uma busca legítima pode facilmente passar
+                # de 1-2 minutos.
+                timeout=240.0,
+            )
+            break
+        except Exception as e:
+            ultimo_erro = e
+            logger.warning("enriquecer_via_ia: tentativa %d/3 falhou: %s", tentativa, e)
+    if resp is None:
+        raise RuntimeError(f"busca via IA falhou após 3 tentativas: {ultimo_erro}") from ultimo_erro
+
     try:
-        client = OpenAI(api_key=openai_api_key)
-        resp = client.responses.create(
-            model="gpt-5-mini",
-            tools=[{"type": "web_search"}],
-            input=prompt,
-            # reasoning.effort="low" foi testado e piorou resultado (casos fáceis
-            # que antes eram achados passaram a dar "não encontrado") — mantido
-            # em "medium". text.verbosity em "low" só encurta a prosa da saída
-            # (fonte/resumo), não afeta profundidade de busca — reduz custo sem
-            # esse mesmo risco.
-            reasoning={"effort": "medium"},
-            text={"verbosity": "low"},
-            # Teto de buscas — sem isso, nada impedia a IA de ficar pesquisando
-            # indefinidamente (o que também explica ficar "travado" em
-            # processando por muito tempo) nem limitava o custo por lead. Dá
-            # espaço tanto pra identificação (até ~5 estratégias) quanto pros
-            # itens extra depois (sócios/fundação/processo), que também fazem
-            # busca de verdade agora — não é só um teto apertado.
-            max_tool_calls=9,
-            # Timeout generoso — é só uma rede de segurança contra travamento
-            # de verdade (rede/provedor emperrado), não um limite apertado pro
-            # fluxo normal: com até 9 buscas + raciocínio médio, uma busca
-            # legítima pode facilmente passar de 1-2 minutos. Se estourar,
-            # cai no except abaixo e o lead termina como erro tratado, em vez
-            # de ficar preso em "processando" indefinidamente.
-            timeout=240.0,
-        )
         texto = resp.output_text or ""
         match = re.search(r"\{.*\}", texto, re.DOTALL)
         if not match:
@@ -303,7 +320,11 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
             return None
         return dados
     except Exception as e:
-        logger.warning("enriquecer_via_ia falhou: %s", e)
+        # Erro ao interpretar uma resposta que a chamada JÁ trouxe com
+        # sucesso (JSON mal formado, etc.) — não é falha técnica de rede/API
+        # (essa já foi tratada acima, com retry), então não propaga: vira só
+        # "não encontrado" pra esse lead.
+        logger.warning("enriquecer_via_ia: erro ao processar resposta da IA: %s", e)
         return None
 
 
@@ -324,7 +345,18 @@ def enriquecer_lead(nome: str, email: str, telefone: str, openai_api_key: str) -
     if not openai_api_key:
         return resultado
 
-    dados_ia = enriquecer_via_ia(nome, email, telefone, openai_api_key)
+    try:
+        dados_ia = enriquecer_via_ia(nome, email, telefone, openai_api_key)
+    except Exception as e:
+        # Falha técnica da chamada à IA, mesmo depois de 3 tentativas (ver
+        # enriquecer_via_ia) — status "erro" fica distinto de "nao_encontrado"
+        # (que é um resultado negativo válido, não uma falha), pra quem
+        # consome o webhook conseguir diferenciar os dois casos.
+        logger.warning("enriquecer_lead: busca via IA falhou definitivamente: %s", e)
+        resultado["status"] = "erro"
+        resultado["erro"] = str(e)[:500]
+        return resultado
+
     if dados_ia:
         resultado.update({
             "status": "concluido", "metodo_encontrado": "ia",
