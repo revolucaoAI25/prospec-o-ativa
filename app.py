@@ -3452,6 +3452,7 @@ def pagina_automacoes():
 def pagina_configuracoes():
     from modules.database import carregar_configuracoes, salvar_configuracoes
     from modules.google_sheets import gerar_url_auth
+    from modules.auth import eh_admin
 
     st.markdown(
         '<div class="page-header">'
