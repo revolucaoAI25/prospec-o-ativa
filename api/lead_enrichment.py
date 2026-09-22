@@ -34,6 +34,20 @@ def _apenas_digitos(s: str) -> str:
     return "".join(c for c in (s or "") if c.isdigit())
 
 
+def _normalizar_sim_nao(valor) -> Optional[str]:
+    """Normaliza a resposta livre da IA pra três valores fixos — protege
+    contra variações de grafia (com/sem acento, maiúscula, etc.)."""
+    v = (str(valor) if valor is not None else "").strip().lower()
+    v = v.replace("ã", "a").replace("á", "a").replace("ç", "c")
+    if v in ("sim", "yes", "true"):
+        return "sim"
+    if v in ("nao", "no", "false"):
+        return "nao"
+    if v in ("nao_verificado", "nao verificado", "unknown", "indeterminado"):
+        return "nao_verificado"
+    return None
+
+
 # DDD → UF, usado só como PISTA regional pra ajudar a busca e, principalmente,
 # como checagem cruzada contra o que a IA encontrar (ver enriquecer_via_ia) —
 # reduz falso positivo tipo "achei uma empresa em outro estado que não tem
@@ -201,22 +215,30 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
         + "Depois de identificar a empresa (não antes — isso não deve virar critério de "
         "identificação, só enriquecimento adicional), tente também descobrir: outros sócios/"
         "fundadores da empresa (além do próprio lead, se ele for sócio); data ou ano de "
-        "fundação; e qualquer outro dado comercial que ajude a entender melhor o negócio "
+        "fundação; qualquer outro dado comercial que ajude a entender melhor o negócio "
         "(setor de atuação, porte/número de funcionários aproximado, principais produtos ou "
-        "serviços, clientes ou parceiros notáveis, etc.) — sem se desviar do foco principal "
-        "nem inventar nada que não tenha achado.\n\n"
+        "serviços, clientes ou parceiros notáveis, etc.); e, com uma busca rápida (ex.: nome "
+        "da empresa ou do lead + \"jusbrasil\" ou + \"processo\"), se há indício de processo "
+        "judicial ativo ligado à empresa OU ao lead — só um sim/não, NUNCA detalhe do "
+        "processo (tipo, valor, partes, etc.), e só marque \"sim\" se o resultado da busca "
+        "claramente se referir à mesma empresa/pessoa já identificada (mesmo cuidado com "
+        "homônimo de antes) — sem essa certeza, marque como não verificado em vez de "
+        "arriscar. Tudo isso sem se desviar do foco principal nem inventar nada que não "
+        "tenha achado.\n\n"
         + "Retorne SOMENTE um JSON (sem markdown) com: empresa_nome, cargo, cnpj, municipio, "
         "uf, website, linkedin_url, socios (outros sócios/fundadores encontrados, nomes "
         "separados por vírgula; null se não achar ou não se aplicar), fundacao (data ou ano "
-        "de fundação da empresa; null se não achar), confianca (\"alta\"/\"media\"/\"baixa\"), "
-        "fonte (frase curta e específica da corroboração usada) e resumo (2 a 4 frases em "
-        "português com contexto comercial da empresa — setor, porte, cidade, e outros dados "
-        "relevantes que achar, como produtos/serviços principais ou clientes notáveis; null "
-        "se não achar empresa). Critério de confiança: \"alta\" = dois ou mais sinais "
-        "independentes convergem (ou domínio já é a empresa) sem conflito regional; \"media\" "
-        "= um sinal forte específico; \"baixa\" = palpite sem corroboração real ou com "
-        "conflito regional não explicado. Respostas \"baixa\" são descartadas de qualquer "
-        "forma — prefira {\"empresa_nome\": null} a arriscar um palpite errado.\n\n"
+        "de fundação da empresa; null se não achar), processos_jusbrasil (\"sim\"/\"nao\"/"
+        "\"nao_verificado\" — indício de processo judicial ativo ligado à empresa ou ao lead, "
+        "sem detalhe nenhum do processo), confianca (\"alta\"/\"media\"/\"baixa\"), fonte "
+        "(frase curta e específica da corroboração usada) e resumo (2 a 4 frases em português "
+        "com contexto comercial da empresa — setor, porte, cidade, e outros dados relevantes "
+        "que achar, como produtos/serviços principais ou clientes notáveis; null se não achar "
+        "empresa). Critério de confiança: \"alta\" = dois ou mais sinais independentes "
+        "convergem (ou domínio já é a empresa) sem conflito regional; \"media\" = um sinal "
+        "forte específico; \"baixa\" = palpite sem corroboração real ou com conflito regional "
+        "não explicado. Respostas \"baixa\" são descartadas de qualquer forma — prefira "
+        "{\"empresa_nome\": null} a arriscar um palpite errado.\n\n"
         f"Nome completo do lead: {nome or '(não informado)'}\n"
         f"E-mail completo: {email or '(não informado)'}"
         + (f" (texto antes do @: \"{usuario_email}\")" if usuario_email else "")
@@ -282,7 +304,7 @@ def enriquecer_lead(nome: str, email: str, telefone: str, openai_api_key: str) -
         "municipio": None, "uf": None, "website": None, "maps_url": None,
         "avaliacao": None, "total_avaliacoes": None, "erro": None,
         "cargo": None, "linkedin_url": None, "resumo": None,
-        "socios": None, "fundacao": None,
+        "socios": None, "fundacao": None, "processos_jusbrasil": None,
     }
 
     if not openai_api_key:
@@ -302,6 +324,7 @@ def enriquecer_lead(nome: str, email: str, telefone: str, openai_api_key: str) -
             "resumo": dados_ia.get("resumo"),
             "socios": dados_ia.get("socios"),
             "fundacao": dados_ia.get("fundacao"),
+            "processos_jusbrasil": _normalizar_sim_nao(dados_ia.get("processos_jusbrasil")),
         })
 
     return resultado

@@ -120,11 +120,18 @@ def _render_entries(rows: list[dict]) -> str:
         if r.get("erro"):
             detalhe_partes.append(f"erro: {_esc(r['erro'])}")
         detalhe = " · ".join(detalhe_partes)
+        jb = r.get("processos_jusbrasil")
+        jb_badge = {
+            "sim": '<span class="badge b-warn" title="indício de busca no JusBrasil, não é checagem jurídica oficial">⚖️ processo: sim</span>',
+            "nao": '<span class="badge b-ok" title="indício de busca no JusBrasil, não é checagem jurídica oficial">⚖️ processo: não</span>',
+            "nao_verificado": '<span class="badge" style="background:#1c2333;color:#8b93a7" title="não deu pra confirmar via busca">⚖️ processo: não verificado</span>',
+        }.get(jb, "")
         partes += (
             '<div class="entry">'
             f'<div class="titulo">{_esc(titulo)} '
             f'<span class="badge {cls}">{lbl}</span>'
             + (f' <span class="badge b-ok">{_esc(metodo)}</span>' if metodo else "")
+            + (f' {jb_badge}' if jb_badge else "")
             + f'</div><div class="meta">{_esc(ts)}'
             + (f' &middot; entrada: {_esc(r.get("email") or r.get("telefone") or "—")}' if r.get("email") or r.get("telefone") else "")
             + "</div>"

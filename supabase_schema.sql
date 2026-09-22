@@ -810,3 +810,8 @@ ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS raciocinio TEXT;
 -- básico: outros sócios/fundadores da empresa, e data/ano de fundação.
 ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS socios TEXT;
 ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS fundacao TEXT;
+
+-- Indício (via busca, não checagem jurídica oficial) de processo judicial
+-- ativo ligado à empresa ou ao lead, achado numa busca rápida no JusBrasil
+-- — "sim"/"nao"/"nao_verificado", nunca detalhe do processo em si.
+ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS processos_jusbrasil TEXT;

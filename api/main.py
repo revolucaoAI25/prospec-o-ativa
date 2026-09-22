@@ -219,6 +219,7 @@ def _processar_enriquecimento(enrichment_id: str, nome: str, email: str, telefon
             "resumo":             resultado.get("resumo"),
             "socios":             resultado.get("socios"),
             "fundacao":           resultado.get("fundacao"),
+            "processos_jusbrasil": resultado.get("processos_jusbrasil"),
             "dados_brutos":       resultado,
             "erro":               resultado.get("erro"),
             "concluido_em":       datetime.now(timezone.utc).isoformat(),
@@ -342,6 +343,7 @@ def painel_testar(
             "cargo": resultado.get("cargo"), "linkedin_url": resultado.get("linkedin_url"),
             "resumo": resultado.get("resumo"),
             "socios": resultado.get("socios"), "fundacao": resultado.get("fundacao"),
+            "processos_jusbrasil": resultado.get("processos_jusbrasil"),
             "dados_brutos": resultado, "concluido_em": datetime.now(timezone.utc).isoformat(),
         }).execute()
         if webhook_destino:
