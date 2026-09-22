@@ -124,7 +124,9 @@ def _render_entries(rows: list[dict]) -> str:
         jb_badge = {
             "sim": '<span class="badge b-warn" title="indício de busca no JusBrasil, não é checagem jurídica oficial">⚖️ processo: sim</span>',
             "nao": '<span class="badge b-ok" title="indício de busca no JusBrasil, não é checagem jurídica oficial">⚖️ processo: não</span>',
-            "nao_verificado": '<span class="badge" style="background:#1c2333;color:#8b93a7" title="não deu pra confirmar via busca">⚖️ processo: não verificado</span>',
+            "nao_encontrado": '<span class="badge" style="background:#1c2333;color:#8b93a7" title="não deu pra confirmar via busca">⚖️ processo: não encontrado</span>',
+            # valor antigo, de resultados salvos antes do rename — mesmo visual
+            "nao_verificado": '<span class="badge" style="background:#1c2333;color:#8b93a7" title="não deu pra confirmar via busca">⚖️ processo: não encontrado</span>',
         }.get(jb, "")
         partes += (
             '<div class="entry">'

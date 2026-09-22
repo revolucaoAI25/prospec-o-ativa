@@ -43,8 +43,8 @@ def _normalizar_sim_nao(valor) -> Optional[str]:
         return "sim"
     if v in ("nao", "no", "false"):
         return "nao"
-    if v in ("nao_verificado", "nao verificado", "unknown", "indeterminado"):
-        return "nao_verificado"
+    if v in ("nao_encontrado", "nao encontrado", "nao_verificado", "nao verificado", "unknown", "indeterminado"):
+        return "nao_encontrado"
     return None
 
 
@@ -219,23 +219,24 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
         "regional; \"media\" = um sinal forte específico; \"baixa\" = palpite sem corroboração "
         "real ou com conflito regional não explicado — nesse caso prefira {\"empresa_nome\": "
         "null} a arriscar um palpite errado.\n\n"
-        + "SÓ DEPOIS de já ter decidido tudo isso, preencha OPCIONALMENTE (sem fazer buscas "
-        "extra dedicadas — só aproveite o que já apareceu nas buscas acima, pra não gastar "
-        "mais tempo/custo): outros sócios/fundadores da empresa; data ou ano de fundação; "
-        "outros dados comerciais úteis (setor, porte, produtos/serviços principais, clientes "
-        "notáveis); e, só se tiver aparecido incidentalmente (não faça busca dedicada pra "
-        "isso), indício — nunca detalhe — de processo judicial ligado à empresa ou ao lead, "
-        "só marcando \"sim\" se claramente for a mesma empresa/pessoa (mesmo cuidado contra "
-        "homônimo de antes). Não achou algum desses quatro itens nas buscas já feitas? Deixe "
-        "null/\"nao_verificado\" e siga em frente — NUNCA deixe de responder a tarefa "
-        "principal, nem mude empresa_nome ou confianca, por causa desses itens opcionais; "
-        "eles não fazem parte do julgamento de identidade.\n\n"
+        + "SÓ DEPOIS de já ter decidido tudo isso, faça mais algumas buscas (vale a pena "
+        "buscar de verdade, isso é informação que interessa — não é só aproveitar o que já "
+        "apareceu por acaso) pra tentar descobrir: outros sócios/fundadores da empresa; data "
+        "ou ano de fundação; outros dados comerciais úteis (setor, porte, produtos/serviços "
+        "principais, clientes notáveis); e, com uma busca dedicada (ex.: nome da empresa ou "
+        "do lead + \"jusbrasil\" ou + \"processo\"), indício — nunca detalhe — de processo "
+        "judicial ligado à empresa ou ao lead, só marcando \"sim\" se claramente for a mesma "
+        "empresa/pessoa (mesmo cuidado contra homônimo de antes). Não achou algum desses "
+        "quatro itens depois de tentar? Deixe null/\"nao_encontrado\" e siga em frente — mas "
+        "NUNCA deixe de responder a tarefa principal, nem mude empresa_nome ou confianca, por "
+        "causa desses itens extras; eles não fazem parte do julgamento de identidade, só vêm "
+        "depois dele já estar decidido.\n\n"
         + "Retorne SOMENTE um JSON (sem markdown) com: empresa_nome, cargo, cnpj, municipio, "
         "uf, website, linkedin_url, confianca, fonte, resumo (2 a 4 frases em português com "
         "contexto comercial da empresa — setor, porte, cidade, e outros dados relevantes que "
         "achar; null se não achar empresa), socios (nomes separados por vírgula; null se não "
         "achar/não se aplicar), fundacao (data ou ano; null se não achar) e processos_jusbrasil "
-        "(\"sim\"/\"nao\"/\"nao_verificado\").\n\n"
+        "(\"sim\"/\"nao\"/\"nao_encontrado\").\n\n"
         f"Nome completo do lead: {nome or '(não informado)'}\n"
         f"E-mail completo: {email or '(não informado)'}"
         + (f" (texto antes do @: \"{usuario_email}\")" if usuario_email else "")
@@ -249,17 +250,22 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
             tools=[{"type": "web_search"}],
             input=prompt,
             # reasoning.effort="low" foi testado e piorou resultado (casos fáceis
-            # que antes eram achados passaram a dar "não encontrado") — "medium"
-            # é o meio-termo.
+            # que antes eram achados passaram a dar "não encontrado") — mantido
+            # em "medium". text.verbosity em "low" só encurta a prosa da saída
+            # (fonte/resumo), não afeta profundidade de busca — reduz custo sem
+            # esse mesmo risco.
             reasoning={"effort": "medium"},
-            text={"verbosity": "medium"},
-            # Teto duro de buscas — sem isso, nada impedia a IA de ficar
-            # pesquisando indefinidamente (o que também explica ficar "travado"
-            # em processando por muito tempo) nem limitava o custo por lead.
-            max_tool_calls=6,
+            text={"verbosity": "low"},
+            # Teto de buscas — sem isso, nada impedia a IA de ficar pesquisando
+            # indefinidamente (o que também explica ficar "travado" em
+            # processando por muito tempo) nem limitava o custo por lead. Dá
+            # espaço tanto pra identificação (até ~5 estratégias) quanto pros
+            # itens extra depois (sócios/fundação/processo), que também fazem
+            # busca de verdade agora — não é só um teto apertado.
+            max_tool_calls=9,
             # Timeout generoso — é só uma rede de segurança contra travamento
             # de verdade (rede/provedor emperrado), não um limite apertado pro
-            # fluxo normal: com até 6 buscas + raciocínio médio, uma busca
+            # fluxo normal: com até 9 buscas + raciocínio médio, uma busca
             # legítima pode facilmente passar de 1-2 minutos. Se estourar,
             # cai no except abaixo e o lead termina como erro tratado, em vez
             # de ficar preso em "processando" indefinidamente.
