@@ -219,14 +219,14 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
         "regional; \"media\" = um sinal forte específico; \"baixa\" = palpite sem corroboração "
         "real ou com conflito regional não explicado — nesse caso prefira {\"empresa_nome\": "
         "null} a arriscar um palpite errado.\n\n"
-        + "SÓ DEPOIS de já ter decidido tudo isso, tente OPCIONALMENTE (é enriquecimento "
-        "extra, não interfere e não deve consumir muito mais busca) descobrir: outros sócios/"
-        "fundadores da empresa; data ou ano de fundação; outros dados comerciais úteis (setor, "
-        "porte, produtos/serviços principais, clientes notáveis); e, com no máximo UMA busca "
-        "rápida extra (ex.: nome da empresa ou do lead + \"jusbrasil\"), indício — nunca "
-        "detalhe — de processo judicial ativo ligado à empresa ou ao lead, só marcando \"sim\" "
-        "se claramente for a mesma empresa/pessoa (mesmo cuidado contra homônimo de antes). "
-        "Se não achar rápido ou não tiver certeza em qualquer um desses quatro itens, deixe "
+        + "SÓ DEPOIS de já ter decidido tudo isso, preencha OPCIONALMENTE (sem fazer buscas "
+        "extra dedicadas — só aproveite o que já apareceu nas buscas acima, pra não gastar "
+        "mais tempo/custo): outros sócios/fundadores da empresa; data ou ano de fundação; "
+        "outros dados comerciais úteis (setor, porte, produtos/serviços principais, clientes "
+        "notáveis); e, só se tiver aparecido incidentalmente (não faça busca dedicada pra "
+        "isso), indício — nunca detalhe — de processo judicial ligado à empresa ou ao lead, "
+        "só marcando \"sim\" se claramente for a mesma empresa/pessoa (mesmo cuidado contra "
+        "homônimo de antes). Não achou algum desses quatro itens nas buscas já feitas? Deixe "
         "null/\"nao_verificado\" e siga em frente — NUNCA deixe de responder a tarefa "
         "principal, nem mude empresa_nome ou confianca, por causa desses itens opcionais; "
         "eles não fazem parte do julgamento de identidade.\n\n"
@@ -249,13 +249,18 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
             tools=[{"type": "web_search"}],
             input=prompt,
             # reasoning.effort="low" foi testado e piorou resultado (casos fáceis
-            # que antes eram achados passaram a dar "não encontrado") — reduzir
-            # esse orçamento de raciocínio limita direto quantas buscas o modelo
-            # faz antes de responder. "medium" é o meio-termo: ainda mais barato
-            # que deixar no padrão implícito da API, sem cortar tanto o
-            # raciocínio/pesquisa a ponto de piorar resultado.
+            # que antes eram achados passaram a dar "não encontrado") — "medium"
+            # é o meio-termo.
             reasoning={"effort": "medium"},
             text={"verbosity": "medium"},
+            # Teto duro de buscas — sem isso, nada impedia a IA de ficar
+            # pesquisando indefinidamente (o que também explica ficar "travado"
+            # em processando por muito tempo) nem limitava o custo por lead.
+            max_tool_calls=6,
+            # Timeout pra essa chamada específica não travar pra sempre —
+            # se estourar, cai no except abaixo e o lead termina como "erro"
+            # em vez de ficar preso em "processando" indefinidamente.
+            timeout=90.0,
         )
         texto = resp.output_text or ""
         match = re.search(r"\{.*\}", texto, re.DOTALL)
