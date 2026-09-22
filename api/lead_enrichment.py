@@ -251,10 +251,12 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
             model="gpt-5-mini",
             tools=[{"type": "web_search"}],
             input=prompt,
-            # Reduz custo/tokens gastos em raciocínio e no texto de saída —
-            # a tarefa é objetiva (achar/confirmar um dado, preencher um
-            # JSON curto), não precisa de raciocínio nem prosa elaborados.
-            reasoning={"effort": "low"},
+            # reasoning.effort="low" foi testado e piorou resultado (casos fáceis
+            # que antes eram achados passaram a dar "não encontrado") — reduzir
+            # esse orçamento de raciocínio limita direto quantas buscas o modelo
+            # faz antes de responder, então foi revertido pro padrão da API.
+            # text.verbosity="low" só encurta o texto de saída (não a pesquisa
+            # em si), mantido como redução de custo mais segura.
             text={"verbosity": "low"},
         )
         texto = resp.output_text or ""
