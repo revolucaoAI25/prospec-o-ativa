@@ -257,10 +257,13 @@ def enriquecer_via_ia(nome: str, email: str, telefone: str, openai_api_key: str)
             # pesquisando indefinidamente (o que também explica ficar "travado"
             # em processando por muito tempo) nem limitava o custo por lead.
             max_tool_calls=6,
-            # Timeout pra essa chamada específica não travar pra sempre —
-            # se estourar, cai no except abaixo e o lead termina como "erro"
-            # em vez de ficar preso em "processando" indefinidamente.
-            timeout=90.0,
+            # Timeout generoso — é só uma rede de segurança contra travamento
+            # de verdade (rede/provedor emperrado), não um limite apertado pro
+            # fluxo normal: com até 6 buscas + raciocínio médio, uma busca
+            # legítima pode facilmente passar de 1-2 minutos. Se estourar,
+            # cai no except abaixo e o lead termina como erro tratado, em vez
+            # de ficar preso em "processando" indefinidamente.
+            timeout=240.0,
         )
         texto = resp.output_text or ""
         match = re.search(r"\{.*\}", texto, re.DOTALL)
