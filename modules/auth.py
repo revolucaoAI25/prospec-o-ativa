@@ -140,7 +140,8 @@ def restaurar_sessao(refresh_token: str) -> bool:
             "maps_credits_enabled, maps_api_key_admin, "
             "instagram_credits_enabled, apify_api_key_admin, apify_api_key, "
             "apify_keys_pool, instagram_visible, disparo_habilitado, "
-            "conta_teste, teste_expira_em"
+            "conta_teste, teste_expira_em, "
+            "enriquecimento_ia_habilitado, openai_api_key"
         ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
         if _conta_teste_expirada(dados):
@@ -164,6 +165,8 @@ def restaurar_sessao(refresh_token: str) -> bool:
         st.session_state["disparo_habilitado"]        = bool(dados.get("disparo_habilitado", False))
         st.session_state["conta_teste"]                = bool(dados.get("conta_teste", False))
         st.session_state["teste_expira_em"]            = dados.get("teste_expira_em") or ""
+        st.session_state["enriquecimento_ia_habilitado"] = bool(dados.get("enriquecimento_ia_habilitado", False))
+        st.session_state["openai_api_key_user"]        = dados.get("openai_api_key") or ""
         if maps_enabled:
             st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
         elif dados.get("google_maps_api_key"):
@@ -196,7 +199,8 @@ def login(email: str, senha: str) -> tuple[bool, str]:
             "google_sheets_creds, app_url, maps_credits_enabled, maps_api_key_admin, "
             "instagram_credits_enabled, apify_api_key_admin, apify_api_key, "
             "apify_keys_pool, instagram_visible, disparo_habilitado, "
-            "conta_teste, teste_expira_em"
+            "conta_teste, teste_expira_em, "
+            "enriquecimento_ia_habilitado, openai_api_key"
         ).eq("id", user.id).single().execute()
         dados = perfil.data or {}
 
@@ -223,6 +227,8 @@ def login(email: str, senha: str) -> tuple[bool, str]:
         st.session_state["disparo_habilitado"]        = bool(dados.get("disparo_habilitado", False))
         st.session_state["conta_teste"]                = bool(dados.get("conta_teste", False))
         st.session_state["teste_expira_em"]            = dados.get("teste_expira_em") or ""
+        st.session_state["enriquecimento_ia_habilitado"] = bool(dados.get("enriquecimento_ia_habilitado", False))
+        st.session_state["openai_api_key_user"]        = dados.get("openai_api_key") or ""
         if maps_enabled:
             st.session_state["user_gmaps_key"] = dados.get("maps_api_key_admin") or ""
         elif dados.get("google_maps_api_key"):
@@ -247,6 +253,7 @@ def logout():
               "instagram_credits_enabled", "apify_api_key_admin", "apify_api_key_user",
               "apify_keys_pool", "instagram_visible", "disparo_habilitado",
               "conta_teste", "teste_expira_em",
+              "enriquecimento_ia_habilitado", "openai_api_key_user",
               "sheets_creds", "sheets_planilhas", "auto_export_enabled", "sheets_lista",
               "maps_res", "rf_res", "page", "_cfg_cache", "_cookie_set",
               "_pesquisas_cache", "_sb_client", "_credits_renewed"]:

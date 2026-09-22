@@ -11,3 +11,4 @@ google-api-python-client>=2.120.0
 supabase>=2.4.0
 extra-streamlit-components>=0.1.60
 tzdata>=2024.1
+openai>=1.60.0

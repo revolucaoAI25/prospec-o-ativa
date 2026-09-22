@@ -3638,6 +3638,32 @@ def pagina_configuracoes():
                     else:
                         st.error(msg_ap)
 
+    # ── OpenAI API Key — só pra quem tem a feature de Enriquecimento de Leads ──
+    if eh_admin() or st.session_state.get("enriquecimento_ia_habilitado"):
+        with st.expander("🧠 OpenAI API Key (Enriquecimento de Leads)", expanded=False):
+            st.markdown(
+                "Usada pela busca por IA em **Enriquecimento de Leads** — o custo dessas "
+                "buscas é cobrado na sua própria conta OpenAI, não consome créditos da "
+                "plataforma. [Crie uma chave em platform.openai.com/api-keys]"
+                "(https://platform.openai.com/api-keys)."
+            )
+            _openai_cur = st.session_state.get("openai_api_key_user", "")
+            openai_inp = st.text_input(
+                "OpenAI API Key",
+                value=_openai_cur,
+                type="password",
+                placeholder="sk-...",
+                key="cfg_openai_key",
+            )
+            if st.button("💾 Salvar chave OpenAI", key="save_openai"):
+                from modules.database import salvar_configuracoes
+                ok_oa, msg_oa = salvar_configuracoes({"openai_api_key": openai_inp.strip()})
+                if ok_oa:
+                    st.session_state["openai_api_key_user"] = openai_inp.strip()
+                    st.success("Chave OpenAI salva com sucesso.")
+                else:
+                    st.error(msg_oa)
+
     # ── Google Sheets OAuth ─────────────────────────────────────────────────────
     with st.expander("📊 Google Sheets (OAuth)", expanded=True):
         st.markdown("Conecte sua conta Google para exportar resultados diretamente para planilhas.")
@@ -4333,6 +4359,17 @@ def pagina_admin():
                 (st.success if ok_dh else st.error)(msg_dh)
                 if ok_dh: time.sleep(0.3); st.rerun()
 
+            # ── Enriquecimento de Leads via IA — liberação individual (desativado por padrão) ─
+            enriq_hab = bool(u.get("enriquecimento_ia_habilitado", False))
+            enriq_hab_toggle = st.toggle(
+                "Habilitar Enriquecimento de Leads via IA para este usuário",
+                value=enriq_hab, key=f"enriq_hab_{uid}",
+            )
+            if enriq_hab_toggle != enriq_hab:
+                ok_eh, msg_eh = configurar_creditos_admin(uid, enriquecimento_ia_habilitado=enriq_hab_toggle)
+                (st.success if ok_eh else st.error)(msg_eh)
+                if ok_eh: time.sleep(0.3); st.rerun()
+
             insta_en     = bool(u.get("instagram_credits_enabled", False))
             insta_bal    = int(u.get("instagram_credits", 0) or 0)
             monthly_insta = int(u.get("monthly_instagram_credits", 0) or 0)
@@ -4386,6 +4423,7 @@ _ORIGEM_CAMPANHA_LBL = {
 
 _CANDIDATOS_COL_NOME = ["nome", "name", "empresa", "razao", "razão", "contato"]
 _CANDIDATOS_COL_TEL = ["telefone", "phone", "celular", "whatsapp", "fone", "numero", "número"]
+_CANDIDATOS_COL_EMAIL = ["email", "e-mail", "mail"]
 
 _STATUS_TEMPLATE_LBL = {
     "rascunho": ("b-warn", "Rascunho"),
@@ -5417,6 +5455,309 @@ def pagina_disparo():
             _tab_disparo_pedidos_oficial()
 
 
+# ── Enriquecimento de Leads via IA (opcional, liberado por usuário) ────────────
+
+_ENRIQ_COLS = [
+    ("nome_lead", "Nome"), ("email", "E-mail"), ("telefone", "Telefone"),
+    ("status", "Status"), ("empresa_nome", "Empresa"), ("cargo", "Cargo"),
+    ("cnpj", "CNPJ"), ("municipio", "Município"), ("uf", "UF"),
+    ("website", "Site"), ("linkedin_url", "LinkedIn"),
+    ("socios", "Sócios"), ("fundacao", "Fundação"),
+    ("processos_jusbrasil", "Processo (JusBrasil)"),
+    ("resumo", "Resumo"), ("erro", "Erro"),
+]
+
+
+def _enriq_csv(rows):
+    b = io.StringIO(); w = csv.writer(b)
+    w.writerow([l for _, l in _ENRIQ_COLS])
+    for r in rows:
+        w.writerow([r.get(c, "") for c, _ in _ENRIQ_COLS])
+    return b.getvalue().encode("utf-8-sig")
+
+
+def _enriq_xlsx(rows):
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Enriquecimento"
+    hf = Font(bold=True, color="0A0A0F"); hfill = PatternFill("solid", fgColor="00D97E")
+    for ci, (col, lbl) in enumerate(_ENRIQ_COLS, 1):
+        c = ws.cell(row=1, column=ci, value=lbl); c.font = hf; c.fill = hfill
+        c.alignment = Alignment(horizontal="center")
+    ws.row_dimensions[1].height = 22
+    fa = PatternFill("solid", fgColor="141418"); fb = PatternFill("solid", fgColor="0D0D12")
+    for ri, r in enumerate(rows, 2):
+        for ci, (col, _) in enumerate(_ENRIQ_COLS, 1):
+            cell = ws.cell(row=ri, column=ci, value=r.get(col, ""))
+            cell.fill = fa if ri % 2 == 0 else fb
+            if col in ("website", "linkedin_url") and r.get(col):
+                cell.hyperlink = r[col]; cell.font = Font(color="00D97E", underline="single")
+    for ci in range(1, len(_ENRIQ_COLS) + 1):
+        mx = max(len(str(ws.cell(row=rr, column=ci).value or "")) for rr in range(1, len(rows) + 2))
+        ws.column_dimensions[get_column_letter(ci)].width = min(mx + 2, 50)
+    ws.freeze_panes = "A2"
+    buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+
+def _enriq_dl_buttons(rows, prefix, sheets_auth):
+    ts = int(time.time())
+    _req_idx = st.session_state.pop(f"_exp_req_{prefix}", None)
+    if _req_idx is not None:
+        _pl = st.session_state.get("sheets_planilhas", [])
+        if 0 <= _req_idx < len(_pl):
+            _export_to_planilha(rows, _pl[_req_idx])
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.download_button("⬇️ Excel", _enriq_xlsx(rows), f"{prefix}_{ts}.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           use_container_width=True, key=f"dl_xlsx_{prefix}")
+    with c2:
+        st.download_button("⬇️ CSV", _enriq_csv(rows), f"{prefix}_{ts}.csv",
+                           "text/csv", use_container_width=True, key=f"dl_csv_{prefix}")
+    with c3:
+        try:
+            planilhas_cfg = st.session_state.get("sheets_planilhas", [])
+            if sheets_auth and planilhas_cfg:
+                with st.popover("📊 Google Sheets", use_container_width=True):
+                    st.markdown("**Exportar para:**")
+                    for _pi, p in enumerate(planilhas_cfg):
+                        badge = " ⭐" if p.get("padrao") else ""
+                        lbl = f"{p['nome']}{badge} → {p['aba']} ({p.get('modo','substituir')})"
+                        if st.button(lbl, key=f"exp_{_pi}_{prefix}", use_container_width=True):
+                            st.session_state[f"_exp_req_{prefix}"] = _pi
+                            st.rerun()
+            elif sheets_auth:
+                st.button("📊 Google Sheets", use_container_width=True, disabled=True,
+                          help="Adicione uma planilha em ⚙️ Configurações.", key=f"dl_sheets_nop_{prefix}")
+            else:
+                st.button("📊 Google Sheets", use_container_width=True, disabled=True,
+                          help="Conecte sua conta Google em ⚙️ Configurações.", key=f"dl_sheets_dis_{prefix}")
+        except Exception:
+            logger.exception("Erro ao renderizar botão Google Sheets (prefix=%s)", prefix)
+            st.button("📊 Google Sheets", use_container_width=True, disabled=True,
+                      help="Erro ao carregar opções do Google Sheets.", key=f"dl_sheets_err_{prefix}")
+
+
+def _enriq_stats(rows):
+    tot = len(rows)
+    enc = sum(1 for r in rows if r.get("status") == "concluido")
+    nenc = sum(1 for r in rows if r.get("status") == "nao_encontrado")
+    err = sum(1 for r in rows if r.get("status") == "erro")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total processados", tot)
+    c2.metric("✅ Encontrados", enc)
+    c3.metric("⚪ Não encontrados", nenc)
+    c4.metric("🔴 Erros", err)
+
+
+def _enriq_tabela(rows):
+    import pandas as pd
+    lbls = dict(_ENRIQ_COLS)
+    vis = [c for c, _ in _ENRIQ_COLS if c != "resumo"]
+    df = pd.DataFrame(rows)
+    cols = [c for c in vis if c in df.columns]
+    st.dataframe(df[cols].rename(columns=lbls).fillna("").astype(str).replace("nan", ""),
+                 use_container_width=True, height=380)
+
+
+_JUSBRASIL_LBL = {"sim": "⚠️ Sim", "nao": "✅ Não", "nao_encontrado": "— Não encontrado"}
+
+
+def _enriq_card(r: dict):
+    status = r.get("status")
+    badge = {"concluido": "🟢", "nao_encontrado": "⚪", "erro": "🔴"}.get(status, "⚪")
+    titulo = r.get("empresa_nome") or r.get("nome_lead") or r.get("email") or r.get("telefone") or "Lead"
+    with st.expander(f"{badge} {titulo}"):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**Nome:** {r.get('nome_lead') or '—'}")
+            st.markdown(f"**E-mail:** {r.get('email') or '—'}")
+            st.markdown(f"**Telefone:** {r.get('telefone') or '—'}")
+        with c2:
+            if status == "concluido":
+                st.markdown(f"**Empresa:** {r.get('empresa_nome') or '—'}")
+                st.markdown(f"**Cargo:** {r.get('cargo') or '—'}")
+                cidade = r.get("municipio") or ""
+                uf = r.get("uf") or ""
+                if cidade or uf:
+                    st.markdown(f"**Cidade/UF:** {cidade}{'/' + uf if uf else ''}")
+                if r.get("website"):
+                    st.markdown(f"**Site:** {r['website']}")
+                if r.get("linkedin_url"):
+                    st.markdown(f"**LinkedIn:** {r['linkedin_url']}")
+                if r.get("cnpj"):
+                    st.markdown(f"**CNPJ:** {r['cnpj']}")
+                if r.get("socios"):
+                    st.markdown(f"**Sócios:** {r['socios']}")
+                if r.get("fundacao"):
+                    st.markdown(f"**Fundação:** {r['fundacao']}")
+                if r.get("processos_jusbrasil"):
+                    st.markdown(f"**Processo (JusBrasil):** {_JUSBRASIL_LBL.get(r['processos_jusbrasil'], r['processos_jusbrasil'])}")
+            elif status == "erro":
+                st.error(r.get("erro") or "Erro desconhecido ao processar esse lead.")
+            else:
+                st.caption("Nenhuma empresa identificada com confiança suficiente.")
+        if r.get("resumo"):
+            st.info(r["resumo"])
+
+
+def pagina_enriquecimento_leads():
+    from modules import lead_enrichment_ia as enriq
+    import pandas as pd
+
+    st.markdown(
+        '<div class="page-header">'
+        '<div class="page-header-icon"><svg viewBox="0 0 24 24" stroke="#00D97E" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v3l2 2"/></svg></div>'
+        '<div><div class="page-title">Enriquecimento de Leads</div>'
+        '<div class="page-sub">Descubra empresa, cargo, LinkedIn e mais a partir de nome/e-mail/telefone — via IA com busca na web</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    openai_key = st.session_state.get("openai_api_key_user", "")
+    if not openai_key:
+        st.warning(
+            "Você precisa cadastrar sua própria chave de API da OpenAI antes de usar esse recurso — "
+            "vá em ⚙️ **Configurações** e adicione em **OpenAI API Key**. O custo das buscas é cobrado "
+            "na sua conta OpenAI, não consome créditos da plataforma.",
+            icon="🔑",
+        )
+
+    if "_enriq_staging" not in st.session_state:
+        st.session_state["_enriq_staging"] = []
+
+    st.markdown("#### 1. Monte a lista de leads")
+    tab_texto, tab_planilha = st.tabs(["📋 Colar texto", "📤 Upload de planilha"])
+
+    with tab_texto:
+        st.caption(
+            "Cole um lead por bloco (rótulo + valor) ou uma linha por lead (nome, e-mail e "
+            "telefone separados por vírgula) — o sistema tenta reconhecer os dois formatos."
+        )
+        texto_colado = st.text_area(
+            "Leads", height=160, key="_enriq_texto_colado", label_visibility="collapsed",
+            placeholder=(
+                "* Email\nfulano@empresa.com.br\n* Full name\nFulano de Tal\n"
+                "* Phone number\n+5511999999999\n\nou\n\n"
+                "Fulano de Tal, fulano@empresa.com.br, 11999999999"
+            ),
+        )
+        if st.button("➕ Adicionar à lista", key="_enriq_add_texto"):
+            novos = enriq.parse_leads_colados(texto_colado)
+            if novos:
+                st.session_state["_enriq_staging"].extend(novos)
+                # Sem isso, o data_editor abaixo (que tem key fixa) ignora o
+                # novo valor e continua mostrando o que já tinha renderizado
+                # antes — precisa limpar o estado dele pra reinicializar com
+                # a lista atualizada.
+                st.session_state.pop("_enriq_editor", None)
+                st.success(f"{len(novos)} lead(s) adicionado(s).")
+                st.rerun()
+            else:
+                st.warning("Não reconheci nenhum lead nesse texto — confira o formato.")
+
+    with tab_planilha:
+        arquivo = st.file_uploader("Planilha (CSV ou Excel)", type=["csv", "xlsx"], key="_enriq_upload")
+        if arquivo is not None:
+            try:
+                df_up = pd.read_csv(arquivo) if arquivo.name.endswith(".csv") else pd.read_excel(arquivo)
+            except Exception as e:
+                st.error(f"Erro ao ler o arquivo: {e}")
+                df_up = None
+            if df_up is not None and not df_up.empty:
+                cols = list(df_up.columns)
+                idx_nome = _detectar_col(cols, _CANDIDATOS_COL_NOME, 0)
+                idx_email = _detectar_col(cols, _CANDIDATOS_COL_EMAIL, min(1, len(cols) - 1))
+                idx_tel = _detectar_col(cols, _CANDIDATOS_COL_TEL, min(2, len(cols) - 1))
+                cc1, cc2, cc3 = st.columns(3)
+                with cc1:
+                    col_nome = st.selectbox("Coluna do nome", cols, index=idx_nome, key="_enriq_up_col_nome")
+                with cc2:
+                    col_email = st.selectbox("Coluna do e-mail", cols, index=idx_email, key="_enriq_up_col_email")
+                with cc3:
+                    col_tel = st.selectbox("Coluna do telefone", cols, index=idx_tel, key="_enriq_up_col_tel")
+                st.caption(f"{len(df_up)} linha(s) na planilha — colunas detectadas automaticamente, confira antes de continuar.")
+                if st.button("➕ Adicionar à lista", key="_enriq_add_upload"):
+                    novos = []
+                    for _, r in df_up.iterrows():
+                        lead = {
+                            "nome": str(r.get(col_nome, "") or "").strip(),
+                            "email": str(r.get(col_email, "") or "").strip(),
+                            "telefone": str(r.get(col_tel, "") or "").strip(),
+                        }
+                        if lead["email"] or lead["telefone"]:
+                            novos.append(lead)
+                    st.session_state["_enriq_staging"].extend(novos)
+                    st.session_state.pop("_enriq_editor", None)
+                    st.success(f"{len(novos)} lead(s) adicionado(s).")
+                    st.rerun()
+
+    st.markdown("#### 2. Revise a lista (dá pra editar, apagar ou adicionar linhas direto na tabela)")
+    df_staging = pd.DataFrame(st.session_state["_enriq_staging"] or [{"nome": "", "email": "", "telefone": ""}])
+    for col in ("nome", "email", "telefone"):
+        if col not in df_staging.columns:
+            df_staging[col] = ""
+    df_staging = df_staging[["nome", "email", "telefone"]]
+    df_editado = st.data_editor(
+        df_staging, num_rows="dynamic", use_container_width=True, key="_enriq_editor",
+        column_config={
+            "nome": "Nome", "email": "E-mail", "telefone": "Telefone",
+        },
+    )
+    st.session_state["_enriq_staging"] = df_editado.fillna("").to_dict("records")
+
+    leads_validos = [
+        l for l in st.session_state["_enriq_staging"]
+        if str(l.get("email", "")).strip() or str(l.get("telefone", "")).strip()
+    ]
+
+    LIMITE_LOTE = 50
+    if len(leads_validos) > LIMITE_LOTE:
+        st.caption(f"⚠️ Lista tem {len(leads_validos)} leads — processando só os primeiros {LIMITE_LOTE} por vez (rode de novo pro restante depois).")
+
+    col_run, col_clear = st.columns([3, 1])
+    with col_run:
+        rodar = st.button(
+            f"🚀 Enriquecer {min(len(leads_validos), LIMITE_LOTE)} lead(s)",
+            type="primary", use_container_width=True,
+            disabled=not leads_validos or not openai_key,
+        )
+    with col_clear:
+        if st.button("🗑️ Limpar lista", use_container_width=True):
+            st.session_state["_enriq_staging"] = []
+            st.session_state.pop("_enriq_resultados", None)
+            st.session_state.pop("_enriq_editor", None)
+            st.rerun()
+
+    if rodar:
+        lote = leads_validos[:LIMITE_LOTE]
+        bar = st.progress(0, text="Iniciando…")
+        def _cb_enriq(a, t, m):
+            bar.progress(min(a / max(t, 1), 1.0), text=str(m)[:120])
+        resultados = enriq.enriquecer_leads_em_lote(lote, openai_key, callback=_cb_enriq)
+        bar.progress(1.0, text=f"Concluído! {len(resultados)} lead(s) processado(s).")
+        bar.empty()
+        st.session_state["_enriq_resultados"] = resultados
+        st.session_state["_enriq_staging"] = []
+        st.session_state.pop("_enriq_editor", None)
+        st.rerun()
+
+    resultados = st.session_state.get("_enriq_resultados")
+    if resultados:
+        st.markdown("#### 3. Resultados")
+        _enriq_stats(resultados)
+        _enriq_dl_buttons(
+            resultados, "enriquecimento_leads",
+            "sheets_creds" in st.session_state and bool(st.session_state.get("sheets_planilhas")),
+        )
+        st.markdown("##### Visão geral")
+        _enriq_tabela(resultados)
+        st.markdown("##### Detalhe por lead")
+        for r in resultados:
+            _enriq_card(r)
+
+
 # ── Sidebar & roteamento principal ────────────────────────────────────────────
 
 _NAV_ICONS = {
@@ -5426,6 +5767,7 @@ _NAV_ICONS = {
     "configuracoes": '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
     "admin":         '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
     "disparo":       '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    "enriquecimento": '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v3l2 2"/></svg>',
     "logout":        '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
 }
 
@@ -5494,6 +5836,8 @@ def _sidebar():
         ]
         if eh_admin() or st.session_state.get("disparo_habilitado"):
             nav_items.append(("disparo", "Disparos"))
+        if eh_admin() or st.session_state.get("enriquecimento_ia_habilitado"):
+            nav_items.append(("enriquecimento", "Enriquecimento"))
         nav_items.append(("configuracoes", "Configurações"))
         if eh_admin():
             nav_items.append(("admin", "Admin"))
@@ -5628,6 +5972,11 @@ def main():
     elif page == "disparo":
         if eh_admin() or st.session_state.get("disparo_habilitado"):
             pagina_disparo()
+        else:
+            st.error("Acesso não autorizado.")
+    elif page == "enriquecimento":
+        if eh_admin() or st.session_state.get("enriquecimento_ia_habilitado"):
+            pagina_enriquecimento_leads()
         else:
             st.error("Acesso não autorizado.")
     else:

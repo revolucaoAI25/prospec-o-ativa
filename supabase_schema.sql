@@ -815,3 +815,51 @@ ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS fundacao TEXT;
 -- ativo ligado à empresa ou ao lead, achado numa busca rápida no JusBrasil
 -- — "sim"/"nao"/"nao_verificado", nunca detalhe do processo em si.
 ALTER TABLE lead_enrichments ADD COLUMN IF NOT EXISTS processos_jusbrasil TEXT;
+
+-- ============================================================
+-- Enriquecimento de Leads via IA DENTRO do app principal — feature nova,
+-- opcional, independente do protótipo em api/ (pipelines separados, não
+-- compartilham código nem chave — ver modules/lead_enrichment_ia.py).
+-- Desativada por padrão; admin libera por usuário em Admin > usuários.
+-- Cada usuário usa a PRÓPRIA chave OpenAI (custo de IA é do usuário, não
+-- da plataforma).
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS enriquecimento_ia_habilitado BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS openai_api_key TEXT;
+
+-- Recria user_stats acrescentando enriquecimento_ia_habilitado no final
+-- (CREATE OR REPLACE VIEW só aceita colunas novas no fim da lista).
+CREATE OR REPLACE VIEW user_stats AS
+SELECT
+    p.id,
+    p.email,
+    p.role,
+    p.cdd_credits,
+    p.maps_credits,
+    p.maps_credits_enabled,
+    p.maps_api_key_admin,
+    p.monthly_cdd_credits,
+    p.monthly_maps_credits,
+    p.credits_renewed_at,
+    p.instagram_credits,
+    p.instagram_credits_enabled,
+    p.apify_api_key_admin,
+    p.monthly_instagram_credits,
+    p.created_at,
+    COUNT(DISTINCT s.id)  AS total_searches,
+    COUNT(DISTINCT l.id)  AS total_leads,
+    MAX(s.created_at)     AS last_search_at,
+    p.instagram_visible,
+    p.disparo_habilitado,
+    p.conta_teste,
+    p.teste_expira_em,
+    p.enriquecimento_ia_habilitado
+FROM profiles p
+LEFT JOIN searches s ON s.user_id = p.id
+LEFT JOIN leads    l ON l.user_id = p.id
+GROUP BY p.id, p.email, p.role, p.cdd_credits, p.maps_credits,
+         p.maps_credits_enabled, p.maps_api_key_admin,
+         p.monthly_cdd_credits, p.monthly_maps_credits,
+         p.credits_renewed_at, p.instagram_credits, p.instagram_credits_enabled,
+         p.apify_api_key_admin, p.monthly_instagram_credits, p.created_at,
+         p.instagram_visible, p.disparo_habilitado, p.conta_teste, p.teste_expira_em,
+         p.enriquecimento_ia_habilitado;

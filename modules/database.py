@@ -482,7 +482,7 @@ def salvar_configuracoes(dados: dict) -> tuple[bool, str]:
         campos = {k: v for k, v in dados.items() if k in (
             "google_maps_api_key", "google_client_id",
             "google_client_secret", "google_sheets_creds", "app_url",
-            "apify_api_key", "maps_pausar_ao_esgotar",
+            "apify_api_key", "maps_pausar_ao_esgotar", "openai_api_key",
         )}
         sb.table("profiles").update(campos).eq("id", user_id).execute()
         return True, "Configurações salvas."
