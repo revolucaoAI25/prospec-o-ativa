@@ -374,3 +374,45 @@ def enriquecer_lead(nome: str, email: str, telefone: str, openai_api_key: str) -
         })
 
     return resultado
+
+
+# ── Resumo condensado pra nota de CRM ───────────────────────────────────
+
+_JUSBRASIL_LBL = {"sim": "Sim", "nao": "Não", "nao_encontrado": "Não encontrado"}
+
+
+def montar_resumo_crm(resultado: dict) -> Optional[str]:
+    """Condensa tudo que a busca encontrou sobre a EMPRESA num texto único,
+    em tópicos, pra colar direto como nota num CRM. Só o que foi
+    descoberto pela busca — propositalmente NÃO inclui nome/e-mail/
+    telefone do lead (isso já é o dado de entrada, o CRM já tem) nem como
+    foi encontrado (metodo_encontrado). Retorna None se não achou empresa."""
+    if not resultado.get("empresa_nome"):
+        return None
+
+    topicos = [f"Empresa: {resultado['empresa_nome']}"]
+    if resultado.get("cargo"):
+        topicos.append(f"Cargo do lead na empresa: {resultado['cargo']}")
+    local = " / ".join(p for p in [resultado.get("municipio"), resultado.get("uf")] if p)
+    if local:
+        topicos.append(f"Local: {local}")
+    if resultado.get("website"):
+        topicos.append(f"Site: {resultado['website']}")
+    if resultado.get("linkedin_url"):
+        topicos.append(f"LinkedIn: {resultado['linkedin_url']}")
+    if resultado.get("cnpj"):
+        topicos.append(f"CNPJ: {resultado['cnpj']}")
+    if resultado.get("socios"):
+        topicos.append(f"Sócios/fundadores: {resultado['socios']}")
+    if resultado.get("fundacao"):
+        topicos.append(f"Fundação: {resultado['fundacao']}")
+    if resultado.get("processos_jusbrasil"):
+        topicos.append(
+            f"Processo judicial (JusBrasil): "
+            f"{_JUSBRASIL_LBL.get(resultado['processos_jusbrasil'], resultado['processos_jusbrasil'])}"
+        )
+
+    texto = "\n".join(f"• {t}" for t in topicos)
+    if resultado.get("resumo"):
+        texto += f"\n\nResumo: {resultado['resumo']}"
+    return texto

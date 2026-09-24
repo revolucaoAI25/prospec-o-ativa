@@ -236,6 +236,7 @@ def _processar_enriquecimento(enrichment_id: str, nome: str, email: str, telefon
             _enviar_webhook_destino(enrichment_id, webhook_destino, {
                 "id": enrichment_id, "nome_lead": nome, "email": email, "telefone": telefone,
                 **{k: v for k, v in resultado.items()},
+                "resumo_completo": lead_enrichment.montar_resumo_crm(resultado),
             })
 
         if resultado["status"] == "erro":
@@ -393,7 +394,10 @@ def painel_testar(
             "dados_brutos": resultado, "concluido_em": datetime.now(timezone.utc).isoformat(),
         }).execute()
         if webhook_destino:
-            _enviar_webhook_destino("painel", webhook_destino, {"nome_lead": nome, "email": email, "telefone": telefone, **resultado})
+            _enviar_webhook_destino("painel", webhook_destino, {
+                "nome_lead": nome, "email": email, "telefone": telefone, **resultado,
+                "resumo_completo": lead_enrichment.montar_resumo_crm(resultado),
+            })
         msg = f"Concluído — {resultado['empresa_nome'] or 'nada encontrado'} ({resultado['status']})"
         return RedirectResponse(f"/painel?msg={_url_quote(msg)}", status_code=303)
     except Exception as e:

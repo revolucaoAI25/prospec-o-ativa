@@ -186,8 +186,11 @@ Consulte o resultado depois pelo `id` (direto no Supabase, tabela `lead_enrichme
 painel Enriquecimento dentro do app, aba admin), ou configure `webhook_destino` pra receber o
 resultado automaticamente quando terminar. O payload reenviado pro `webhook_destino` tem o
 mesmo formato da linha salva: `empresa_nome`, `cnpj`, `municipio`, `uf`, `website`, `cargo`,
-`linkedin_url`, `resumo` (contexto comercial curto sobre a empresa), `metodo_encontrado`
-(`"ia"` ou `null` se não achou), `status`.
+`linkedin_url`, `socios`, `fundacao`, `processos_jusbrasil`, `resumo` (contexto comercial curto
+sobre a empresa), `metodo_encontrado` (`"ia"` ou `null` se não achou), `status`, e
+`resumo_completo` — um texto único, em tópicos, condensando tudo que foi encontrado sobre a
+empresa (sem nome/e-mail/telefone do lead nem como foi encontrado), pensado pra colar direto
+como nota num CRM. `null` se não achou nada.
 
 ## Exemplo de requisição
 
