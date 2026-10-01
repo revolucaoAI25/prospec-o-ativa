@@ -928,3 +928,54 @@ CREATE POLICY "own_enrichment_leads"
     ON enrichment_leads FOR ALL TO authenticated
     USING  (user_id = auth.uid())
     WITH CHECK (user_id = auth.uid());
+
+-- ============================================================
+-- CORREÇÃO DE PERFORMANCE — user_stats estava fazendo "canceling statement
+-- due to statement timeout" ao listar usuários no Admin (bug pré-existente,
+-- não introduzido pelas mudanças recentes). A view original fazia
+-- LEFT JOIN direto de profiles com searches E com leads na MESMA query —
+-- isso multiplica as linhas (produto cartesiano) antes do GROUP BY: um
+-- usuário com 200 buscas e 8.000 leads gera ~1,6 milhão de linhas
+-- intermediárias só pra ele. Funcionava com pouco volume; parou de
+-- funcionar quando o uso real acumulou. Correção: agregar cada tabela
+-- SEPARADAMENTE (uma linha por usuário cada) antes de juntar com
+-- profiles — sem produto cartesiano, independente do volume de dados.
+-- Usa DROP + CREATE (não CREATE OR REPLACE) porque a reestruturação é
+-- grande demais pra garantir compatibilidade de tipos coluna a coluna.
+DROP VIEW IF EXISTS user_stats;
+CREATE VIEW user_stats AS
+SELECT
+    p.id,
+    p.email,
+    p.role,
+    p.cdd_credits,
+    p.maps_credits,
+    p.maps_credits_enabled,
+    p.maps_api_key_admin,
+    p.monthly_cdd_credits,
+    p.monthly_maps_credits,
+    p.credits_renewed_at,
+    p.instagram_credits,
+    p.instagram_credits_enabled,
+    p.apify_api_key_admin,
+    p.monthly_instagram_credits,
+    p.created_at,
+    COALESCE(s.total_searches, 0::bigint) AS total_searches,
+    COALESCE(l.total_leads, 0::bigint)    AS total_leads,
+    s.last_search_at                      AS last_search_at,
+    p.instagram_visible,
+    p.disparo_habilitado,
+    p.conta_teste,
+    p.teste_expira_em,
+    p.enriquecimento_ia_habilitado
+FROM profiles p
+LEFT JOIN (
+    SELECT user_id, COUNT(*) AS total_searches, MAX(created_at) AS last_search_at
+    FROM searches
+    GROUP BY user_id
+) s ON s.user_id = p.id
+LEFT JOIN (
+    SELECT user_id, COUNT(*) AS total_leads
+    FROM leads
+    GROUP BY user_id
+) l ON l.user_id = p.id;
